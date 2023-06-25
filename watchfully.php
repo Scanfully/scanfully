@@ -41,7 +41,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 
 function Watchfully(): \Watchfully\Main {
-	return \Watchfully\Main::Get();
+	return \Watchfully\Main::get();
 }
 
 add_action( 'plugins_loaded', function () {
@@ -51,5 +51,5 @@ add_action( 'plugins_loaded', function () {
 
 	// boot
 	require 'vendor/autoload.php';
-	Watchfully()->Setup();
+	Watchfully()->setup();
 }, 20 );

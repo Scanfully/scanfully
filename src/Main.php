@@ -2,6 +2,8 @@
 
 namespace Watchfully;
 
+use Watchfully\Events\Controller;
+
 class Main {
 
 	/** @var ?Main */
@@ -12,7 +14,7 @@ class Main {
 	 *
 	 * @return Main|null
 	 */
-	public static function Get(): ?Main {
+	public static function get(): ?Main {
 		if ( self::$instance === null ) {
 			self::$instance = new self();
 		}
@@ -20,8 +22,13 @@ class Main {
 		return self::$instance;
 	}
 
-	public function Setup(): void {
-		error_log("setup main");
+	public function setup(): void {
+
+		/** register all events */
+
+		// when a plugin is activated
+		Controller::register( new Events\ActivatedPlugin() );
+
 	}
 
 }
