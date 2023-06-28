@@ -2,7 +2,6 @@
 
 namespace Watchfully;
 
-use Watchfully\Events\Controller;
 
 class Main {
 
@@ -27,7 +26,7 @@ class Main {
 		/** register all events */
 
 		// when a plugin is activated
-		Controller::register( new Events\ActivatedPlugin() );
+		Events\Controller::register( new Events\ActivatedPlugin() );
 
 	}
 
