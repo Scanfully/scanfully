@@ -22,13 +22,10 @@ class Main {
 	}
 
 	public function setup(): void {
-
 		/** register all events */
-
-
 		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated
 		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated
-
+		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved
 	}
 
 }
