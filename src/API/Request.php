@@ -38,7 +38,7 @@ abstract class Request {
 			error_log("Error sending request: " . $response->get_error_message() );
 		}
 
-		error_log( "response: " . print_r( $response, true ) );
+//		error_log( "response: " . print_r( $response, true ) );
 
 		// TODO: handle response
 	}
