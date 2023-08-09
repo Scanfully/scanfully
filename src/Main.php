@@ -26,6 +26,10 @@ class Main {
 		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated
 		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated
 		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved
+
+		/** register options */
+		Options\Options::register();
+		Options\Page::register();
 	}
 
 }

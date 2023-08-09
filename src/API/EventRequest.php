@@ -9,7 +9,7 @@ class EventRequest extends Request {
 	}
 
 	protected function get_url( string $endpoint ): string {
-		return 'https://events.scanfully.com/v1/' . $endpoint;
+		return 'https://api.scanfully.com/v1/event/' . $endpoint;
 	}
 
 	protected function get_body( array $data ): array {
