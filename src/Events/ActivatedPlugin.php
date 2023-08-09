@@ -1,6 +1,6 @@
 <?php
 
-namespace Watchfully\Events;
+namespace Scanfully\Events;
 
 class ActivatedPlugin extends Event {
 

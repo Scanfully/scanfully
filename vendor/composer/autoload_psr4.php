@@ -6,5 +6,5 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
-    'Watchfully\\' => array($baseDir . '/src'),
+    'Scanfully\\' => array($baseDir . '/src'),
 );

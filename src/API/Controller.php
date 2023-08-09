@@ -1,6 +1,6 @@
 <?php
 
-namespace Watchfully\API;
+namespace Scanfully\API;
 
 class Controller {
 

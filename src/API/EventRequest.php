@@ -1,6 +1,6 @@
 <?php
 
-namespace Watchfully\API;
+namespace Scanfully\API;
 
 class EventRequest extends Request {
 
@@ -9,7 +9,7 @@ class EventRequest extends Request {
 	}
 
 	protected function get_url( string $endpoint ): string {
-		return 'https://events.watchfully.com/v1/' . $endpoint;
+		return 'https://events.scanfully.com/v1/' . $endpoint;
 	}
 
 	protected function get_body( array $data ): array {

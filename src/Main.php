@@ -1,6 +1,6 @@
 <?php
 
-namespace Watchfully;
+namespace Scanfully;
 
 
 class Main {

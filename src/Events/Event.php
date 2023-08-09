@@ -1,9 +1,9 @@
 <?php
 
-namespace Watchfully\Events;
+namespace Scanfully\Events;
 
 
-use Watchfully\API\EventRequest;
+use Scanfully\API\EventRequest;
 
 abstract class Event {
 

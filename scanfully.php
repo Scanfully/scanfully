@@ -1,19 +1,19 @@
 <?php
 /*
- * Watchfully WordPress plugin
+ * Scanfully WordPress plugin
  *
- * @package   Watchfully\Main
- * @copyright Copyright (C) 2023, Watchfully BV - support@watchfully.com
+ * @package   Scanfully\Main
+ * @copyright Copyright (C) 2023, Scanfully BV - support@scanfully.com
  * @license   http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License, version 3 or higher
  *
  * @wordpress-plugin
- * Plugin Name: Watchfully
+ * Plugin Name: Scanfully
  * Version:     1.0.0
- * Plugin URI:  https://www.watchfully.com
- * Description: Watchfully is your favorite WordPress performance and health monitoring tool.
- * Author:      Watchfully
- * Author URI:  https://www.watchfully.com
- * Text Domain: watchfully
+ * Plugin URI:  https://www.scanfully.com
+ * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
+ * Author:      Scanfully
+ * Author URI:  https://www.scanfully.com
+ * Text Domain: scanfully
  * Domain Path: /languages/
  * License:     GPL v3
  * Requires at least: 6.0
@@ -40,16 +40,16 @@ if ( ! defined( 'ABSPATH' ) ) {
 } // Exit if accessed directly
 
 
-function Watchfully(): \Watchfully\Main {
-	return \Watchfully\Main::get();
+function Scanfully(): \Scanfully\Main {
+	return \Scanfully\Main::get();
 }
 
 add_action( 'plugins_loaded', function () {
 	// meta
-	define( "WATCHFULLY_PLUGIN_FILE", __FILE__ );
-	define( "WATCHFULLY_VERSION", "1.0.0" );
+	define( "SCANFULLY_PLUGIN_FILE", __FILE__ );
+	define( "SCANFULLY_VERSION", "1.0.0" );
 
 	// boot
 	require 'vendor/autoload.php';
-	Watchfully()->setup();
+	Scanfully()->setup();
 }, 20 );
