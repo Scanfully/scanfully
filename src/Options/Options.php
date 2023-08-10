@@ -43,7 +43,8 @@ class Options {
 			// add a sections
 			add_settings_section( $section, __( "API Settings", "scanfully" ), function () {
 				?>
-                <p><?php printf( __( "In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your %s", "scanfully" ),
+                <p><?php printf( __( "In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your %s",
+						"scanfully" ),
 						"<a href='https://dashboard.scanfully.com/sites' target='_blank'>" . __( "Scanfully Dashboard",
 							"scanfully" ) . "</a>" ); ?></p>
 				<?php
@@ -77,16 +78,27 @@ class Options {
 
 		return $options[ $name ] ?? "";
 	}
-
-	// todo validate input
+    
 	public static function validate_options( array $input ): array {
+		// check if the secret key still contains our redacted value.
+		// If so, the user don't want to update it, so we'll use the old value
+		if ( isset( $input["secret_key"] ) && strpos( $input["secret_key"], "•" ) !== false ) {
+			$input["secret_key"] = self::get_option( "secret_key" );
+		}
+
 		return $input;
 	}
 
 	public static function field_text( array $args ): void {
 		$name  = $args["name"] ?? "";
 		$value = self::get_option( $name );
-		echo "<input id='" . esc_attr( self::$key . "_" . $name ) . "' name='" . esc_attr( self::$key ) . "[" . esc_attr( $name ) . "]' type='text' value='" . esc_attr( $value ) . "' placeholder='" . esc_attr( $args["placeholder"] ) . "' />";
+		$name  = self::$key . "[" . $name . "]";
+
+		if ( $args["type"] == "secret" ) {
+			$value = "secret_" . str_repeat( "•", 46 ) . substr( $value, - 4 );
+		}
+
+		echo "<input id='" . esc_attr( self::$key . "_" . $name ) . "' name='" . esc_attr( $name ) . "' type='text' value='" . esc_attr( $value ) . "' placeholder='" . esc_attr( $args["placeholder"] ) . "' />";
 	}
 
 	public static function field_secret_key(): void {
