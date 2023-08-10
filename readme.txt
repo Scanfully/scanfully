@@ -17,8 +17,8 @@ Scanfully is your favorite WordPress performance and health monitoring tool.
 
 Scanfully is your favorite WordPress performance and health monitoring tool.
 
-= Sub Header =
-Sub text
+= One dashboard for your WordPress sites’ Performance and Health =
+Your ScanFully Dashboard consolidates all your WordPress sites, sending you timely alerts for required changes.
 
 **More information**
 
@@ -35,7 +35,7 @@ Sub text
 == Frequently Asked Questions ==
 
 = How do I connect my website to Scanfully? =
-Todo describe how to connect
+In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your [Scanfully dashboard](https://dashboard.scanfully.com/sites?utm_source=wp-plugin-repo&utm_medium=link&utm_campaign=more-information). Copy and paste these details in the Scanfully settings screen in your WordPress admin panel.
 
 = Where's the Scanfully settings screen? =
 Settings > Scanfully.
@@ -45,11 +45,10 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Screenshots ==
 1. Screenshot 1
-2. Screenshot 2
 
 == Changelog ==
 
-= 1.0.0 : September 22, 2023 =
+= 1.0.0 : August 10, 2023 =
 * Initial version
 
 == Upgrade Notice ==
