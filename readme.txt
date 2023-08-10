@@ -44,7 +44,7 @@ Settings > Scanfully.
 No, our plugin on listens to changes in the WordPress backend and sends these changes to the Scanfully server. It does not impact your frontend or page load speed.
 
 == Screenshots ==
-1. Screenshot 1
+1. The Scanfully settings screen.
 
 == Changelog ==
 
