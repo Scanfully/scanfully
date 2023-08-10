@@ -5,7 +5,7 @@ namespace Scanfully\Events;
 class ActivatedPlugin extends Event {
 
 	public function __construct() {
-		parent::__construct( 'Plugin Activated', 'activated_plugin', 'PluginActivated' );
+		parent::__construct( 'PluginActivated', 'activated_plugin' );
 	}
 
 	public function get_post_body( array $data ): array {

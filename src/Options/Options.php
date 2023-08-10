@@ -78,7 +78,7 @@ class Options {
 
 		return $options[ $name ] ?? "";
 	}
-    
+
 	public static function validate_options( array $input ): array {
 		// check if the secret key still contains our redacted value.
 		// If so, the user don't want to update it, so we'll use the old value

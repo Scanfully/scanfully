@@ -7,22 +7,19 @@ use Scanfully\API\EventRequest;
 
 abstract class Event {
 
-	private $name;
+	private $event;
 	private $action;
-	private $endpoint;
 	private $priority = 10;
 	private $accepted_args = 1;
 
 	public function __construct(
-		string $name,
+		string $event,
 		string $action,
-		string $endpoint,
 		int $priority = 10,
 		int $accepted_args = 1
 	) {
-		$this->name          = $name;
+		$this->event         = $event;
 		$this->action        = $action;
-		$this->endpoint      = $endpoint;
 		$this->priority      = $priority;
 		$this->accepted_args = $accepted_args;
 
@@ -38,7 +35,7 @@ abstract class Event {
 		error_log( print_r( $args, true ) );
 
 		$request = new EventRequest();
-		$request->send( $this->endpoint, $this->get_post_body( $args ) );
+		$request->send_event( [ "event" => $this->event, "data" => $this->get_post_body( $args ) ] );
 	}
 
 	abstract protected function get_post_body( array $data ): array;
