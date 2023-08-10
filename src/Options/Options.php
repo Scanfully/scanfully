@@ -43,8 +43,10 @@ class Options {
 			// add a sections
 			add_settings_section( $section, __( "API Settings", "scanfully" ), function () {
 				?>
-                <p><?php printf( __( "In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your %s",
-						"scanfully" ),
+                <p><?php printf(
+					/* translators: %s is a link to the dashboard where the API keys can be found */
+						__( "In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your %s",
+							"scanfully" ),
 						"<a href='https://dashboard.scanfully.com/sites' target='_blank'>" . __( "Scanfully Dashboard",
 							"scanfully" ) . "</a>" ); ?></p>
 				<?php

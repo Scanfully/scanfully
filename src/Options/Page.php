@@ -79,7 +79,8 @@ class Page {
                     <p><?php _e( "Welcome to Scanfully, your dashboard for your WordPress sites’ Performance and Health.",
 							"scanfully" ); ?></p>
                     <p><?php printf(
-							__( "Our WordPress plugin acts as the \"glue\" between your WordPress website and your Scanfully dashboard. More information about how our WordPress plugin works can be found %s",
+						/* translators: %s is a link to the plugin website */
+							__( 'Our WordPress plugin acts as the "glue" between your WordPress website and your Scanfully dashboard. More information about how our WordPress plugin works can be found %s',
 								"scanfully" ),
 							"<a href='https://scanfully.com/wp-plugin' target='_blank'>" . __( "here",
 								"scanfully" ) . "</a>"
@@ -101,7 +102,8 @@ class Page {
                         <div>
                             <h3><?php _e( "Need help?", "scanfully" ); ?></h3>
                             <p><?php printf(
-									__( "Check out our %s or %s", "scanfully" ),
+								/* translators: %1$s is a link to the help center, %2$s is a link to the contact us page */
+									__( 'Check out our %1$s or %2$s', "scanfully" ),
 									'<a href="https://scanfully.com/help" target="_blank">' . __( "help center",
 										"scanfully" ) . '</a>',
 									'<a href="https://scanfully.com/contact" target="_blank">' . __( "contact us",
