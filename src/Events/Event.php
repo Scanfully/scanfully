@@ -31,9 +31,6 @@ abstract class Event {
 	}
 
 	public function listener_callback( ...$args ) {
-		error_log( 'event fired' );
-		error_log( print_r( $args, true ) );
-
 		$request = new EventRequest();
 		$request->send_event( [ "event" => $this->event, "data" => $this->get_post_body( $args ) ] );
 	}
