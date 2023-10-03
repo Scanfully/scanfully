@@ -4,7 +4,7 @@ namespace Scanfully\API;
 
 use Scanfully\Options\Options;
 
-class EventRequest extends Request {
+class HealthRequest extends Request {
 
 	public function send_event( array $data ): void {
 		parent::send( "", $data );
@@ -20,8 +20,8 @@ class EventRequest extends Request {
 	}
 
 	public function get_url( string $endpoint ): string {
-		return 'http://localhost:8888/v1/events';
-//		return 'https://api.scanfully.com/v1/events';
+		return 'http://localhost:8888/v1/health';
+//		return 'https://api.scanfully.com/v1/health';
 	}
 
 	public function get_body( array $data ): array {

@@ -30,6 +30,11 @@ class Main {
 		/** register options */
 		Options\Options::register();
 		Options\Page::register();
+
+		if(isset($_GET['healthtest'])) {
+			Health\Controller::send_health_request();
+			wp_die("request sent");
+		}
 	}
 
 }

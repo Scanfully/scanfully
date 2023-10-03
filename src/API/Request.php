@@ -37,12 +37,14 @@ abstract class Request {
 		if ( is_wp_error( $response ) ) {
 			error_log( "Error sending request: " . $response->get_error_message() );
 		}
+
+		error_log( "Response: " . print_r( $response, true ) );
 	}
 
-	abstract protected function get_auth_headers(): array;
+	abstract public function get_auth_headers(): array;
 
-	abstract protected function get_url( string $endpoint ): string;
+	abstract public function get_url( string $endpoint ): string;
 
-	abstract protected function get_body( array $data ): array;
+	abstract public function get_body( array $data ): array;
 
 }
