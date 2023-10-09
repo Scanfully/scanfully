@@ -6,6 +6,11 @@ use Scanfully\API\HealthRequest;
 
 class Controller {
 
+	/**
+	 * Get the server architecture
+	 *
+	 * @return string|null
+	 */
 	private static function get_server_arch(): ?string {
 		if ( function_exists( 'php_uname' ) ) {
 			return sprintf( '%s %s %s', php_uname( 's' ), php_uname( 'r' ), php_uname( 'm' ) );
@@ -14,6 +19,11 @@ class Controller {
 		return null;
 	}
 
+	/**
+	 * Get the PHP version
+	 *
+	 * @return string
+	 */
 	private static function get_php_version(): string {
 		return sprintf(
 			'%s %s',
@@ -22,6 +32,11 @@ class Controller {
 		);
 	}
 
+	/**
+	 * Get the curl version
+	 *
+	 * @return string|null
+	 */
 	private static function get_curl_version(): ?string {
 		if ( function_exists( 'curl_version' ) ) {
 			$curl = curl_version();
@@ -32,6 +47,11 @@ class Controller {
 		return null;
 	}
 
+	/**
+	 * Get the PHP SAPI
+	 *
+	 * @return string|null
+	 */
 	private static function get_php_sapi(): ?string {
 		if ( function_exists( 'php_sapi_name' ) ) {
 			return php_sapi_name();
@@ -40,6 +60,11 @@ class Controller {
 		return null;
 	}
 
+	/**
+	 * Get various php settings
+	 *
+	 * @return null[]
+	 */
 	private static function get_php_settings(): array {
 		$ini_values = [
 			'memory_limit'        => null,
@@ -66,6 +91,11 @@ class Controller {
 		return $ini_values;
 	}
 
+	/**
+	 * Get the database extension used
+	 *
+	 * @return string|null
+	 */
 	private static function get_db_extension(): ?string {
 		global $wpdb;
 		$extension = null;
@@ -80,12 +110,22 @@ class Controller {
 		return $extension;
 	}
 
+	/**
+	 * Get the database server version
+	 *
+	 * @return string|null
+	 */
 	private static function get_db_server_version(): ?string {
 		global $wpdb;
 
 		return $wpdb->get_var( 'SELECT VERSION()' );
 	}
 
+	/**
+	 * Get the database client version
+	 *
+	 * @return string|null
+	 */
 	private static function get_db_client_version(): ?string {
 		global $wpdb;
 		$client_version = null;
@@ -104,12 +144,22 @@ class Controller {
 		return $client_version;
 	}
 
+	/**
+	 * Get the database user
+	 *
+	 * @return string
+	 */
 	private static function get_db_user(): string {
 		global $wpdb;
 
 		return $wpdb->dbuser;
 	}
 
+	/**
+	 * Get the maximum number of connections allowed by the database server
+	 *
+	 * @return int|null
+	 */
 	private static function get_db_max_connections(): ?int {
 		global $wpdb;
 
@@ -125,6 +175,11 @@ class Controller {
 		return null;
 	}
 
+	/**
+	 * Gets the size of the database in bytes
+	 *
+	 * @return int
+	 */
 	private static function get_db_size(): int {
 		global $wpdb;
 		$size = 0;
@@ -139,6 +194,11 @@ class Controller {
 		return (int) $size;
 	}
 
+	/**
+	 * Checks what WordPress directories are writable
+	 *
+	 * @return array
+	 */
 	private static function get_writable_directories(): array {
 		$upload_dir = wp_upload_dir();
 
