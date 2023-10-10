@@ -1,4 +1,9 @@
 <?php
+/**
+ * The request class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\API;
 

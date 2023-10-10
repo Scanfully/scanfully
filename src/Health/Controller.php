@@ -1,4 +1,9 @@
 <?php
+/**
+ * The health class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Health;
 

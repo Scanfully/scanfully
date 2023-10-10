@@ -1,4 +1,9 @@
 <?php
+/**
+ * The rewrite rules event class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Events;
 

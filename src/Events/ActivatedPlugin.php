@@ -1,4 +1,9 @@
 <?php
+/**
+ * The activated plugin event class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Events;
 

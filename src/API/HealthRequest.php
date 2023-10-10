@@ -1,4 +1,9 @@
 <?php
+/**
+ * The health request class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\API;
 

@@ -1,4 +1,9 @@
 <?php
+/**
+ * The options class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Options;
 

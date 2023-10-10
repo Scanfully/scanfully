@@ -1,4 +1,9 @@
 <?php
+/**
+ * The events class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Events;
 
