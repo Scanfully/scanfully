@@ -12,7 +12,7 @@ class EventRequest extends Request {
 	/**
 	 * Send the request to the API.
 	 *
-	 * @param  array $data
+	 * @param  array $data The data to send with the request.
 	 *
 	 * @return void
 	 */

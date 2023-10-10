@@ -12,7 +12,7 @@ class HealthRequest extends Request {
 	/**
 	 * Send the request to the API.
 	 *
-	 * @param  array $data
+	 * @param  array $data The data to send with the request.
 	 *
 	 * @return void
 	 */
@@ -48,7 +48,7 @@ class HealthRequest extends Request {
 	/**
 	 * Get the body for the request.
 	 *
-	 * @param  array $data  The data to send with the request.
+	 * @param  array $data The data to send with the request.
 	 *
 	 * @return array
 	 */
