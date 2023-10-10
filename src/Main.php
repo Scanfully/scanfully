@@ -2,9 +2,16 @@
 
 namespace Scanfully;
 
+/**
+ * The main class, this is where it all starts.
+ */
 class Main {
 
-	/** @var ?Main */
+	/**
+	 * The singleton instance.
+	 *
+	 * @var ?Main
+	 */
 	private static $instance = null;
 
 	/**
@@ -13,26 +20,26 @@ class Main {
 	 * @return Main|null
 	 */
 	public static function get(): ?Main {
-		if ( self::$instance === null ) {
+		if ( null === self::$instance ) {
 			self::$instance = new self();
 		}
 
 		return self::$instance;
 	}
 
+	/**
+	 * Setup the plugin.
+	 *
+	 * @return void
+	 */
 	public function setup(): void {
-		/** register all events */
-		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated
-		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated
-		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved
+		/** Register all events */
+		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated.
+		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated.
+		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
 
-		/** register options */
+		/** Register options */
 		Options\Options::register();
 		Options\Page::register();
-
-		if ( isset( $_GET['healthtest'] ) ) {
-			Health\Controller::send_health_request();
-			wp_die( 'request sent' );
-		}
 	}
 }
