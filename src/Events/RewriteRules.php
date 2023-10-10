@@ -10,7 +10,7 @@ class RewriteRules extends Event {
 
 	public function get_post_body( array $data ): array {
 		return [
-			'rewrite_rules' => $data[1]
+			'rewrite_rules' => $data[1],
 		];
 	}
 }

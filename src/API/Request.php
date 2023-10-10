@@ -35,10 +35,10 @@ abstract class Request {
 		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
 
 		if ( is_wp_error( $response ) ) {
-			error_log( "Error sending request: " . $response->get_error_message() );
+			error_log( 'Error sending request: ' . $response->get_error_message() );
 		}
 
-		error_log( "Response: " . print_r( $response, true ) );
+		error_log( 'Response: ' . print_r( $response, true ) );
 	}
 
 	abstract public function get_auth_headers(): array;
@@ -46,5 +46,4 @@ abstract class Request {
 	abstract public function get_url( string $endpoint ): string;
 
 	abstract public function get_body( array $data ): array;
-
 }

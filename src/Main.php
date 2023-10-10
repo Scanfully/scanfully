@@ -2,7 +2,6 @@
 
 namespace Scanfully;
 
-
 class Main {
 
 	/** @var ?Main */
@@ -31,10 +30,9 @@ class Main {
 		Options\Options::register();
 		Options\Page::register();
 
-		if(isset($_GET['healthtest'])) {
+		if ( isset( $_GET['healthtest'] ) ) {
 			Health\Controller::send_health_request();
-			wp_die("request sent");
+			wp_die( 'request sent' );
 		}
 	}
-
 }

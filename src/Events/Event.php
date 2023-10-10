@@ -2,14 +2,13 @@
 
 namespace Scanfully\Events;
 
-
 use Scanfully\API\EventRequest;
 
 abstract class Event {
 
 	private $type;
 	private $action;
-	private $priority = 10;
+	private $priority      = 10;
 	private $accepted_args = 1;
 
 	public function __construct(
@@ -41,13 +40,14 @@ abstract class Event {
 
 	public function listener_callback( ...$args ) {
 		$request = new EventRequest();
-		$request->send_event( [
-			"type" => $this->type,
-			"user" => $this->get_user(),
-			"data" => $this->get_post_body( $args )
-		] );
+		$request->send_event(
+			[
+				'type' => $this->type,
+				'user' => $this->get_user(),
+				'data' => $this->get_post_body( $args ),
+			]
+		);
 	}
 
 	abstract protected function get_post_body( array $data ): array;
-
 }
