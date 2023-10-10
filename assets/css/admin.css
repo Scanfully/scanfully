@@ -1,0 +1,44 @@
+.scanfully-settings {
+    display: flex;
+}
+
+.scanfully-settings .scanfully-content {
+    flex: 0 0 65%;
+    padding: 0 2em 0 0;
+}
+
+.scanfully-settings .scanfully-content .scanfully-content-api-settings {
+    padding: 1.5em 0;
+}
+
+.scanfully-settings .scanfully-content .scanfully-content-api-settings input[type="text"] {
+    width: 100%;
+}
+
+.scanfully-settings .scanfully-content .scanfully-content-api-settings .button {
+    margin-top: 1em;
+    margin-right: .7em;
+    float: right;
+}
+
+.scanfully-settings .scanfully-sidebar {
+    padding: 0 2em;
+    border-left: 1px solid #ccc;
+}
+
+.scanfully-sidebar-items {
+    display: flex;
+    flex-direction: column;
+    padding: .8em 0;
+    gap: .8em;
+}
+
+.scanfully-about {
+    display: flex;
+}
+
+.scanfully-about img {
+    width: 90px;
+    margin-top: 1em;
+    margin-right: 1em;
+}

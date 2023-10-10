@@ -33,8 +33,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-/** @TODO Add PHP version check */
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 } // Exit if accessed directly
@@ -46,8 +44,8 @@ function Scanfully(): \Scanfully\Main {
 
 add_action( 'plugins_loaded', function () {
 	// meta
-	define( "SCANFULLY_PLUGIN_FILE", __FILE__ );
-	define( "SCANFULLY_VERSION", "1.0.0" );
+	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
+	define( 'SCANFULLY_VERSION', '1.0.0' );
 
 	// boot
 	require 'vendor/autoload.php';
