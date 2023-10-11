@@ -47,8 +47,8 @@ abstract class Event {
 	 *
 	 * @param  string $event The type of event.
 	 * @param  string $action The action to listen to.
-	 * @param  int    $priority The priority of the action.
-	 * @param  int    $accepted_args The accepted arguments.
+	 * @param  int $priority The priority of the action.
+	 * @param  int $accepted_args The accepted arguments.
 	 */
 	public function __construct(
 		string $event,
@@ -96,6 +96,15 @@ abstract class Event {
 	 * @return void
 	 */
 	public function listener_callback( ...$args ): void {
+
+		error_log( "listener_callback: " . $this->action . " :: " . print_r( $args, true ) );
+
+		// check if we should fire the event.
+		if ( ! $this->should_fire( $args ) ) {
+			return;
+		}
+
+		// build the request and send it.
 		$request = new EventRequest();
 		$request->send_event(
 			[
@@ -113,5 +122,14 @@ abstract class Event {
 	 *
 	 * @return array
 	 */
-	abstract protected function get_post_body( array $data ): array;
+	abstract public function get_post_body( array $data ): array;
+
+	/**
+	 * A check if a event should fire
+	 *
+	 * @param  array $data
+	 *
+	 * @return bool
+	 */
+	abstract public function should_fire( array $data ): bool;
 }

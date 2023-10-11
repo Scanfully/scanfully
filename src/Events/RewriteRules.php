@@ -33,4 +33,15 @@ class RewriteRules extends Event {
 			'rewrite_rules' => $data[1],
 		];
 	}
+
+	/**
+	 * A check if a event should fire
+	 *
+	 * @param  array $data
+	 *
+	 * @return bool
+	 */
+	public function should_fire( array $data ): bool {
+		return true;
+	}
 }

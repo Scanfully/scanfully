@@ -42,6 +42,7 @@ class Main {
 		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated.
 		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated.
 		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
+		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 
 		/** Register options */
 		Options\Options::register();

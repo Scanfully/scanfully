@@ -265,6 +265,9 @@ class Controller {
 					'db_size'                 => self::get_db_size(),
 					'writable'                => self::get_writable_directories(),
 				],
+				'plugins' => [
+
+				]
 			]
 		);
 	}

@@ -40,4 +40,15 @@ class ActivatedPlugin extends Event {
 			'requires_php' => $plugin_data['RequiresPHP'],
 		];
 	}
+
+	/**
+	 * A check if a event should fire
+	 *
+	 * @param  array $data
+	 *
+	 * @return bool
+	 */
+	public function should_fire( array $data ): bool {
+		return true;
+	}
 }
