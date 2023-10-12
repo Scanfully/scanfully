@@ -291,10 +291,6 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		echo "<pre>";
-		print_r( $data );
-		exit;
-
 		// send event.
 		$request->send_event( $data );
 	}
