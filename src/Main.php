@@ -7,6 +7,8 @@
 
 namespace Scanfully;
 
+use Scanfully\Health\Controller;
+
 /**
  * The main class, this is where it all starts.
  */
@@ -47,5 +49,11 @@ class Main {
 		/** Register options */
 		Options\Options::register();
 		Options\Page::register();
+
+		if(isset($_GET['barry'])) {
+			add_action('after_setup_theme', function() {
+				Controller::send_health_request();
+			});
+		}
 	}
 }

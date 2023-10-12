@@ -219,6 +219,27 @@ class Controller {
 		];
 	}
 
+	private static function get_plugins(): array {
+		$plugins = get_plugins();
+
+		$map = [];
+
+		foreach ( $plugins as $plugin_path => $plugin ) {
+			$map[] = [
+				'active'      => is_plugin_active( $plugin_path ),
+				'name'        => $plugin['Name'],
+				'slug'        => dirname( plugin_basename( $plugin_path ) ),
+				'url'         => $plugin['PluginURI'],
+				'version'     => $plugin['Version'],
+				'description' => $plugin['Description'],
+				'author'      => $plugin['Author'],
+				'author_uri'  => $plugin['AuthorURI'],
+			];
+		}
+
+		return $map;
+	}
+
 	/**
 	 * Send the health data to the API
 	 *
@@ -231,44 +252,50 @@ class Controller {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
+		if ( ! function_exists( "get_plugins" ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
 		$request = new HealthRequest();
 
 		// get php settings array.
 		$php_settings = self::get_php_settings();
 
-		// send event.
-		$request->send_event(
-			[
-				'data' => [
-					'wp_version'              => get_bloginfo( 'version' ),
-					'wp_multisite'            => is_multisite(),
-					'wp_user_registration'    => (bool) get_option( 'users_can_register' ),
-					'wp_blog_public'          => (bool) get_option( 'blog_public' ),
-					'wp_size'                 => recurse_dirsize( ABSPATH, null, 30 ),
-					'https'                   => is_ssl(),
-					'server_arch'             => self::get_server_arch(),
-					'web_server'              => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-					'curl_version'            => self::get_curl_version(),
-					'php_version'             => self::get_php_version(),
-					'php_sapi'                => self::get_php_sapi(),
-					'php_memory_limit'        => \WP_Site_Health::get_instance()->php_memory_limit,
-					'php_memory_limit_admin'  => $php_settings['memory_limit'],
-					'php_max_input_time'      => (int) $php_settings['max_input_time'],
-					'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
-					'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
-					'php_post_max_size'       => $php_settings['php_post_max_size'],
-					'db_extension'            => self::get_db_extension(),
-					'db_server_version'       => self::get_db_server_version(),
-					'db_client_version'       => self::get_db_client_version(),
-					'db_user'                 => self::get_db_user(),
-					'db_max_connections'      => self::get_db_max_connections(),
-					'db_size'                 => self::get_db_size(),
-					'writable'                => self::get_writable_directories(),
-				],
-				'plugins' => [
+		$data = [
+			'data'    => [
+				'wp_version'              => get_bloginfo( 'version' ),
+				'wp_multisite'            => is_multisite(),
+				'wp_user_registration'    => (bool) get_option( 'users_can_register' ),
+				'wp_blog_public'          => (bool) get_option( 'blog_public' ),
+				'wp_size'                 => recurse_dirsize( ABSPATH, null, 30 ),
+				'https'                   => is_ssl(),
+				'server_arch'             => self::get_server_arch(),
+				'web_server'              => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				'curl_version'            => self::get_curl_version(),
+				'php_version'             => self::get_php_version(),
+				'php_sapi'                => self::get_php_sapi(),
+				'php_memory_limit'        => \WP_Site_Health::get_instance()->php_memory_limit,
+				'php_memory_limit_admin'  => $php_settings['memory_limit'],
+				'php_max_input_time'      => (int) $php_settings['max_input_time'],
+				'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
+				'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
+				'php_post_max_size'       => $php_settings['php_post_max_size'],
+				'db_extension'            => self::get_db_extension(),
+				'db_server_version'       => self::get_db_server_version(),
+				'db_client_version'       => self::get_db_client_version(),
+				'db_user'                 => self::get_db_user(),
+				'db_max_connections'      => self::get_db_max_connections(),
+				'db_size'                 => self::get_db_size(),
+				'writable'                => self::get_writable_directories(),
+			],
+			'plugins' => self::get_plugins(),
+		];
 
-				]
-			]
-		);
+		echo "<pre>";
+		print_r( $data );
+		exit;
+
+		// send event.
+		$request->send_event( $data );
 	}
 }
