@@ -93,7 +93,7 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
-= 1.0.0 : August 10, 2023 =
+= 1.0.0 : November 1, 2023 =
 * Initial version
 
 == Upgrade Notice ==
