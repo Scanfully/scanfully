@@ -79,7 +79,7 @@ class Controller {
 			'max_input_time'      => null,
 			'max_execution_time'  => null,
 			'upload_max_filesize' => null,
-			'php_post_max_size'   => null,
+			'post_max_size'   => null,
 		];
 
 		// get actual values if ini_get is available.
@@ -279,7 +279,7 @@ class Controller {
 				'php_max_input_time'      => (int) $php_settings['max_input_time'],
 				'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
 				'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
-				'php_post_max_size'       => $php_settings['php_post_max_size'],
+				'php_post_max_size'       => $php_settings['post_max_size'],
 				'db_extension'            => self::get_db_extension(),
 				'db_server_version'       => self::get_db_server_version(),
 				'db_client_version'       => self::get_db_client_version(),
@@ -293,5 +293,6 @@ class Controller {
 
 		// send event.
 		$request->send_event( $data );
+		wp_die();
 	}
 }
