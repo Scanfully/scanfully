@@ -47,7 +47,8 @@ class HealthRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return 'https://api.scanfully.com/v1/health';
+//		return sprintf('http://localhost:8888/v1/sites/%s/health',Options::get_option( 'site_id' ));
+		return sprintf('https://api.scanfully.com/v1/sites/%s/health',Options::get_option( 'site_id' ));
 	}
 
 	/**
