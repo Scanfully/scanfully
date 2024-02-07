@@ -97,7 +97,7 @@ abstract class Event {
 	 */
 	public function listener_callback( ...$args ): void {
 
-		error_log( "listener_callback: " . $this->action . " :: " . print_r( $args, true ) );
+		//error_log( "listener_callback: " . $this->action . " :: " . print_r( $args, true ) );
 
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
