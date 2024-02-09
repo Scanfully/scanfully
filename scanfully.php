@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.0.0
+ * Version:     1.1.0-beta
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully

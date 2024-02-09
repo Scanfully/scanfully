@@ -35,7 +35,7 @@ class Main {
 	}
 
 	/**
-	 * Setup the plugin.
+	 * Set up the plugin.
 	 *
 	 * @return void
 	 */
@@ -48,12 +48,15 @@ class Main {
 
 		/** Register options */
 		Options\Options::register();
-		Options\Page::register();
 
-		if(isset($_GET['barry'])) {
-			add_action('after_setup_theme', function() {
+		/** Register connect */
+		Connect\Controller::setup();
+		Connect\Page::register();
+
+		if ( isset( $_GET['barry'] ) ) {
+			add_action( 'after_setup_theme', function () {
 				Controller::send_health_request();
-			});
+			} );
 		}
 	}
 }

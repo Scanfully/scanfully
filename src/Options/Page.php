@@ -63,6 +63,28 @@ class Page {
 	 */
 	public static function render(): void {
 		?>
+		<div class="scanfully-secure-setup-wrapper">
+			<div class="scanfully-setup-logo">
+				<img src="<?php echo esc_attr( plugins_url( '/assets/images/logo-text.png', SCANFULLY_PLUGIN_FILE ) ); ?>" alt="Scanfully"/>
+			</div>
+			<div class="scanfully-setup-content">
+				<p>Welcome to Scanfully, your dashboard for your WordPress sites’ Performance and Health.</p>
+				<p>Our WordPress plugin acts as the "glue" between your WordPress website and your Scanfully dashboard. More information about how our WordPress plugin works can be found here</p>
+				<hr/>
+				<h2>Connection</h2>
+				<p>Your website is currently not connected to your Scanfully account.</p>
+				<p style="display: inline-block">
+					<?php
+					$button = new Connect\Button();
+					$button->render();
+					?>
+				</p>
+			</div>
+			<div class="scanfully-setup-footer">
+				<p>version 1.0.0</p>
+				<p><a href="#">help center</a> - <a href="#">contact us</a></p>
+			</div>
+		</div>
 		<div class="wrap">
 			<h1>Scanfully Settings</h1>
 			<div class="scanfully-settings">
