@@ -12,7 +12,18 @@ class Controller {
 	 * @return void
 	 */
 	public static function setup(): void {
-		add_action( 'admin_init', [ Controller::class, 'catch_request_start_connect' ] );
+		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_start' ] );
+		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_success' ] );
+		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_error' ] );
+	}
+
+	/**
+	 * Check if the user has access to the connect process.
+	 *
+	 * @return bool
+	 */
+	private static function user_has_access(): bool {
+		return current_user_can( 'manage_options' );
 	}
 
 	/**
@@ -20,7 +31,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function catch_request_start_connect(): void {
+	public static function catch_request_connect_start(): void {
 		if ( isset( $_GET['scanfully-connect'] ) ) {
 
 			// check nonce
@@ -29,7 +40,7 @@ class Controller {
 			}
 
 			// check permissions
-			if ( ! current_user_can( 'manage_options' ) ) {
+			if ( ! self::user_has_access() ) {
 				wp_die( 'You do not have permission to do this.' );
 			}
 
@@ -44,6 +55,40 @@ class Controller {
 			);
 			wp_redirect( $connect_url );
 			exit;
+		}
+	}
+
+	/**
+	 * Catch the request that is returned from the connect process on success.
+	 *
+	 * @return void
+	 */
+	public static function catch_request_connect_success(): void {
+
+	}
+
+	/**
+	 *  Catch the request that is returned from the connect process on error.
+	 *
+	 * @return void
+	 */
+	public static function catch_request_connect_error(): void {
+		if ( isset( $_GET['scanfully-connect-error'] ) ) {
+
+			// check permissions
+			if ( ! self::user_has_access() ) {
+				wp_die( 'You do not have permission to do this.' );
+			}
+
+			add_action( 'admin_notices', function() {
+				?>
+				<div class="notice notice-error is-dismissible">
+					<p>There was an error connecting to Scanfully. Please try again.</p>
+				</div>
+				<?php
+			} );
+
+
 		}
 	}
 
