@@ -7,6 +7,7 @@
 
 namespace Scanfully\API;
 
+use Scanfully\Main;
 use Scanfully\Options\Options;
 
 /**
@@ -31,10 +32,10 @@ class EventRequest extends Request {
 	 * @return array
 	 */
 	public function get_auth_headers(): array {
-		$headers                        = [];
+		$headers = [];
 //		$headers['X-Scanfully-Site-Id'] = Options::get_option( 'site_id' );
-		$headers['X-Scanfully-Public']  = Options::get_option( 'public_key' );
-		$headers['X-Scanfully-Secret']  = Options::get_option( 'secret_key' );
+		$headers['X-Scanfully-Public'] = Options::get_option( 'public_key' );
+		$headers['X-Scanfully-Secret'] = Options::get_option( 'secret_key' );
 
 		return $headers;
 	}
@@ -47,8 +48,7 @@ class EventRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-//		return sprintf( 'https://api.scanfully.com/v1/sites/%s/timeline', Options::get_option( 'site_id' ) );
-		return sprintf( 'http://localhost:8888/v1/sites/%s/timeline', Options::get_option( 'site_id' ) );
+		return sprintf( Main::API_URL . '/sites/%s/timeline', Options::get_option( 'site_id' ) );
 	}
 
 	/**

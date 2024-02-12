@@ -63,22 +63,55 @@ class Page {
 			<div class="scanfully-setup-logo">
 				<img src="<?php echo esc_attr( plugins_url( '/assets/images/logo-text.png', SCANFULLY_PLUGIN_FILE ) ); ?>" alt="Scanfully"/>
 			</div>
+			<div class="scanfully-connect-notices">
+				<?php do_action( 'scanfully_connect_notices' ); ?>
+			</div>
 			<div class="scanfully-setup-content">
-				<p>Welcome to Scanfully, your dashboard for your WordPress sites’ Performance and Health.</p>
-				<p>Our WordPress plugin acts as the "glue" between your WordPress website and your Scanfully dashboard. More information about how our WordPress plugin works can be found here</p>
+				<p><?php esc_html_e( 'Welcome to Scanfully, your dashboard for your WordPress sites’ Performance and Health.', 'scanfully' ); ?></p>
+				<p><?php esc_html_e( 'Our WordPress plugin acts as the "glue" between your WordPress website and your Scanfully dashboard. More information about how our WordPress plugin works can be found here', 'scanfully' ); ?></p>
 				<hr/>
-				<h2>Connection</h2>
-				<?php if ( Controller::is_connected() ) : ?>
-					<p><span class="scanfully-connected">Connected</span></p>
-				<?php else: ?>
-					<p><span class="scanfully-not-connected">Your website is currently not connected to your Scanfully account.</span></p>
-					<p style="display: inline-block">
-						<?php
-						$button = new Button();
-						$button->render();
-						?>
-					</p>
-				<?php endif; ?>
+				<h2><?php esc_html_e( 'Scanfully Connect', 'scanfully' ); ?></h2>
+				<p><?php esc_html_e( 'Manage the connection of your website to your Scanfully account.', 'scanfully' ); ?></p>
+				<ul class="scanfully-connect-details">
+					<li>
+						<div class="scanfully-connect-details-label"><?php esc_html_e( 'Connection status', 'scanfully' ); ?></div>
+						<div class="scanfully-connect-details-value">
+							<?php if ( Controller::is_connected() ) : ?>
+								<span class="scanfully-connect-blob scanfully-connect-blob-success"><?php esc_html_e( 'Connected', 'scanfully' ); ?></span>
+							<?php else : ?>
+								<span class="scanfully-connect-blob scanfully-connect-blob-error"><?php esc_html_e( 'Not connected', 'scanfully' ); ?></span>
+							<?php endif; ?>
+
+						</div>
+					</li>
+					<?php if ( Controller::is_connected() ) : ?>
+						<li>
+							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last sync', 'scanfully' ); ?></div>
+							<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-success">Today, 12:01</span></div>
+						</li>
+						<li>
+							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Date connected', 'scanfully' ); ?></div>
+							<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-info">11 Feb 2024</span></div>
+						</li>
+					<?php endif; ?>
+				</ul>
+				<div class="scanfully-connect-button-wrapper">
+					<?php if ( Controller::is_connected() ) : ?>
+						<p style="display: inline-block">
+							<?php
+							$button = new DisconnectButton();
+							$button->render();
+							?>
+						</p>
+					<?php else : ?>
+						<p style="display: inline-block">
+							<?php
+							$button = new AuthorizeButton();
+							$button->render();
+							?>
+						</p>
+					<?php endif; ?>
+				</div>
 			</div>
 			<div class="scanfully-setup-footer">
 				<p>version 1.0.0</p>
@@ -87,6 +120,4 @@ class Page {
 		</div>
 		<?php
 	}
-
-	//https://scanfully-plugin.test/wp-admin/options-general.php?page=scanfully
 }

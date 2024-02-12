@@ -2,9 +2,10 @@
 
 namespace Scanfully\Connect;
 
-class Controller {
+use Scanfully\Main;
+use Scanfully\Options\Options;
 
-	private const CONNECT_URL = 'http://localhost:5173/connect';
+class Controller {
 
 	/**
 	 * Set up the connect controller
@@ -51,7 +52,7 @@ class Controller {
 					'site'         => get_site_url(),
 					'state'        => self::generate_state(),
 				],
-				self::CONNECT_URL
+				Main::CONNECT_URL
 			);
 			wp_redirect( $connect_url );
 			exit;
@@ -64,6 +65,52 @@ class Controller {
 	 * @return void
 	 */
 	public static function catch_request_connect_success(): void {
+
+		/**
+		 * https://scanfully-plugin.test/wp-admin/options-general.php
+		 * ?page=scanfully
+		 * &scanfully-connect-success=true
+		 * &code=iwYOdU4uCWTSY4lt4gI389FmLkDNqSt4iZwLJBt1
+		 * &site=a6dbda75-03ee-44e1-ae65-3cb5e3fc5d30
+		 * &state=MAekQwsMivpY
+		 */
+
+		if ( isset( $_GET['scanfully-connect-success'] ) ) {
+
+			// check permissions
+			if ( ! self::user_has_access() ) {
+				wp_die( 'You do not have permission to do this.' );
+			}
+
+			// check if state matches
+			if ( self::get_state() !== $_GET['state'] ) {
+				wp_die( 'Invalid Scanfully connect state' );
+			}
+
+			// check if required parameters are set
+			if ( ! isset( $_GET['code'] ) || ! isset( $_GET['site'] ) ) {
+				wp_die( 'Invalid Scanfully connect parameters' );
+			}
+
+			// delete state
+//			self::delete_state();
+
+
+			// get variables
+			$code = $_GET['code'];
+			$site = $_GET['site'];
+
+			// exchange authorization code for access token
+			$tokens = self::exchange_authorization_code( $code, $site );
+
+			echo 'Exchange authorization code for access token';
+			echo '<pre>';
+			print_r( $tokens );
+			echo '</pre>';
+			exit;
+
+
+		}
 
 	}
 
@@ -80,16 +127,66 @@ class Controller {
 				wp_die( 'You do not have permission to do this.' );
 			}
 
-			add_action( 'admin_notices', function() {
+			$error_message = '';
+			switch ( $_GET['scanfully-connect-error'] ) {
+				case 'access_denied':
+					$error_message = esc_html__( 'Access denied', 'scanfully' );
+					break;
+				default:
+					$error_message = esc_html__( 'An unknown error occurred.', 'scanfully' );
+					break;
+			}
+
+			add_action( 'scanfully_connect_notices', function () use ( $error_message ) {
 				?>
-				<div class="notice notice-error is-dismissible">
-					<p>There was an error connecting to Scanfully. Please try again.</p>
+				<div class="scanfully-connect-notice scanfully-connect-notice-error">
+					<p><?php printf( esc_html__( 'There was an error connecting to Scanfully: %s', 'scanfully' ), $error_message ); ?></p>
 				</div>
 				<?php
 			} );
-
-
 		}
+	}
+
+	/**
+	 * Exchange the authorization code for an access and refresh token.
+	 *
+	 * @param  string $code
+	 * @param  string $site
+	 *
+	 * @return array('access_token' => '...', 'refresh_token' => '...', 'expires_in' => '...')
+	 */
+	private static function exchange_authorization_code( string $code, string $site ): array {
+
+		// request arguments for the requests.
+		$request_args = [
+			'headers'     => [ 'Content-Type' => 'application/json' ],
+			'timeout'     => 60,
+			'blocking'    => true,
+			'httpversion' => '1.0',
+			'sslverify'   => false,
+			'body'        => wp_json_encode( [
+				'grant_type' => 'authorization_code',
+				'code'       => $code,
+				'site'       => $site,
+			] ),
+		];
+
+		// later check if post failed and show a notice to admins.
+		$resp = wp_remote_post( Main::API_URL . '/connect/token', $request_args );
+
+		// check if the request failed
+		if ( is_wp_error( $resp ) ) {
+			return [];
+		}
+
+		$body = wp_remote_retrieve_body( $resp );
+
+		if ( empty( $body ) ) {
+			return [];
+		}
+
+		// return the response
+		return json_decode( $body, true );
 	}
 
 	/**
@@ -115,11 +212,25 @@ class Controller {
 	}
 
 	/**
+	 * Delete the state variable for the connect request.
+	 *
+	 * @return void
+	 */
+	public static function delete_state(): void {
+		delete_transient( 'scanfully_connect_state' );
+	}
+
+	/**
 	 * Check if the user is connected to Scanfully.
 	 *
 	 * @return bool
 	 */
 	public static function is_connected(): bool {
+		$options = Options::get_options();
+		if ( ! empty( $options['is_connected'] ) && 'yes' === $options['is_connected'] ) {
+			return true;
+		}
+
 		return false;
 	}
 

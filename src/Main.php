@@ -34,6 +34,10 @@ class Main {
 		return self::$instance;
 	}
 
+	const API_URL = 'http://localhost:8888/v1';
+	const DASHBOARD_URL = 'http://localhost:5173';
+	const CONNECT_URL = 'http://localhost:5173/connect';
+
 	/**
 	 * Set up the plugin.
 	 *
@@ -47,7 +51,7 @@ class Main {
 		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 
 		/** Register options */
-		Options\Options::register();
+		//Options\Options::register();
 
 		/** Register connect */
 		Connect\Controller::setup();
