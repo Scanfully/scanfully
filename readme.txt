@@ -7,7 +7,7 @@ Tested up to: 6.3.2
 Stable tag: 1.0.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
-Requires PHP: 7.2.5
+Requires PHP: 7.4
 
 Scanfully is your favorite WordPress performance and site health monitoring tool.
 
