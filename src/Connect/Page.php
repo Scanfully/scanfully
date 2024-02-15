@@ -2,6 +2,8 @@
 
 namespace Scanfully\Connect;
 
+use Scanfully\Options\Controller as OptionsController;
+
 class Page {
 
 	private static $page = 'scanfully';
@@ -53,11 +55,12 @@ class Page {
 
 	/**
 	 * Render the page.
-	 * @return void
-	 * @todo Replace this with html template files.
 	 *
+	 * @return void
 	 */
 	public static function render_page(): void {
+		// get options
+		$options = OptionsController::get_options();
 		?>
 		<div class="scanfully-secure-setup-wrapper">
 			<div class="scanfully-setup-logo">
@@ -76,7 +79,7 @@ class Page {
 					<li>
 						<div class="scanfully-connect-details-label"><?php esc_html_e( 'Connection status', 'scanfully' ); ?></div>
 						<div class="scanfully-connect-details-value">
-							<?php if ( Controller::is_connected() ) : ?>
+							<?php if ( $options->is_connected ) : ?>
 								<span class="scanfully-connect-blob scanfully-connect-blob-success"><?php esc_html_e( 'Connected', 'scanfully' ); ?></span>
 							<?php else : ?>
 								<span class="scanfully-connect-blob scanfully-connect-blob-error"><?php esc_html_e( 'Not connected', 'scanfully' ); ?></span>
@@ -84,19 +87,39 @@ class Page {
 
 						</div>
 					</li>
-					<?php if ( Controller::is_connected() ) : ?>
+					<?php if ( $options->is_connected ) : ?>
+						<?php
+						$last_used = "-";
+						if ( $options->last_used != "" ) {
+							$last_used_dt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->last_used, new \DateTimeZone( 'UTC' ) );
+							$last_used_dt->setTimezone( new \DateTimeZone( get_option( 'timezone_string' ) ) );
+							$last_used = $last_used_dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
+						}
+						?>
 						<li>
-							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last sync', 'scanfully' ); ?></div>
-							<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-success">Today, 12:01</span></div>
+							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last used', 'scanfully' ); ?></div>
+							<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-info"><?php esc_html_e( $last_used ); ?></span></div>
 						</li>
-						<li>
-							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Date connected', 'scanfully' ); ?></div>
-							<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-info">11 Feb 2024</span></div>
-						</li>
+						<?php
+						if ( $options->date_connected != '' ) :
+							$connected = "-";
+							try {
+								$connectedDt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->date_connected, new \DateTimeZone( 'UTC' ) );
+								$connectedDt->setTimezone( new \DateTimeZone( get_option( 'timezone_string' ) ) );
+								$connected = $connectedDt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
+							} catch ( \Exception $e ) {
+								$connectedDt = null;
+							}
+							?>
+							<li>
+								<div class="scanfully-connect-details-label"><?php esc_html_e( 'Date connected', 'scanfully' ); ?></div>
+								<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-info"><?php esc_html_e( $connected ); ?></span></div>
+							</li>
+						<?php endif; ?>
 					<?php endif; ?>
 				</ul>
 				<div class="scanfully-connect-button-wrapper">
-					<?php if ( Controller::is_connected() ) : ?>
+					<?php if ( $options->is_connected ) : ?>
 						<p style="display: inline-block">
 							<?php
 							$button = new DisconnectButton();

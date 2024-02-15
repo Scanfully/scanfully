@@ -11,8 +11,8 @@ class DisconnectButton {
 	private function generate_url(): string {
 		return add_query_arg( [
 			'page'                    => 'scanfully',
-			'scanfully-connect'       => 1,
-			'scanfully-connect-nonce' => wp_create_nonce( 'scanfully-connect-redirect' )
+			'scanfully-disconnect'       => 1,
+			'scanfully-disconnect-nonce' => wp_create_nonce( 'scanfully-disconnect-redirect' )
 		], admin_url( 'options-general.php' ) );
 	}
 

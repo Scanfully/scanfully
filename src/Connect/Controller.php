@@ -3,9 +3,12 @@
 namespace Scanfully\Connect;
 
 use Scanfully\Main;
+use Scanfully\Options\Controller as OptionsController;
 use Scanfully\Options\Options;
 
 class Controller {
+
+	public const DATE_FORMAT = 'Y-m-d H:i:s';
 
 	/**
 	 * Set up the connect controller
@@ -93,8 +96,7 @@ class Controller {
 			}
 
 			// delete state
-//			self::delete_state();
-
+			self::delete_state();
 
 			// get variables
 			$code = $_GET['code'];
@@ -103,11 +105,34 @@ class Controller {
 			// exchange authorization code for access token
 			$tokens = self::exchange_authorization_code( $code, $site );
 
-			echo 'Exchange authorization code for access token';
-			echo '<pre>';
-			print_r( $tokens );
-			echo '</pre>';
-			exit;
+			$now = new \DateTime();
+			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+
+			$expires = new \DateTime( $tokens['expires'] );
+			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
+
+			// format options
+			$options = new Options(
+				true,
+				$site,
+				$tokens['access_token'],
+				$tokens['refresh_token'],
+				$expires->format( self::DATE_FORMAT ),
+				'',
+				$now->format( self::DATE_FORMAT )
+			);
+
+			// save options
+			OptionsController::set_options( $options );
+
+			// add success message
+			self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
+
+//			echo 'Exchange authorization code for access token';
+//			echo '<pre>';
+//			print_r( $options );
+//			echo '</pre>';
+//			exit;
 
 
 		}
@@ -137,14 +162,28 @@ class Controller {
 					break;
 			}
 
+			self::print_notice( $error_message, 'error' );
+
+			/*
 			add_action( 'scanfully_connect_notices', function () use ( $error_message ) {
 				?>
 				<div class="scanfully-connect-notice scanfully-connect-notice-error">
-					<p><?php printf( esc_html__( 'There was an error connecting to Scanfully: %s', 'scanfully' ), $error_message ); ?></p>
+					<p><?php //printf( esc_html__( 'There was an error connecting to Scanfully: %s', 'scanfully' ), $error_message ); ?></p>
 				</div>
-				<?php
+<?php
 			} );
+			*/
 		}
+	}
+
+	private static function print_notice( string $message, string $type = 'error' ): void {
+		add_action( 'admin_notices', function () use ( $message, $type ) {
+			?>
+			<div class="scanfully-connect-notice scanfully-connect-notice-<?php echo esc_attr( $type ); ?> is-dismissible">
+				<p><?php echo esc_html( $message ); ?></p>
+			</div>
+			<?php
+		} );
 	}
 
 	/**
@@ -218,20 +257,6 @@ class Controller {
 	 */
 	public static function delete_state(): void {
 		delete_transient( 'scanfully_connect_state' );
-	}
-
-	/**
-	 * Check if the user is connected to Scanfully.
-	 *
-	 * @return bool
-	 */
-	public static function is_connected(): bool {
-		$options = Options::get_options();
-		if ( ! empty( $options['is_connected'] ) && 'yes' === $options['is_connected'] ) {
-			return true;
-		}
-
-		return false;
 	}
 
 }

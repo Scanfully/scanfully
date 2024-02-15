@@ -8,7 +8,7 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Options;
+use Scanfully\Options\Controller as OptionsController;
 
 /**
  * This class is used to send events to the Scanfully API.
@@ -34,8 +34,8 @@ class EventRequest extends Request {
 	public function get_auth_headers(): array {
 		$headers = [];
 //		$headers['X-Scanfully-Site-Id'] = Options::get_option( 'site_id' );
-		$headers['X-Scanfully-Public'] = Options::get_option( 'public_key' );
-		$headers['X-Scanfully-Secret'] = Options::get_option( 'secret_key' );
+//		$headers['X-Scanfully-Public'] = OptionsController::get_option( 'public_key' );
+//		$headers['X-Scanfully-Secret'] = OptionsController::get_option( 'secret_key' );
 
 		return $headers;
 	}
@@ -48,7 +48,7 @@ class EventRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::API_URL . '/sites/%s/timeline', Options::get_option( 'site_id' ) );
+		return sprintf( Main::API_URL . '/sites/%s/timeline', OptionsController::get_option( 'site_id' ) );
 	}
 
 	/**
