@@ -36,7 +36,7 @@ class Controller {
 		}
 
 		// handle start disconnect request
-		if(isset($_GET['scanfully-disconnect'])) {
+		if ( isset( $_GET['scanfully-disconnect'] ) ) {
 			self::handle_disconnect_start();
 		}
 
@@ -48,6 +48,11 @@ class Controller {
 		// handle connect error return request
 		if ( isset( $_GET['scanfully-connect-error'] ) ) {
 			self::handle_request_connect_error();
+		}
+
+		if ( isset( $_GET['scanfully-connect-done'] ) ) {
+			// add success message
+			self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
 		}
 
 	}
@@ -157,9 +162,8 @@ class Controller {
 		// save options
 		OptionsController::set_options( $options );
 
-		// add success message
-		self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
-
+		// redirect to base connect page with success message
+		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
 	}
 
 	/**
