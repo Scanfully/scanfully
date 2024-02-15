@@ -78,4 +78,19 @@ class Controller {
 	public static function set_option( string $name, string $value ): void {
 		update_option( self::$db_prefix . $name, $value );
 	}
+
+	/**
+	 * Clear all options
+	 *
+	 * @return void
+	 */
+	public static function clear() {
+		delete_option( self::$db_prefix . 'is_connected' );
+		delete_option( self::$db_prefix . 'site_id' );
+		delete_option( self::$db_prefix . 'access_token' );
+		delete_option( self::$db_prefix . 'refresh_token' );
+		delete_option( self::$db_prefix . 'expires' );
+		delete_option( self::$db_prefix . 'last_used' );
+		delete_option( self::$db_prefix . 'date_connected' );
+	}
 }
