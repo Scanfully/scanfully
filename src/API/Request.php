@@ -7,6 +7,8 @@
 
 namespace Scanfully\API;
 
+use Scanfully\Options\Controller as OptionController;
+
 /**
  * Request class.
  */
@@ -16,7 +18,7 @@ abstract class Request {
 	 * Send the request to the API.
 	 *
 	 * @param  string $endpoint The endpoint to send the request to.
-	 * @param  array  $data The data to send with the request.
+	 * @param  array $data The data to send with the request.
 	 *
 	 * @return void
 	 */
@@ -48,6 +50,9 @@ abstract class Request {
 			$request_args['body'] = wp_json_encode( $request_body );
 		}
 
+		error_log( 'Sending request to: ' . $this->get_url( $endpoint ) );
+		error_log( 'Request body: ' . wp_json_encode( $request_body ) );
+
 		// later check if post failed and show a notice to admins.
 		wp_remote_post( $this->get_url( $endpoint ), $request_args );
 	}
@@ -57,7 +62,12 @@ abstract class Request {
 	 *
 	 * @return array
 	 */
-	abstract public function get_auth_headers(): array;
+	public function get_auth_headers(): array {
+		$headers                  = [];
+		$headers['Authorization'] = sprintf( "Bearer %s", OptionController::get_option( 'access_token' ) );
+
+		return apply_filters( 'scanfully_auth_headers', $headers );
+	}
 
 	/**
 	 * Get the url for the request.

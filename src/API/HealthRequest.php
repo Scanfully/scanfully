@@ -27,20 +27,6 @@ class HealthRequest extends Request {
 	}
 
 	/**
-	 * Get the auth headers for the request.
-	 *
-	 * @return array
-	 */
-	public function get_auth_headers(): array {
-		$headers                        = [];
-//		$headers['X-Scanfully-Site-Id'] = Options::get_option( 'site_id' );
-//		$headers['X-Scanfully-Public']  = Options::get_option( 'public_key' );
-//		$headers['X-Scanfully-Secret']  = Options::get_option( 'secret_key' );
-
-		return $headers;
-	}
-
-	/**
 	 * Get the url for the request.
 	 *
 	 * @param  string $endpoint The endpoint to send the request to.
