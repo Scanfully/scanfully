@@ -120,18 +120,13 @@ class Page {
 				</ul>
 				<div class="scanfully-connect-button-wrapper">
 					<?php if ( $options->is_connected ) : ?>
-						<p style="display: inline-block">
-							<?php
-							$button = new DisconnectButton();
-							$button->render();
-							?>
+						<p style="display: flex; gap: 1em;">
+							<?php Buttons::dashboard(); ?>
+							<?php Buttons::disconnect(); ?>
 						</p>
 					<?php else : ?>
 						<p style="display: inline-block">
-							<?php
-							$button = new AuthorizeButton();
-							$button->render();
-							?>
+							<?php Buttons::connect(); ?>
 						</p>
 					<?php endif; ?>
 				</div>
