@@ -16,9 +16,7 @@ class Controller {
 	 * @return void
 	 */
 	public static function setup(): void {
-		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_start' ] );
-		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_success' ] );
-		add_action( 'admin_init', [ Controller::class, 'catch_request_connect_error' ] );
+		add_action( 'admin_init', [ Controller::class, 'catch_connect_requests' ] );
 	}
 
 	/**
@@ -30,36 +28,81 @@ class Controller {
 		return current_user_can( 'manage_options' );
 	}
 
+	public static function catch_connect_requests(): void {
+
+		// handle start connect request
+		if ( isset( $_GET['scanfully-connect'] ) ) {
+			self::handle_connect_start();
+		}
+
+		// handle start disconnect request
+		if(isset($_GET['scanfully-disconnect'])) {
+			self::handle_disconnect_start();
+		}
+
+		// handle connect success return request
+		if ( isset( $_GET['scanfully-connect-success'] ) ) {
+			self::handle_request_connect_success();
+		}
+
+		// handle connect error return request
+		if ( isset( $_GET['scanfully-connect-error'] ) ) {
+			self::handle_request_connect_error();
+		}
+
+	}
+
 	/**
 	 * Catch the request to start the connect process.
 	 *
 	 * @return void
 	 */
-	public static function catch_request_connect_start(): void {
-		if ( isset( $_GET['scanfully-connect'] ) ) {
-
-			// check nonce
-			if ( ! isset( $_GET['scanfully-connect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-connect-nonce'], 'scanfully-connect-redirect' ) ) {
-				wp_die( 'Invalid Scanfully connect nonce' );
-			}
-
-			// check permissions
-			if ( ! self::user_has_access() ) {
-				wp_die( 'You do not have permission to do this.' );
-			}
-
-			// build the connect URL and redirect.
-			$connect_url = add_query_arg(
-				[
-					'redirect_uri' => Page::get_page_url(),
-					'site'         => get_site_url(),
-					'state'        => self::generate_state(),
-				],
-				Main::CONNECT_URL
-			);
-			wp_redirect( $connect_url );
-			exit;
+	private static function handle_connect_start(): void {
+		// check nonce
+		if ( ! isset( $_GET['scanfully-connect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-connect-nonce'], 'scanfully-connect-redirect' ) ) {
+			wp_die( 'Invalid Scanfully connect nonce' );
 		}
+
+		// check permissions
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		// build the connect URL and redirect.
+		$connect_url = add_query_arg(
+			[
+				'redirect_uri' => Page::get_page_url(),
+				'site'         => get_site_url(),
+				'state'        => self::generate_state(),
+			],
+			Main::CONNECT_URL
+		);
+		wp_redirect( $connect_url );
+		exit;
+	}
+
+	/**
+	 * Catch the request to start the connect process.
+	 *
+	 * @return void
+	 */
+	private static function handle_disconnect_start(): void {
+		// check nonce
+		if ( ! isset( $_GET['scanfully-disconnect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-disconnect-nonce'], 'scanfully-disconnect-redirect' ) ) {
+			wp_die( 'Invalid Scanfully disconnect nonce' );
+		}
+
+		// check permissions
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		// remove all options / settings
+		OptionsController::clear();
+
+		// redirect to base connect page
+		wp_redirect( Page::get_page_url() );
+		exit;
 	}
 
 	/**
@@ -67,75 +110,55 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function catch_request_connect_success(): void {
+	private static function handle_request_connect_success(): void {
 
-		/**
-		 * https://scanfully-plugin.test/wp-admin/options-general.php
-		 * ?page=scanfully
-		 * &scanfully-connect-success=true
-		 * &code=iwYOdU4uCWTSY4lt4gI389FmLkDNqSt4iZwLJBt1
-		 * &site=a6dbda75-03ee-44e1-ae65-3cb5e3fc5d30
-		 * &state=MAekQwsMivpY
-		 */
-
-		if ( isset( $_GET['scanfully-connect-success'] ) ) {
-
-			// check permissions
-			if ( ! self::user_has_access() ) {
-				wp_die( 'You do not have permission to do this.' );
-			}
-
-			// check if state matches
-			if ( self::get_state() !== $_GET['state'] ) {
-				wp_die( 'Invalid Scanfully connect state' );
-			}
-
-			// check if required parameters are set
-			if ( ! isset( $_GET['code'] ) || ! isset( $_GET['site'] ) ) {
-				wp_die( 'Invalid Scanfully connect parameters' );
-			}
-
-			// delete state
-			self::delete_state();
-
-			// get variables
-			$code = $_GET['code'];
-			$site = $_GET['site'];
-
-			// exchange authorization code for access token
-			$tokens = self::exchange_authorization_code( $code, $site );
-
-			$now = new \DateTime();
-			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-
-			$expires = new \DateTime( $tokens['expires'] );
-			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
-
-			// format options
-			$options = new Options(
-				true,
-				$site,
-				$tokens['access_token'],
-				$tokens['refresh_token'],
-				$expires->format( self::DATE_FORMAT ),
-				'',
-				$now->format( self::DATE_FORMAT )
-			);
-
-			// save options
-			OptionsController::set_options( $options );
-
-			// add success message
-			self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
-
-//			echo 'Exchange authorization code for access token';
-//			echo '<pre>';
-//			print_r( $options );
-//			echo '</pre>';
-//			exit;
-
-
+		// check permissions
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
 		}
+
+		// check if state matches
+		if ( self::get_state() !== $_GET['state'] ) {
+			wp_die( 'Invalid Scanfully connect state' );
+		}
+
+		// check if required parameters are set
+		if ( ! isset( $_GET['code'] ) || ! isset( $_GET['site'] ) ) {
+			wp_die( 'Invalid Scanfully connect parameters' );
+		}
+
+		// delete state
+		self::delete_state();
+
+		// get variables
+		$code = $_GET['code'];
+		$site = $_GET['site'];
+
+		// exchange authorization code for access token
+		$tokens = self::exchange_authorization_code( $code, $site );
+
+		$now = new \DateTime();
+		$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+
+		$expires = new \DateTime( $tokens['expires'] );
+		$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
+
+		// format options
+		$options = new Options(
+			true,
+			$site,
+			$tokens['access_token'],
+			$tokens['refresh_token'],
+			$expires->format( self::DATE_FORMAT ),
+			'',
+			$now->format( self::DATE_FORMAT )
+		);
+
+		// save options
+		OptionsController::set_options( $options );
+
+		// add success message
+		self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
 
 	}
 
@@ -144,7 +167,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function catch_request_connect_error(): void {
+	private static function handle_request_connect_error(): void {
 		if ( isset( $_GET['scanfully-connect-error'] ) ) {
 
 			// check permissions
@@ -176,8 +199,16 @@ class Controller {
 		}
 	}
 
+	/**
+	 * Print a notice to the connect admin.
+	 *
+	 * @param  string $message
+	 * @param  string $type
+	 *
+	 * @return void
+	 */
 	private static function print_notice( string $message, string $type = 'error' ): void {
-		add_action( 'admin_notices', function () use ( $message, $type ) {
+		add_action( 'scanfully_connect_notices', function () use ( $message, $type ) {
 			?>
 			<div class="scanfully-connect-notice scanfully-connect-notice-<?php echo esc_attr( $type ); ?> is-dismissible">
 				<p><?php echo esc_html( $message ); ?></p>
