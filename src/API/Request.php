@@ -50,9 +50,6 @@ abstract class Request {
 			$request_args['body'] = wp_json_encode( $request_body );
 		}
 
-		error_log( 'Sending request to: ' . $this->get_url( $endpoint ) );
-		error_log( 'Request body: ' . wp_json_encode( $request_body ) );
-
 		// later check if post failed and show a notice to admins.
 		wp_remote_post( $this->get_url( $endpoint ), $request_args );
 	}
