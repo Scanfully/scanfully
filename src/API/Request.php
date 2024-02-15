@@ -52,6 +52,15 @@ abstract class Request {
 
 		// later check if post failed and show a notice to admins.
 		wp_remote_post( $this->get_url( $endpoint ), $request_args );
+
+		// update last used of the access token.
+		try {
+			$now = new \DateTime();
+			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+			OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
+		} catch ( \Exception $e ) {
+			// do nothing for now, just don't break the plugin.
+		}
 	}
 
 	/**
