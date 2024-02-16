@@ -106,7 +106,7 @@ abstract class Event {
 
 		// build the request and send it.
 		$request = new EventRequest();
-		$request->send_event(
+		$request->send(
 			[
 				'type' => $this->type,
 				'user' => $this->get_user(),

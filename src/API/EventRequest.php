@@ -22,8 +22,8 @@ class EventRequest extends Request {
 	 *
 	 * @return void
 	 */
-	public function send_event( array $data ): void {
-		parent::send( '', $data );
+	public function send( array $data ): void {
+		parent::do_request( '', $data );
 	}
 
 	/**

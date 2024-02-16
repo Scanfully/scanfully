@@ -79,7 +79,7 @@ class Controller {
 			'max_input_time'      => null,
 			'max_execution_time'  => null,
 			'upload_max_filesize' => null,
-			'post_max_size'   => null,
+			'post_max_size'       => null,
 		];
 
 		// get actual values if ini_get is available.
@@ -247,6 +247,8 @@ class Controller {
 	 */
 	public static function send_health_request(): void {
 
+		// todo add a transient last sent time to prevent sending too many requests.
+
 		// load wp_site_health class if not loaded, this is not loaded by default.
 		if ( ! class_exists( 'WP_Site_Health' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
@@ -292,7 +294,6 @@ class Controller {
 		];
 
 		// send event.
-		$request->send_event( $data );
-		wp_die();
+		$request->send( $data );
 	}
 }

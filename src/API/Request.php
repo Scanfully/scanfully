@@ -22,7 +22,7 @@ abstract class Request {
 	 *
 	 * @return void
 	 */
-	public function send( string $endpoint, array $data ): void {
+	public function do_request( string $endpoint, array $data ): void {
 
 		// headers for the requests.
 		$headers = [

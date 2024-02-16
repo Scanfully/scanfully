@@ -7,8 +7,6 @@
 
 namespace Scanfully;
 
-use Scanfully\Health\Controller;
-
 /**
  * The main class, this is where it all starts.
  */
@@ -50,17 +48,11 @@ class Main {
 		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
 		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 
-		/** Register options */
-		//Options\Options::register();
+		/** Register cron */
+		Cron\Controller::setup();
 
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();
-
-		if ( isset( $_GET['barry'] ) ) {
-			add_action( 'after_setup_theme', function () {
-				Controller::send_health_request();
-			} );
-		}
 	}
 }

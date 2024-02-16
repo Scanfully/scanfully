@@ -241,7 +241,7 @@ class Controller {
 			'body'        => wp_json_encode( [
 				'grant_type' => 'authorization_code',
 				'code'       => $code,
-				'site'       => $site,
+				'site_id'    => $site,
 			] ),
 		];
 
@@ -253,6 +253,8 @@ class Controller {
 			return [];
 		}
 
+		// todo check if request failed based on http status code
+
 		$body = wp_remote_retrieve_body( $resp );
 
 		if ( empty( $body ) ) {
@@ -262,6 +264,51 @@ class Controller {
 		// return the response
 		return json_decode( $body, true );
 	}
+
+	/**
+	 * Use the refresh token to get a new access and refresh token
+	 *
+	 * @param  string $refresh_token
+	 * @param  string $site
+	 *
+	 * @return array
+	 */
+	public static function refresh_access_token( string $refresh_token, string $site ): array {
+
+		// request arguments for the requests.
+		$request_args = [
+			'headers'     => [ 'Content-Type' => 'application/json' ],
+			'timeout'     => 60,
+			'blocking'    => true,
+			'httpversion' => '1.0',
+			'sslverify'   => false,
+			'body'        => wp_json_encode( [
+				'grant_type'    => 'refresh_token',
+				'refresh_token' => $refresh_token,
+				'site_id'       => $site,
+			] ),
+		];
+
+		// later check if post failed and show a notice to admins.
+		$resp = wp_remote_post( Main::API_URL . '/connect/token', $request_args );
+
+		// check if the request failed
+		if ( is_wp_error( $resp ) ) {
+			return [];
+		}
+
+		// todo check if request failed based on http status code
+
+		$body = wp_remote_retrieve_body( $resp );
+
+		if ( empty( $body ) ) {
+			return [];
+		}
+
+		// return the response
+		return json_decode( $body, true );
+	}
+
 
 	/**
 	 * Generate a state variable for the connect request.
