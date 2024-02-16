@@ -8,16 +8,18 @@ class Page {
 
 	private static $page = 'scanfully';
 
+	// todo look into register and catch_get_request, they are used to redirect to the plugin page when user is
+	// redirected from the Scanfully dashboard
+
+
 	public static function register(): void {
-		add_action( 'admin_init', [ SecureSetup::class, 'catch_get_request' ] );
+		add_action( 'admin_init', [ Page::class, 'catch_install_request' ] );
 		self::register_page();
 	}
 
-	public static function catch_get_request(): void {
-		if ( isset( $_GET['scanfully-secure-setup-redirect'] ) ) {
-			//https://scanfully-plugin.test/wp-admin/plugin-install.php?s=scanfully&tab=search&type=term&scanfully-secure-setup-redirect=12345
-			$s = add_query_arg( [ 'page' => self::$page, 'scanfully-secure-setup' => $_GET['scanfully-secure-setup-redirect'] ], admin_url( 'options-general.php' ) );
-			wp_redirect( $s );
+	public static function catch_install_request(): void {
+		if ( isset( $_GET['scanfully-connect-install'] ) ) {
+			wp_redirect( self::get_page_url() );
 			exit;
 		}
 	}
