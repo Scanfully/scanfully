@@ -54,5 +54,6 @@ class Main {
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();
+		Connect\AdminNotice::setup();;
 	}
 }

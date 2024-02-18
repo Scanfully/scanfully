@@ -1,0 +1,35 @@
+/** Connect admin notice **/
+.scanfully-not-connected-notice {
+    border-left-color: #4361EE;
+}
+
+.scanfully-not-connected-notice .scanfully-notice-header {
+    display: flex;
+    align-items: center;
+    padding: .5em 0 0;
+}
+
+.scanfully-not-connected-notice .scanfully-notice-header .scanfully-notice-logo {
+    display: inline-block;
+    height: 24px;
+    width: 24px;
+    margin-right: 8px;
+    background-image: url("../images/logo.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+.scanfully-not-connected-notice .scanfully-notice-header h2 {
+    padding: 0;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.scanfully-not-connected-notice p {
+    margin: 0.5em 0;
+    padding: 2px;
+    font-size: 13px;
+    line-height: 1.8em;
+}
