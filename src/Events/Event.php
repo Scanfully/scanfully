@@ -19,28 +19,28 @@ abstract class Event {
 	 *
 	 * @var string
 	 */
-	private $type;
+	private string $type;
 
 	/**
 	 * Action to listen to
 	 *
 	 * @var string
 	 */
-	private $action;
+	private string $action;
 
 	/**
 	 * Priority of the action
 	 *
 	 * @var int
 	 */
-	private $priority = 10;
+	private int $priority = 10;
 
 	/**
 	 * Accepted arguments
 	 *
 	 * @var int
 	 */
-	private $accepted_args = 1;
+	private int $accepted_args = 1;
 
 	/**
 	 * Constructor
@@ -97,7 +97,8 @@ abstract class Event {
 	 */
 	public function listener_callback( ...$args ): void {
 
-		//error_log( "listener_callback: " . $this->action . " :: " . print_r( $args, true ) );
+		// todo remove
+		error_log( "listener_callback: " . $this->action );
 
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
