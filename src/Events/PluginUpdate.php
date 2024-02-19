@@ -1,6 +1,6 @@
 <?php
 /**
- * The rewrite rules event class file.
+ * The PluginUpdate event class file.
  *
  * @package Scanfully
  */
@@ -8,17 +8,17 @@
 namespace Scanfully\Events;
 
 /**
- * Class RewriteRules
+ * Class PluginUpdate
  *
  * @package Scanfully\Events
  */
-class RewriteRules extends Event {
+class PluginUpdate extends Event {
 
 	/**
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'RewriteRules', 'update_option_rewrite_rules', 10, 3 );
+		parent::__construct( 'PluginUpdate', 'scanfully_plugin_updated');
 	}
 
 	/**
@@ -29,9 +29,8 @@ class RewriteRules extends Event {
 	 * @return array
 	 */
 	public function get_post_body( array $data ): array {
-		return [
-			'rewrite_rules' => $data[1],
-		];
+		// custom event so already formatted to perfection
+		return $data[0];
 	}
 
 	/**
@@ -42,7 +41,6 @@ class RewriteRules extends Event {
 	 * @return bool
 	 */
 	public function should_fire( array $data ): bool {
-//		error_log(print_r($data, true));
 		return true;
 	}
 }

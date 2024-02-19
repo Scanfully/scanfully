@@ -17,7 +17,7 @@ class Main {
 	 *
 	 * @var ?Main
 	 */
-	private static $instance = null;
+	private static ?Main $instance = null;
 
 	/**
 	 * Singleton getter
@@ -43,10 +43,7 @@ class Main {
 	 */
 	public function setup(): void {
 		/** Register all events */
-		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated.
-		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated.
-		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
-		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
+		$this->register_events();
 
 		/** Register cron */
 		Cron\Controller::setup();
@@ -56,4 +53,21 @@ class Main {
 		Connect\Page::register();
 		Connect\AdminNotice::setup();;
 	}
+
+	/**
+	 * Register all events.
+	 *
+	 * @return void
+	 */
+	private function register_events(): void {
+		Events\Controller::register( new Events\ActivatedPlugin() ); // when a plugin is activated.
+		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated.
+		Events\Controller::register( new Events\PluginUpdate() ); // when a plugin is updated.
+		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
+		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
+
+		// custom events
+		Events\Controller::setup_custom_events();
+	}
+
 }
