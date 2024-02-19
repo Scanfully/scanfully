@@ -40,8 +40,14 @@ class Controller {
 	 */
 	public static function setup_custom_events(): void {
 		self::plugin_update_event();
+		self::theme_update_event();
 	}
 
+	/**
+	 * Custom plugin update event.
+	 *
+	 * @return void
+	 */
 	private static function plugin_update_event(): void {
 
 		// this is an odd one, but we need to hook into the upgrader_package_options to get the old version number and pass it to the upgrader_install_package_result via the hook_extra
@@ -49,7 +55,7 @@ class Controller {
 
 			// check if a plugin is being updated
 			if ( isset( $options['hook_extra']['plugin'] ) ) {
-				$data = get_file_data( $options['destination'] . '/' . $options['hook_extra']['plugin'], array( 'Version' => 'Version' ) );;
+				$data = get_file_data( WP_PLUGIN_DIR . '/' . $options['hook_extra']['plugin'], array( 'Version' => 'Version' ) );;
 
 				if ( ! empty( $data['Version'] ) ) {
 					$options['hook_extra']['old_version'] = $data['Version'];
@@ -81,23 +87,78 @@ class Controller {
 					]
 				);
 
-				// format it for our custom action
-				$hook_data = [
+				// fire our custom action so our event system can pick it up
+				do_action( 'scanfully_plugin_updated', [
 					'name'         => $plugin_data['Name'] ?? '',
 					'version'      => $plugin_data['Version'] ?? '',
 					'old_version'  => $hook_extra['old_version'] ?? '', // this is the old version number
 					'author'       => $plugin_data['Author'] ?? '',
-					'slug'         => $plugin_slug ?? '',
+					'slug'         => $plugin_slug,
 					'requires_wp'  => $plugin_data['RequiresWP'] ?? '',
 					'requires_php' => $plugin_data['RequiresPHP'] ?? '',
-				];
-
-				// fire our custom action so our event system can pick it up
-				do_action( 'scanfully_plugin_updated', $hook_data );
+				] );
 
 			}
 
 			return $result;
 		}, 99, 2 );
+	}
+
+	/**
+	 * Theme update event.
+	 *
+	 * @return void
+	 */
+	private static function theme_update_event(): void {
+
+		// this is an odd one, but we need to hook into the upgrader_package_options to get the old version number and pass it to the upgrader_install_package_result via the hook_extra
+		add_filter( 'upgrader_package_options', function ( $options ) {
+
+			// check if a plugin is being updated
+			if ( isset( $options['hook_extra']['theme'] ) ) {
+
+				$data = get_file_data( $options['destination'] . '/' . $options['hook_extra']['theme'] . '/' . 'style.css', [ 'Version' => 'Version' ] );
+
+				if ( ! empty( $data['Version'] ) ) {
+					$options['hook_extra']['old_version'] = $data['Version'];
+				}
+			}
+
+			return $options;
+		}, 99, 1 );
+
+
+		add_filter( 'upgrader_install_package_result', function ( $result, $hook_extra ) {
+
+			// check if a plugin is being updated
+			if ( isset( $hook_extra['theme'] ) ) {
+
+				$theme_slug = $hook_extra['theme'];
+
+				$theme_data = get_file_data( get_theme_root() . '/' . $theme_slug . '/' . 'style.css', [
+					'Name'        => 'Theme Name',
+					'Version'     => 'Version',
+					'Author'      => 'Author',
+					'Template'    => 'Template',
+					'RequiresWP'  => 'Requires at least',
+					'RequiresPHP' => 'Requires PHP',
+				] );
+
+				// fire our custom action so our event system can pick it up
+				do_action( 'scanfully_theme_updated', [
+					'name'         => $theme_data['Name'] ?? '',
+					'version'      => $theme_data['Version'] ?? '',
+					'old_version'  => $hook_extra['old_version'] ?? '', // this is the old version number
+					'author'       => $theme_data['Author'] ?? '',
+					'slug'         => $theme_slug,
+					'requires_wp'  => $theme_data['RequiresWP'] ?? '',
+					'requires_php' => $theme_data['RequiresPHP'] ?? '',
+				] );
+
+			}
+
+			return $result;
+		}, 99, 2 );
+
 	}
 }
