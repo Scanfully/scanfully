@@ -19,7 +19,7 @@ class Controller {
 	 *
 	 * @var array
 	 */
-	private static $events = [];
+	private static array $events = [];
 
 	/**
 	 * Register the events
