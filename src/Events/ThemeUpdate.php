@@ -18,7 +18,7 @@ class ThemeUpdate extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PluginUpdate', 'scanfully_theme_updated');
+		parent::__construct( 'ThemeUpdate', 'scanfully_theme_updated');
 	}
 
 	/**
