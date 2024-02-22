@@ -3,6 +3,7 @@
 namespace Scanfully\Connect;
 
 use Scanfully\Options\Controller as OptionsController;
+use Scanfully\Util;
 
 class Page {
 
@@ -94,7 +95,10 @@ class Page {
 						$last_used = "-";
 						if ( $options->last_used != "" ) {
 							$last_used_dt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->last_used, new \DateTimeZone( 'UTC' ) );
-							$last_used_dt->setTimezone( new \DateTimeZone( get_option( 'timezone_string' ) ) );
+							try {
+								$last_used_dt->setTimezone( Util\Date::get_timezone() );
+							} catch ( \Exception $e ) {
+							}
 							$last_used = $last_used_dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
 						}
 						?>
@@ -107,7 +111,10 @@ class Page {
 							$connected = "-";
 							try {
 								$connectedDt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->date_connected, new \DateTimeZone( 'UTC' ) );
-								$connectedDt->setTimezone( new \DateTimeZone( get_option( 'timezone_string' ) ) );
+								try {
+									$connectedDt->setTimezone( Util\Date::get_timezone() );
+								} catch ( \Exception $e ) {
+								}
 								$connected = $connectedDt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
 							} catch ( \Exception $e ) {
 								$connectedDt = null;
