@@ -5,6 +5,12 @@ namespace Scanfully\Connect;
 use Scanfully\Options\Controller as OptionsController;
 
 class AdminNotice {
+
+	/**
+	 * Set up the admin notice
+	 *
+	 * @return void
+	 */
 	public static function setup(): void {
 		global $pagenow;
 
@@ -25,16 +31,21 @@ class AdminNotice {
 		} );
 	}
 
+	/**
+	 * Print the notice
+	 *
+	 * @return void
+	 */
 	public static function print_notice(): void {
 		?>
 		<div class="notice notice-info is-dismissible scanfully-not-connected-notice">
 			<div class="scanfully-notice-header">
 				<span class="scanfully-notice-logo"></span>
-				<h2>Welcome to Scanfully!</h2>
+				<h2><?php esc_html_e( 'Welcome to Scanfully!', 'scanfully' ); ?></h2>
 			</div>
-			<p>Scanfully is the best tool to monitor your performance & site health for WordPress.<br/>
-				Connect your website to your Scanfully account to get started.
-				<a href="<?php echo esc_url( Page::get_page_url() ); ?>">Finish setting up Scanfully</a>
+			<p><?php esc_html_e( 'Scanfully is the best tool to monitor your performance & site health for WordPress.', 'scanfully' ); ?><br/>
+				<?php esc_html_e( 'Connect your website to your Scanfully account to get started.', 'scanfully' ); ?>
+				<a href="<?php echo esc_url( Page::get_page_url() ); ?>"><?php esc_html_e( 'Finish setting up Scanfully', 'scanfully' ); ?></a>
 			</p>
 		</div>
 		<?php
