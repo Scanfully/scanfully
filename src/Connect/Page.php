@@ -6,7 +6,7 @@ use Scanfully\Options\Controller as OptionsController;
 
 class Page {
 
-	private static $page = 'scanfully';
+	private static string $page = 'scanfully';
 
 	// todo look into register and catch_get_request, they are used to redirect to the plugin page when user is
 	// redirected from the Scanfully dashboard
