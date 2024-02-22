@@ -1,6 +1,6 @@
-# Scanfull's Security Policy
+# Scanfully's Security Policy
 
-Welcome and thanks for taking interest in scanfully!
+Welcome and thanks for taking interest in Scanfully!
 
 We are mostly interested in reports by actual scanfully users, but all high quality contributions are welcome.
 
