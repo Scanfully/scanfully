@@ -92,5 +92,7 @@ class Controller {
 		delete_option( self::$db_prefix . 'expires' );
 		delete_option( self::$db_prefix . 'last_used' );
 		delete_option( self::$db_prefix . 'date_connected' );
+
+		do_action( 'scanfully_options_cleared' );
 	}
 }
