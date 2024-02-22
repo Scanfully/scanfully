@@ -5,13 +5,12 @@ namespace Scanfully\Connect;
 use Scanfully\Options\Controller as OptionsController;
 use Scanfully\Util;
 
+/**
+ * Connect page
+ */
 class Page {
 
 	private static string $page = 'scanfully';
-
-	// todo look into register and catch_get_request, they are used to redirect to the plugin page when user is
-	// redirected from the Scanfully dashboard
-
 
 	public static function register(): void {
 		add_action( 'admin_init', [ Page::class, 'catch_install_request' ] );
@@ -142,7 +141,7 @@ class Page {
 			</div>
 			<div class="scanfully-setup-footer">
 				<p>version 1.0.0</p>
-				<p><a href="https://scanfully.com/docs/">help center</a> - <a href="https://scanfully.com/contact/">contact us</a></p>
+				<p><a href="https://scanfully.com/docs/"><?php esc_html_e('help center', 'scanfully'); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e('contact us', 'scanfully'); ?></a></p>
 			</div>
 		</div>
 		<?php
