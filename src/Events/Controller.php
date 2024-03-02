@@ -55,7 +55,7 @@ class Controller {
 
 			// check if a plugin is being updated
 			if ( isset( $options['hook_extra']['plugin'] ) ) {
-				$data = get_file_data( WP_PLUGIN_DIR . '/' . $options['hook_extra']['plugin'], array( 'Version' => 'Version' ) );;
+				$data = get_file_data( WP_PLUGIN_DIR . '/' . $options['hook_extra']['plugin'], array( 'Version' => 'Version' ) );
 
 				if ( ! empty( $data['Version'] ) ) {
 					$options['hook_extra']['old_version'] = $data['Version'];
