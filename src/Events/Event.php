@@ -96,10 +96,7 @@ abstract class Event {
 	 * @return void
 	 */
 	public function listener_callback( ...$args ): void {
-
-		// todo remove
-		error_log( "listener_callback: " . $this->action );
-
+		
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
 			return;
