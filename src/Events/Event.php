@@ -96,7 +96,7 @@ abstract class Event {
 	 * @return void
 	 */
 	public function listener_callback( ...$args ): void {
-		
+
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
 			return;
