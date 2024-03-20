@@ -142,11 +142,21 @@ class Controller {
 		// exchange authorization code for access token
 		$tokens = self::exchange_authorization_code( $code, $site );
 
-		$now = new \DateTime();
-		$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+		try {
+			$now = new \DateTime();
+			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+		}catch (\Exception $e) {
+			error_log($e->getMessage());
+			wp_die('Error setting parsing now date. Please contact support.');
+		}
 
-		$expires = new \DateTime( $tokens['expires'] );
-		$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
+		try {
+			$expires = new \DateTime( $tokens['expires'] );
+			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
+		}catch (\Exception $e) {
+			error_log($e->getMessage());
+			wp_die('Error setting parsing expires date. Please contact support.');
+		}
 
 		// format options
 		$options = new Options(
