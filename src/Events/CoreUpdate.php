@@ -18,7 +18,7 @@ class CoreUpdate extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'CoreUpdated', '_core_updated_successfully' );
+		parent::__construct( 'CoreUpdate', '_core_updated_successfully' );
 	}
 
 	/**
