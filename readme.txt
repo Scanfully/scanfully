@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
 Tested up to: 6.5.2
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
