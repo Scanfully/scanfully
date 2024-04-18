@@ -76,12 +76,13 @@ class Controller {
 		// build the connect URL and redirect.
 		$connect_url = add_query_arg(
 			[
-				'redirect_uri' => Page::get_page_url(),
-				'site'         => get_site_url(),
+				'redirect_uri' => rawurlencode( Page::get_page_url() ),
+				'site'         => rawurlencode( get_site_url() ),
 				'state'        => self::generate_state(),
 			],
 			Main::CONNECT_URL
 		);
+
 		wp_redirect( $connect_url );
 		exit;
 	}
@@ -145,17 +146,17 @@ class Controller {
 		try {
 			$now = new \DateTime();
 			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-		}catch (\Exception $e) {
-			error_log($e->getMessage());
-			wp_die('Error setting parsing now date. Please contact support.');
+		} catch ( \Exception $e ) {
+			error_log( $e->getMessage() );
+			wp_die( 'Error setting parsing now date. Please contact support.' );
 		}
 
 		try {
 			$expires = new \DateTime( $tokens['expires'] );
 			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
-		}catch (\Exception $e) {
-			error_log($e->getMessage());
-			wp_die('Error setting parsing expires date. Please contact support.');
+		} catch ( \Exception $e ) {
+			error_log( $e->getMessage() );
+			wp_die( 'Error setting parsing expires date. Please contact support.' );
 		}
 
 		// format options
