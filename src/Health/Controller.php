@@ -183,6 +183,28 @@ class Controller {
 	}
 
 	/**
+	 * Get database charset
+	 *
+	 * @return string
+	 */
+	private static function get_db_charset(): string {
+		global $wpdb;
+
+		return $wpdb->charset;
+	}
+
+	/**
+	 * Get database charset
+	 *
+	 * @return string
+	 */
+	private static function get_db_collate(): string {
+		global $wpdb;
+
+		return $wpdb->collate;
+	}
+
+	/**
 	 * Gets the size of the database in bytes
 	 *
 	 * @return int
@@ -263,17 +285,22 @@ class Controller {
 		// get php settings array.
 		$php_settings = self::get_php_settings();
 
+		//'wp_size'              => recurse_dirsize( ABSPATH, null, 30 ),
+		//'db_size'                 => self::get_db_size(),
+
 		$data = [
 			'data'    => [
-				'wp_version'              => get_bloginfo( 'version' ),
-				'wp_multisite'            => is_multisite(),
-				'wp_user_registration'    => (bool) get_option( 'users_can_register' ),
-				'wp_blog_public'          => (bool) get_option( 'blog_public' ),
-				'wp_size'                 => recurse_dirsize( ABSPATH, null, 30 ),
-				'https'                   => is_ssl(),
-				'server_arch'             => self::get_server_arch(),
-				'web_server'              => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-				'curl_version'            => self::get_curl_version(),
+				'wp_version'           => get_bloginfo( 'version' ),
+				'wp_multisite'         => is_multisite(),
+				'wp_user_registration' => (bool) get_option( 'users_can_register' ),
+				'wp_blog_public'       => (bool) get_option( 'blog_public' ),
+				'https'                => is_ssl(),
+
+				'server_arch'       => self::get_server_arch(),
+				'web_server'        => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				'curl_version'      => self::get_curl_version(),
+				'imagick_available' => extension_loaded( 'imagick' ),
+
 				'php_version'             => self::get_php_version(),
 				'php_sapi'                => self::get_php_sapi(),
 				'php_memory_limit'        => \WP_Site_Health::get_instance()->php_memory_limit,
@@ -282,16 +309,19 @@ class Controller {
 				'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
 				'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
 				'php_post_max_size'       => $php_settings['post_max_size'],
-				'db_extension'            => self::get_db_extension(),
-				'db_server_version'       => self::get_db_server_version(),
-				'db_client_version'       => self::get_db_client_version(),
-				'db_user'                 => self::get_db_user(),
-				'db_max_connections'      => self::get_db_max_connections(),
-				'db_size'                 => self::get_db_size(),
-				'writable'                => self::get_writable_directories(),
+
+				'db_extension'       => self::get_db_extension(),
+				'db_server_version'  => self::get_db_server_version(),
+				'db_client_version'  => self::get_db_client_version(),
+				'db_user'            => self::get_db_user(),
+				'db_max_connections' => self::get_db_max_connections(),
+				'db_charset'         => self::get_db_charset(),
+				'db_collate'         => self::get_db_collate(),
 			],
 			'plugins' => self::get_plugins(),
 		];
+
+		error_log(json_encode($data));
 
 		// send event.
 		$request->send( $data );
