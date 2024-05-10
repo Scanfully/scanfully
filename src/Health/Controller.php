@@ -296,6 +296,19 @@ class Controller {
 				'wp_blog_public'       => (bool) get_option( 'blog_public' ),
 				'https'                => is_ssl(),
 
+				'wp_cache'            => (bool) WP_CACHE,
+				'wp_debug'            => (bool) WP_DEBUG,
+				'wp_debug_display'    => (bool) WP_DEBUG_DISPLAY,
+				'wp_debug_log'        => (bool) WP_DEBUG_LOG,
+				'wp_script_debug'     => (bool) SCRIPT_DEBUG,
+				'wp_memory_limit'     => WP_MEMORY_LIMIT,
+				'wp_max_memory_limit' => WP_MAX_MEMORY_LIMIT,
+				'wp_environment_type' => wp_get_environment_type(),
+				'permalink_structure' => get_option( 'permalink_structure' ),
+				'locale'              => get_locale(),
+				'user_count'          => (int) count_users()['total_users'],
+				'site_url'            => get_site_url(),
+
 				'server_arch'       => self::get_server_arch(),
 				'web_server'        => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
 				'curl_version'      => self::get_curl_version(),
@@ -321,7 +334,7 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		error_log(json_encode($data));
+		//error_log( json_encode( $data ) );
 
 		// send event.
 		$request->send( $data );
