@@ -13,7 +13,7 @@ use Scanfully\Options\Controller as OptionsController;
 /**
  * This class is used to send health data to the Scanfully API.
  */
-class HealthRequest extends Request {
+class SiteDataRequest extends Request {
 
 	/**
 	 * Send the request to the API.
@@ -34,7 +34,7 @@ class HealthRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::API_URL . '/sites/%s/health', OptionsController::get_option( 'site_id' ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/health/data', OptionsController::get_option( 'site_id' ) );
 	}
 
 	/**
