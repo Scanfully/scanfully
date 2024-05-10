@@ -9,6 +9,7 @@ namespace Scanfully\Health;
 
 use Scanfully\API\HealthRequest;
 use Scanfully\API\SiteDataRequest;
+use Scanfully\API\SiteDirectoriesRequest;
 
 /**
  * Health Controller. This handles everything related to the health.
@@ -242,6 +243,11 @@ class Controller {
 		];
 	}
 
+	/**
+	 * Get the list of plugins
+	 *
+	 * @return array
+	 */
 	private static function get_plugins(): array {
 		$plugins = get_plugins();
 
@@ -285,9 +291,6 @@ class Controller {
 
 		// get php settings array.
 		$php_settings = self::get_php_settings();
-
-		//'wp_size'              => recurse_dirsize( ABSPATH, null, 30 ),
-		//'db_size'                 => self::get_db_size(),
 
 		$data = [
 			'data'    => [
@@ -335,9 +338,53 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-//		error_log( json_encode( $data ) );
+		// send event.
+		$request->send( $data );
+	}
+
+	/**
+	 * Send the directory data to the API
+	 *
+	 * @return void
+	 */
+	public static function send_directories_data(): void {
+
+		// load wp_site_health class if not loaded, this is not loaded by default.
+		if ( ! class_exists( 'WP_Site_Health' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
+		}
+
+		if ( ! function_exists( "get_plugins" ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		// directories to check.
+		$dirs = [
+			'content' => WP_CONTENT_DIR,
+			'plugins' => WP_PLUGIN_DIR,
+			'themes'   => get_theme_root( get_template() ),
+			'uploads' => wp_upload_dir()['basedir'],
+		];
+
+		// dir requests
+		$request = new SiteDirectoriesRequest();
+
+		// data array
+		$data = [
+			'data' => [
+				'db_size' => self::get_db_size(),
+			],
+		];
+
+		// add data for each directory.
+		foreach ( $dirs as $key => $dir ) {
+			$data['data'][ $key . '_size' ]     = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
+			$data['data'][ $key . '_writable' ] = wp_is_writable( $dir );
+			$data['data'][ $key . '_dir' ]      = $dir;
+		}
 
 		// send event.
 		$request->send( $data );
 	}
+
 }
