@@ -8,6 +8,7 @@
 namespace Scanfully\Health;
 
 use Scanfully\API\HealthRequest;
+use Scanfully\API\SiteDataRequest;
 
 /**
  * Health Controller. This handles everything related to the health.
@@ -267,7 +268,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function send_health_request(): void {
+	public static function send_site_data(): void {
 
 		// todo add a transient last sent time to prevent sending too many requests.
 
@@ -280,7 +281,7 @@ class Controller {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
-		$request = new HealthRequest();
+		$request = new SiteDataRequest();
 
 		// get php settings array.
 		$php_settings = self::get_php_settings();
@@ -334,7 +335,7 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		//error_log( json_encode( $data ) );
+//		error_log( json_encode( $data ) );
 
 		// send event.
 		$request->send( $data );
