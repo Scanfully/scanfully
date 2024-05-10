@@ -32,13 +32,21 @@ class Main {
 		return self::$instance;
 	}
 
-//	const API_URL = 'http://localhost:8888/v1';
-//	const DASHBOARD_URL = 'http://localhost:5173';
-//	const CONNECT_URL = 'http://localhost:5173/connect';
-
 	const API_URL = 'https://api.scanfully.com/v1';
 	const DASHBOARD_URL = 'https://app.scanfully.com';
 	const CONNECT_URL = 'https://app.scanfully.com/connect';
+
+	public static function get_api_url(): string {
+		return apply_filters( 'scanfully_api_url', self::API_URL );
+	}
+
+	public static function get_dashboard_url(): string {
+		return apply_filters( 'scanfully_dashboard_url', self::DASHBOARD_URL );
+	}
+
+	public static function get_connect_url(): string {
+		return apply_filters( 'scanfully_connect_url', self::CONNECT_URL );
+	}
 
 	/**
 	 * Set up the plugin.

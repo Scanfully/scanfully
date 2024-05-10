@@ -80,7 +80,7 @@ class Controller {
 				'site'         => rawurlencode( get_site_url() ),
 				'state'        => self::generate_state(),
 			],
-			Main::CONNECT_URL
+			Main::get_connect_url()
 		);
 
 		wp_redirect( $connect_url );
@@ -257,7 +257,7 @@ class Controller {
 		];
 
 		// later check if post failed and show a notice to admins.
-		$resp = wp_remote_post( Main::API_URL . '/connect/token', $request_args );
+		$resp = wp_remote_post( Main::get_api_url() . '/connect/token', $request_args );
 
 		// check if the request failed
 		if ( is_wp_error( $resp ) ) {
@@ -301,7 +301,7 @@ class Controller {
 		];
 
 		// later check if post failed and show a notice to admins.
-		$resp = wp_remote_post( Main::API_URL . '/connect/token', $request_args );
+		$resp = wp_remote_post( Main::get_api_url() . '/connect/token', $request_args );
 
 		// check if the request failed
 		if ( is_wp_error( $resp ) ) {
