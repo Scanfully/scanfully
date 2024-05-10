@@ -362,7 +362,7 @@ class Controller {
 		$dirs = [
 			'content' => WP_CONTENT_DIR,
 			'plugins' => WP_PLUGIN_DIR,
-			'themes'   => get_theme_root( get_template() ),
+			'themes'  => get_theme_root( get_template() ),
 			'uploads' => wp_upload_dir()['basedir'],
 		];
 
@@ -372,7 +372,7 @@ class Controller {
 		// data array
 		$data = [
 			'data' => [
-				'db_size' => self::get_db_size(),
+				'db_size' => round( self::get_db_size() / 1000000, 2 ),
 			],
 		];
 
