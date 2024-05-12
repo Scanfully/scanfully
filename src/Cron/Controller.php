@@ -34,8 +34,14 @@ class Controller {
 		// check if we need to refresh the access token
 		self::refresh_access_token_if_needed();
 
-		// send directory data daily
-		Health\Controller::send_directories_data();
+		// get options
+		$options = Options\Controller::get_options();
+
+		// connected only actions
+		if ( $options->is_connected ) {
+			// send directory data daily
+			Health\Controller::send_directories_data();
+		}
 	}
 
 	/**
@@ -47,8 +53,15 @@ class Controller {
 		// check if we need to refresh the access token
 		self::refresh_access_token_if_needed();
 
-		// send site data twice per day
-		Health\Controller::send_site_data();
+		// get options
+		$options = Options\Controller::get_options();
+
+		// connected only actions
+		if ( $options->is_connected ) {
+			// send site data twice per day
+			Health\Controller::send_site_data();
+		}
+
 	}
 
 	/**
@@ -129,8 +142,8 @@ class Controller {
 
 				// save options
 				Options\Controller::set_options( $options );
-			}else {
-				error_log("no need to refresh access token");
+			} else {
+				error_log( "no need to refresh access token" );
 			}
 		} catch ( \Exception $e ) {
 			// handle the exception
