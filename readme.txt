@@ -93,6 +93,13 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.2.0 : May 12, 2024 =
+* Feature: Added new site data properties.
+* Feature: Added support for new directories Health data.
+* Tweak: Escape redirect_uri and site in GET parameters to connect screen.
+* Tweak: Only try to refresh tokens when connected.
+* Tweak: Only send health data when connected.
+
 = 1.1.2 : April 16, 2024 =
 * Tweak: Fixed CoreUpdate event naming.
 
