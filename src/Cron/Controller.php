@@ -85,6 +85,11 @@ class Controller {
 		// get options
 		$options = Options\Controller::get_options();
 
+		// check if we're connected, if not return
+		if ( ! $options->is_connected ) {
+			return;
+		}
+
 		try {
 			// create a time object for now
 			$now = new \DateTime();
@@ -124,6 +129,8 @@ class Controller {
 
 				// save options
 				Options\Controller::set_options( $options );
+			}else {
+				error_log("no need to refresh access token");
 			}
 		} catch ( \Exception $e ) {
 			// handle the exception
