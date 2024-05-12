@@ -8,6 +8,8 @@
 namespace Scanfully\Health;
 
 use Scanfully\API\HealthRequest;
+use Scanfully\API\SiteDataRequest;
+use Scanfully\API\SiteDirectoriesRequest;
 
 /**
  * Health Controller. This handles everything related to the health.
@@ -183,6 +185,28 @@ class Controller {
 	}
 
 	/**
+	 * Get database charset
+	 *
+	 * @return string
+	 */
+	private static function get_db_charset(): string {
+		global $wpdb;
+
+		return $wpdb->charset;
+	}
+
+	/**
+	 * Get database charset
+	 *
+	 * @return string
+	 */
+	private static function get_db_collate(): string {
+		global $wpdb;
+
+		return $wpdb->collate;
+	}
+
+	/**
 	 * Gets the size of the database in bytes
 	 *
 	 * @return int
@@ -219,6 +243,11 @@ class Controller {
 		];
 	}
 
+	/**
+	 * Get the list of plugins
+	 *
+	 * @return array
+	 */
 	private static function get_plugins(): array {
 		$plugins = get_plugins();
 
@@ -245,7 +274,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function send_health_request(): void {
+	public static function send_site_data(): void {
 
 		// todo add a transient last sent time to prevent sending too many requests.
 
@@ -258,22 +287,37 @@ class Controller {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
-		$request = new HealthRequest();
+		$request = new SiteDataRequest();
 
 		// get php settings array.
 		$php_settings = self::get_php_settings();
 
 		$data = [
 			'data'    => [
-				'wp_version'              => get_bloginfo( 'version' ),
-				'wp_multisite'            => is_multisite(),
-				'wp_user_registration'    => (bool) get_option( 'users_can_register' ),
-				'wp_blog_public'          => (bool) get_option( 'blog_public' ),
-				'wp_size'                 => recurse_dirsize( ABSPATH, null, 30 ),
-				'https'                   => is_ssl(),
-				'server_arch'             => self::get_server_arch(),
-				'web_server'              => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-				'curl_version'            => self::get_curl_version(),
+				'wp_version'           => get_bloginfo( 'version' ),
+				'wp_multisite'         => is_multisite(),
+				'wp_user_registration' => (bool) get_option( 'users_can_register' ),
+				'wp_blog_public'       => (bool) get_option( 'blog_public' ),
+				'https'                => is_ssl(),
+
+				'wp_cache'            => (bool) WP_CACHE,
+				'wp_debug'            => (bool) WP_DEBUG,
+				'wp_debug_display'    => (bool) WP_DEBUG_DISPLAY,
+				'wp_debug_log'        => (bool) WP_DEBUG_LOG,
+				'wp_script_debug'     => (bool) SCRIPT_DEBUG,
+				'wp_memory_limit'     => WP_MEMORY_LIMIT,
+				'wp_max_memory_limit' => WP_MAX_MEMORY_LIMIT,
+				'wp_environment_type' => wp_get_environment_type(),
+				'permalink_structure' => get_option( 'permalink_structure' ),
+				'locale'              => get_locale(),
+				'user_count'          => (int) count_users()['total_users'],
+				'site_url'            => get_site_url(),
+
+				'server_arch'       => self::get_server_arch(),
+				'web_server'        => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				'curl_version'      => self::get_curl_version(),
+				'imagick_available' => extension_loaded( 'imagick' ),
+
 				'php_version'             => self::get_php_version(),
 				'php_sapi'                => self::get_php_sapi(),
 				'php_memory_limit'        => \WP_Site_Health::get_instance()->php_memory_limit,
@@ -282,13 +326,14 @@ class Controller {
 				'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
 				'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
 				'php_post_max_size'       => $php_settings['post_max_size'],
-				'db_extension'            => self::get_db_extension(),
-				'db_server_version'       => self::get_db_server_version(),
-				'db_client_version'       => self::get_db_client_version(),
-				'db_user'                 => self::get_db_user(),
-				'db_max_connections'      => self::get_db_max_connections(),
-				'db_size'                 => self::get_db_size(),
-				'writable'                => self::get_writable_directories(),
+
+				'db_extension'       => self::get_db_extension(),
+				'db_server_version'  => self::get_db_server_version(),
+				'db_client_version'  => self::get_db_client_version(),
+				'db_user'            => self::get_db_user(),
+				'db_max_connections' => self::get_db_max_connections(),
+				'db_charset'         => self::get_db_charset(),
+				'db_collate'         => self::get_db_collate(),
 			],
 			'plugins' => self::get_plugins(),
 		];
@@ -296,4 +341,50 @@ class Controller {
 		// send event.
 		$request->send( $data );
 	}
+
+	/**
+	 * Send the directory data to the API
+	 *
+	 * @return void
+	 */
+	public static function send_directories_data(): void {
+
+		// load wp_site_health class if not loaded, this is not loaded by default.
+		if ( ! class_exists( 'WP_Site_Health' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
+		}
+
+		if ( ! function_exists( "get_plugins" ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		// directories to check.
+		$dirs = [
+			'content' => WP_CONTENT_DIR,
+			'plugins' => WP_PLUGIN_DIR,
+			'themes'  => get_theme_root( get_template() ),
+			'uploads' => wp_upload_dir()['basedir'],
+		];
+
+		// dir requests
+		$request = new SiteDirectoriesRequest();
+
+		// data array
+		$data = [
+			'data' => [
+				'db_size' => round( self::get_db_size() / 1000000, 2 ),
+			],
+		];
+
+		// add data for each directory.
+		foreach ( $dirs as $key => $dir ) {
+			$data['data'][ $key . '_size' ]     = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
+			$data['data'][ $key . '_writable' ] = wp_is_writable( $dir );
+			$data['data'][ $key . '_dir' ]      = $dir;
+		}
+
+		// send event.
+		$request->send( $data );
+	}
+
 }

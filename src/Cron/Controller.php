@@ -8,6 +8,7 @@ use Scanfully\Options;
 
 class Controller {
 
+	public const ACTION_TWICE_DAILY = 'scanfully_twice_daily';
 	public const ACTION_DAILY = 'scanfully_daily';
 
 	/**
@@ -17,6 +18,7 @@ class Controller {
 	 */
 	public static function setup(): void {
 		// cron 'callbacks'
+		add_action( self::ACTION_TWICE_DAILY, [ self::class, 'twice_daily' ] );
 		add_action( self::ACTION_DAILY, [ self::class, 'daily' ] );
 
 		// schedule events
@@ -32,8 +34,34 @@ class Controller {
 		// check if we need to refresh the access token
 		self::refresh_access_token_if_needed();
 
-		// send site data
-		Health\Controller::send_health_request();
+		// get options
+		$options = Options\Controller::get_options();
+
+		// connected only actions
+		if ( $options->is_connected ) {
+			// send directory data daily
+			Health\Controller::send_directories_data();
+		}
+	}
+
+	/**
+	 * Daily cron function
+	 *
+	 * @return void
+	 */
+	public static function twice_daily(): void {
+		// check if we need to refresh the access token
+		self::refresh_access_token_if_needed();
+
+		// get options
+		$options = Options\Controller::get_options();
+
+		// connected only actions
+		if ( $options->is_connected ) {
+			// send site data twice per day
+			Health\Controller::send_site_data();
+		}
+
 	}
 
 	/**
@@ -42,6 +70,10 @@ class Controller {
 	 * @return void
 	 */
 	private static function schedule_events(): void {
+		if ( ! wp_next_scheduled( self::ACTION_TWICE_DAILY ) ) {
+			wp_schedule_event( time(), 'twicedaily', self::ACTION_TWICE_DAILY );
+		}
+
 		if ( ! wp_next_scheduled( self::ACTION_DAILY ) ) {
 			wp_schedule_event( time(), 'daily', self::ACTION_DAILY );
 		}
@@ -65,6 +97,11 @@ class Controller {
 
 		// get options
 		$options = Options\Controller::get_options();
+
+		// check if we're connected, if not return
+		if ( ! $options->is_connected ) {
+			return;
+		}
 
 		try {
 			// create a time object for now
@@ -105,11 +142,12 @@ class Controller {
 
 				// save options
 				Options\Controller::set_options( $options );
+			} else {
+				error_log( "no need to refresh access token" );
 			}
 		} catch ( \Exception $e ) {
 			// handle the exception
 		}
-
 
 	}
 

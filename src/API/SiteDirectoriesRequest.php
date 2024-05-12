@@ -1,6 +1,6 @@
 <?php
 /**
- * The event request class file.
+ * The health request class file.
  *
  * @package Scanfully
  */
@@ -11,9 +11,9 @@ use Scanfully\Main;
 use Scanfully\Options\Controller as OptionsController;
 
 /**
- * This class is used to send events to the Scanfully API.
+ * This class is used to send health data to the Scanfully API.
  */
-class EventRequest extends Request {
+class SiteDirectoriesRequest extends Request {
 
 	/**
 	 * Send the request to the API.
@@ -34,7 +34,7 @@ class EventRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/timeline', OptionsController::get_option( 'site_id' ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/health/directories', OptionsController::get_option( 'site_id' ) );
 	}
 
 	/**

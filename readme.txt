@@ -3,8 +3,8 @@ Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
-Tested up to: 6.5.2
-Stable tag: 1.1.2
+Tested up to: 6.5.3
+Stable tag: 1.2.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -92,6 +92,13 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.2.0 : May 12, 2024 =
+* Feature: Added new site data properties.
+* Feature: Added support for new directories Health data.
+* Tweak: Escape redirect_uri and site in GET parameters to connect screen.
+* Tweak: Only try to refresh tokens when connected.
+* Tweak: Only send health data when connected.
 
 = 1.1.2 : April 16, 2024 =
 * Tweak: Fixed CoreUpdate event naming.
