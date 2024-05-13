@@ -77,6 +77,11 @@ class Controller {
 
 				$plugin_slug = $hook_extra['plugin'];
 
+				// don't fire for our own plugin
+				if ( $plugin_slug === 'scanfully/scanfully.php' ) {
+					return $result;
+				}
+
 				// get new plugin data
 				$plugin_data = get_file_data( WP_PLUGIN_DIR . '/' . $plugin_slug, [
 						'Name'        => 'Plugin Name',
