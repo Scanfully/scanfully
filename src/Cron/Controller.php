@@ -142,8 +142,6 @@ class Controller {
 
 				// save options
 				Options\Controller::set_options( $options );
-			} else {
-				error_log( "no need to refresh access token" );
 			}
 		} catch ( \Exception $e ) {
 			// handle the exception
