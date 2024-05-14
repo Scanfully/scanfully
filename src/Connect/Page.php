@@ -140,8 +140,8 @@ class Page {
 				</div>
 			</div>
 			<div class="scanfully-setup-footer">
-				<p>version 1.0.0</p>
-				<p><a href="https://scanfully.com/docs/"><?php esc_html_e('help center', 'scanfully'); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e('contact us', 'scanfully'); ?></a></p>
+				<p>version <?php esc_html_e( SCANFULLY_VERSION ); ?></p>
+				<p><a href="https://scanfully.com/docs/"><?php esc_html_e( 'help center', 'scanfully' ); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e( 'contact us', 'scanfully' ); ?></a></p>
 			</div>
 		</div>
 		<?php
