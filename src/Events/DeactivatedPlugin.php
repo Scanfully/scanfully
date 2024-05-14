@@ -18,7 +18,7 @@ class DeactivatedPlugin extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PluginDeactivated', 'deactivated_plugin' );
+		parent::__construct( 'PluginDeactivate', 'deactivated_plugin' );
 	}
 
 	/**
