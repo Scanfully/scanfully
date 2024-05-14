@@ -138,6 +138,8 @@ class Page {
 						</p>
 					<?php endif; ?>
 				</div>
+
+				<?php do_action( 'scanfully_connect_page_content_end' ); ?>
 			</div>
 			<div class="scanfully-setup-footer">
 				<p>version <?php esc_html_e( SCANFULLY_VERSION ); ?></p>
