@@ -19,7 +19,7 @@ Scanfully is your favorite WordPress performance and site health monitoring tool
 
 > Scanfully is currently still in development. This means we've not opened up our dashboard for everyone just yet. To be one of the first to learn about when we open up access for Scanfully, subscribe to our [Early Access program](https://scanfully.com/early-access).
 
-Scanfully is your favorite WordPress performance and health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and collects the events happening in your WordPress site. Combined with our various performance-related scans, Scanfully offers you insight into a fully encompasing overview of your site's health.
+Scanfully is your favorite WordPress performance and health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and collects the events happening in your WordPress site. Combined with our various performance-related scans, Scanfully offers you insight into a fully encompassing overview of your site's health.
 
 ## ONE DASHBOARD TO RULE THEM ALL 
 
