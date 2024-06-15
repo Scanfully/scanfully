@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
 Tested up to: 6.5.3
-Stable tag: 1.2.3
+Stable tag: 1.2.4
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -92,6 +92,10 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.2.4 : Jun 15, 2024 =
+* Tweak: Updated logos.
+* Tweak: Set correct event names for pluginactivate and plugindeactivate events.
 
 = 1.2.3 : May 14, 2024 =
 * Tweak: Removed error_log call.
