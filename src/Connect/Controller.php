@@ -173,6 +173,11 @@ class Controller {
 		// save options
 		OptionsController::set_options( $options );
 
+
+		// run cron jobs a single time so user doesn't have to wait for the next cron job
+		wp_schedule_single_event( time(), 'scanfully_daily' );
+		wp_schedule_single_event( time(), 'scanfully_twice_daily' );
+
 		// redirect to base connect page with success message
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
 	}

@@ -93,6 +93,9 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.2.5 : Jun 18, 2024 =
+* Tweak: Directly run site health cron jobs after connecting.
+
 = 1.2.4 : Jun 15, 2024 =
 * Tweak: Updated logos.
 * Tweak: Set correct event names for pluginactivate and plugindeactivate events.
