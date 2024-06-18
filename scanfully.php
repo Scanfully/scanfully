@@ -49,7 +49,7 @@ add_action( 'plugins_loaded', function () {
 	define( 'SCANFULLY_VERSION', '1.2.5' );
 
 	// boot
-	require 'vendor/autoload.php';
+	require __DIR__ . '/vendor/autoload.php';
 	Scanfully()->setup();
 }, 20 );
 
