@@ -97,6 +97,8 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 = 1.2.6 : Jun XX, 2024 =
 * Tweak: Specify __DIR__ on autoload require
+* Tweak: Generate health data in separate function for reusability.
+* Tweak: Added 'scanfully_health_data' filter for health data.
 
 = 1.2.5 : Jun 18, 2024 =
 * Tweak: Directly run site health cron jobs after connecting.
