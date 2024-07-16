@@ -15,11 +15,7 @@ Scanfully is your favorite WordPress performance and site health monitoring tool
 
 ## SCANFULLY FOR WORDPRESS 
 
-> <strong>Early Access</strong><br />
-
-> Scanfully is currently still in development. This means we've not opened up our dashboard for everyone just yet. To be one of the first to learn about when we open up access for Scanfully, subscribe to our [Early Access program](https://scanfully.com/early-access).
-
-Scanfully is your favorite WordPress performance and health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and collects the events happening in your WordPress site. Combined with our various performance-related scans, Scanfully offers you insight into a fully encompasing overview of your site's health.
+Scanfully is your favorite WordPress Performance and Site Health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and bridges the two. It syncs critical information from your WordPress site to our dashboard as well as it collects the changes happening in your WordPress site. Combined with our various performance-related scans, Scanfully offers you insight into a fully encompasing overview of your site's health.
 
 ## ONE DASHBOARD TO RULE THEM ALL 
 
@@ -27,29 +23,35 @@ Your Scanfully Dashboard consolidates all your WordPress sites, sending you time
 
 Easily connect changes made inside your WordPress site to performance and site health impact. Get notifications for the events that are important to you. Right when they happen. Exactly when you want to know they happen.
 
-## SCANFULLY FEATURES
+### SCANFULLY FEATURES
 
-Scanfully helps you stay on top of your WordPress Site Health and Performance in many ways. Let’s take a look!
+Scanfully helps you stay on top of your WordPress Site Health and Performance in many ways. Let’s take a look at what we have available:
 
-### SINGLE DASHBOARD
-All your sites in one dashboard allowing you to easily navigate to the various monitoring features.
+#### SINGLE DASHBOARD
+**All your sites in one dashboard** allowing you to easily navigate to the various monitoring features.
 
-### UPTIME MONITORING 
-Scanfully checks your WordPress sites with comprehensive uptime checks and smart notifications
+#### UPTIME MONITORING 
+Scanfully checks your WordPress sites with **comprehensive uptime monitoring** and **smart notifications**
 
-### PERFORMANCE MONITORING
-We check how fast your site loads and provide you with an easy to read graph and recommendations
+#### PERFORMANCE MONITORING
+We do fequent **Performance Checks** to measure how fast your site loads, and provide you with an easy to read graph and recommendations
 
-### SITE HEALTH
-All of your WordPress site’s health in one view. Easy insight into the health metrics that matter most
+#### SITE HEALTH
+**One Site Health dashboard to rule them all**. We collect and import all of your WordPress site’s health data in one view. Easy insights into the site health metrics that matter the most for your site.
 
-### WORDPRESS EVENTS TIMELINE
-All WordPress events combined with our checks provide you a unique insight into what’s going on
+#### WORDPRESS EVENTS TIMELINE
+Our WordPress Events Timeline **collects all changes happening inside your WordPress admin**. All these events combined with our checks provide you a unique insight into what’s going on. No longer do you have to guess what change caused the problem your client just reported and insisted he didn't do anything to cause it.
 
-### LIGHTHOUSE SCANS (coming soon)
+#### SMART NOTIFICATIONS
+Scanfully's smart notification systems allows you to define where you want to receive [whatever kind of notification you prefer](https://scanfully.com/docs/channels/). We currently offer Slack, Discord, email, and Pushover. 
+
+#### LIGHTHOUSE SCANS (coming soon)
 Automated insights into the performance, accessibility, and quality of your website in one place
 
-## More information
+#### VULNERABILITTY SCANS (coming soon)
+You will want to know as soon as possible when your WordPress site has a vulnerable plugin or theme, right? Well, that's exactly what you'll be receiving notification for when we launch this feature. 
+
+### More information
 
 * Visit the [Scanfully website](http://www.scanfully.com/?utm_source=wp-plugin-repo&utm_medium=link&utm_campaign=more-information)
 * Find and contact us on X(formerly Twitter): [@scanfullyapp](http://x.com/scanfullyapp)
