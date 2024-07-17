@@ -95,7 +95,7 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
-= 1.2.6 : Jun XX, 2024 =
+= 1.2.6 : Jul 17, 2024 =
 * Tweak: Specify __DIR__ on autoload require
 * Tweak: Generate health data in separate function for reusability.
 * Tweak: Added 'scanfully_health_data' filter for health data.
