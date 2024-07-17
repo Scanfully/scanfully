@@ -269,15 +269,7 @@ class Controller {
 		return $map;
 	}
 
-	/**
-	 * Send the health data to the API
-	 *
-	 * @return void
-	 */
-	public static function send_site_data(): void {
-
-		// todo add a transient last sent time to prevent sending too many requests.
-
+	public static function get_site_data(): array {
 		// load wp_site_health class if not loaded, this is not loaded by default.
 		if ( ! class_exists( 'WP_Site_Health' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
@@ -286,8 +278,6 @@ class Controller {
 		if ( ! function_exists( "get_plugins" ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
-
-		$request = new SiteDataRequest();
 
 		// get php settings array.
 		$php_settings = self::get_php_settings();
@@ -338,8 +328,24 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
+		// filter data
+		$data = apply_filters( 'scanfully_health_data', $data );
+
+		return $data;
+	}
+
+	/**
+	 * Send the health data to the API
+	 *
+	 * @return void
+	 */
+	public static function send_site_data(): void {
+
+		// todo add a transient last sent time to prevent sending too many requests.
+
 		// send event.
-		$request->send( $data );
+		$request = new SiteDataRequest();
+		$request->send( self::get_site_data() );
 	}
 
 	/**
