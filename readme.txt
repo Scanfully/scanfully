@@ -3,7 +3,7 @@ Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
-Tested up to: 6.5.3
+Tested up to: 6.6
 Stable tag: 1.2.6
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
