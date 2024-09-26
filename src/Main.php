@@ -64,6 +64,9 @@ class Main {
 		Connect\Controller::setup();
 		Connect\Page::register();
 		Connect\AdminNotice::setup();
+
+		/** Setup uptime controller */
+		Uptime\Controller::setup();
 	}
 
 	/**

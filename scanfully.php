@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.2.6
+ * Version:     1.3.0-dev
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully
@@ -54,6 +54,24 @@ add_action( 'plugins_loaded', function () {
 }, 20 );
 
 // register deactivation hook
-register_deactivation_hook( __FILE__, function() {
+register_deactivation_hook( __FILE__, function () {
 	\Scanfully\Cron\Controller::clear_scheduled_events();
 } );
+
+add_filter( 'barry_filter', function ( $a, $b ) {
+//	sleep(2.2);
+	return $a . ' + ' . $b;
+}, 10, 2);
+
+add_action( 'init', function () {
+	$t = apply_filters( 'barry_filter', 'ja', 'nein' );
+} );
+
+add_action( 'barry_test', function ( $a, $b ) {
+//	error_log('inside barry_test '.$a .' '. $b);
+}, 10, 2 );
+
+add_action( 'shutdown', function () {
+	do_action( 'barry_test', 'a', 'b' );
+} );
+
