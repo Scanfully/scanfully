@@ -42,6 +42,12 @@ function Scanfully(): \Scanfully\Main {
 	return \Scanfully\Main::get();
 }
 
+add_action('mu_plugin_loaded', function () {
+	error_log('mu_plugin_loaded from scanfully.php');
+}, 1);
+
+error_log('root from scanfully.php');
+
 // boot
 add_action( 'plugins_loaded', function () {
 	// meta
