@@ -2,9 +2,25 @@
 
 namespace Scanfully\Performance;
 
+/**
+ * Profiler class.
+ * Heavily inspired by https://github.com/wp-cli/profile-command/blob/main/src/Profiler.php
+ *
+ * Do NOT use this from within WordPress,
+ * it's meant to be used in Scanfully's custom profile file.
+ */
 class Profiler {
 
-	private static function wp_hook_build_unique_id( $tag, $function, $priority ) {
+	/**
+	 * Mimics the wp_hook_build_unique_id function from WordPress core.
+	 *
+	 * @param $tag
+	 * @param $function
+	 * @param $priority
+	 *
+	 * @return string
+	 */
+	private static function wp_hook_build_unique_id( $tag, $function, $priority ): string {
 		global $wp_filter;
 		static $filter_id_count = 0;
 
@@ -30,9 +46,9 @@ class Profiler {
 				if ( false === $priority ) {
 					return false;
 				}
-				$obj_idx                  .= isset( $wp_filter[ $tag ][ $priority ] ) ? count( (array) $wp_filter[ $tag ][ $priority ] ) : $filter_id_count;
+				$obj_idx                   .= isset( $wp_filter[ $tag ][ $priority ] ) ? count( (array) $wp_filter[ $tag ][ $priority ] ) : $filter_id_count;
 				$function[0]->wp_filter_id = $filter_id_count;
-				++$filter_id_count;
+				++ $filter_id_count;
 			} else {
 				$obj_idx .= $function[0]->wp_filter_id;
 			}
@@ -46,7 +62,17 @@ class Profiler {
 		}
 	}
 
-	public static function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ) {
+	/**
+	 * Method forked from CLI. This way we can add hooks before loading WordPress.
+	 *
+	 * @param $tag
+	 * @param $function_to_add
+	 * @param $priority
+	 * @param $accepted_args
+	 *
+	 * @return true
+	 */
+	public static function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ): bool {
 		global $wp_filter, $merged_filters;
 
 		if ( function_exists( 'add_filter' ) ) {
@@ -66,9 +92,9 @@ class Profiler {
 	}
 
 	public function listen() {
-		self::add_wp_hook('muplugins_loaded', function() {
+		self::add_wp_hook( 'muplugins_loaded', function () {
 			error_log( '---------------- PROFILER LISTENING ----------------' );
-		}, 1);
+		}, 1 );
 	}
 
 }

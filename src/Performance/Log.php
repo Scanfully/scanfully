@@ -5,7 +5,7 @@ namespace Scanfully\Performance;
 /**
  * Log class
  *
- * Fored / inspired from https://github.com/wp-cli/profile-command/blob/main/src/Logger.php
+ * Inspired from https://github.com/wp-cli/profile-command/blob/main/src/Logger.php
  */
 class Log {
 	public float $time = 0;
