@@ -1,6 +1,6 @@
 <?php
 
-namespace Scanfully\Performance;
+namespace Scanfully\Profiler;
 
 /**
  * Profiler class.
@@ -91,10 +91,40 @@ class Profiler {
 		return true;
 	}
 
-	public function listen() {
-		self::add_wp_hook( 'muplugins_loaded', function () {
-			error_log( '---------------- PROFILER LISTENING ----------------' );
-		}, 1 );
+	/**
+	 * Check and set if not set needed PHP constants
+	 *
+	 * @return void
+	 */
+	public function handle_constants(): void {
+		error_log('handle_constants');
+
+		if ( defined( 'SAVEQUERIES' ) && ! SAVEQUERIES ) {
+			die( "'SAVEQUERIES' is defined as false, and must be true. Please check your wp-config.php" );
+		}
+		if ( ! defined( 'SAVEQUERIES' ) ) {
+			define( 'SAVEQUERIES', true );
+		}
+	}
+
+	/**
+	 * Listen for hooks.
+	 *
+	 * @return void
+	 */
+	public function listen(): void {
+		self::add_wp_hook( 'all', array('wp_hook_begin'), 1 );
+
+		// @todo: add request begin and end hooks
+	}
+
+	/**
+	 * Get's called on all filters and actions
+	 *
+	 * @return void
+	 */
+	public function wp_hook_begin():void {
+		$current_filter = current_filter();
 	}
 
 }

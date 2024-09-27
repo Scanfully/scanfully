@@ -1,6 +1,6 @@
 <?php
 
-namespace Scanfully\Performance;
+namespace Scanfully\Profiler;
 
 class Controller {
 	public static function setup(): void {
