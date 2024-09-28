@@ -8,6 +8,9 @@ namespace Scanfully\Profiler;
  * Inspired from https://github.com/wp-cli/profile-command/blob/main/src/Logger.php
  */
 class Log {
+
+	private string $id;
+
 	public float $time = 0;
 	private ?float $start_time = null;
 
@@ -30,6 +33,14 @@ class Log {
 	public float $request_time = 0;
 	private ?float $request_start_time = null;
 
+	/**
+	 * Log constructor.
+	 *
+	 * @param  string $id
+	 */
+	public function __construct( string $id ) {
+		$this->id = $id;
+	}
 
 	/**
 	 * Start the log
@@ -120,9 +131,9 @@ class Log {
 	/**
 	 * Start this logger's hook timer
 	 *
+	 * @return void
 	 * @todo check if this is needed
 	 *
-	 * @return void
 	 */
 	public function start_hook_timer(): void {
 		++ $this->hook_count;
@@ -137,11 +148,11 @@ class Log {
 	/**
 	 * Stop this logger's hook timer
 	 *
+	 * @return void
 	 * @todo check if this is needed
 	 *
-	 * @return void
 	 */
-	public function stop_hook_timer():void {
+	public function stop_hook_timer(): void {
 		if ( $this->hook_depth ) {
 			-- $this->hook_depth;
 		} else {

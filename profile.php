@@ -34,8 +34,6 @@ $profiler->handle_constants();
 // start listening
 $profiler->listen();
 
-exit;
-
 // --------------- Start the WordPress simulation ---------------
 
 // do WP 'bootstrap',

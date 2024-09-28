@@ -11,6 +11,17 @@ namespace Scanfully\Profiler;
  */
 class Profiler {
 
+	private LogCollection $collection;
+
+//	private int $hook_depth = 0;
+
+	/**
+	 * Constructor
+	 */
+	public function __construct() {
+		$this->collection = new LogCollection();
+	}
+
 	/**
 	 * Mimics the wp_hook_build_unique_id function from WordPress core.
 	 *
@@ -44,7 +55,7 @@ class Profiler {
 			$obj_idx = get_class( $function[0] ) . $function[1];
 			if ( ! isset( $function[0]->wp_filter_id ) ) {
 				if ( false === $priority ) {
-					return false;
+					return '';
 				}
 				$obj_idx                   .= isset( $wp_filter[ $tag ][ $priority ] ) ? count( (array) $wp_filter[ $tag ][ $priority ] ) : $filter_id_count;
 				$function[0]->wp_filter_id = $filter_id_count;
@@ -60,6 +71,8 @@ class Profiler {
 			// Static Calling
 			return $function[0] . '::' . $function[1];
 		}
+
+		return '';
 	}
 
 	/**
@@ -97,7 +110,7 @@ class Profiler {
 	 * @return void
 	 */
 	public function handle_constants(): void {
-		error_log('handle_constants');
+		error_log( 'handle_constants' );
 
 		if ( defined( 'SAVEQUERIES' ) && ! SAVEQUERIES ) {
 			die( "'SAVEQUERIES' is defined as false, and must be true. Please check your wp-config.php" );
@@ -113,18 +126,44 @@ class Profiler {
 	 * @return void
 	 */
 	public function listen(): void {
-		self::add_wp_hook( 'all', array('wp_hook_begin'), 1 );
+		self::add_wp_hook( 'all', [ $this, 'hook_begin' ], 1, 0 );
 
 		// @todo: add request begin and end hooks
 	}
 
 	/**
-	 * Get's called on all filters and actions
+	 * Called on all filters and actions
 	 *
 	 * @return void
 	 */
-	public function wp_hook_begin():void {
+	public function hook_begin(): void {
+
+		// get current filter
 		$current_filter = current_filter();
+
+		// one level down in hook depth
+//		++$this->hook_depth;
+
+		// bind hook_end to the end of this hook
+		add_action( $current_filter, [ $this, 'hook_end' ], PHP_INT_MAX );
+
+		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
+	}
+
+	/**
+	 * Called when a hook is done (end)
+	 *
+	 * @return void
+	 */
+	public function hook_end( $filter_value = null ) {
+		$current_filter = current_filter();
+
+		error_log( sprintf( "[END] Hook: %s | Depth: %d", $current_filter, 0 ) );
+
+		// one level up in hook depth
+//		--$this->hook_depth;
+
+		return $filter_value;
 	}
 
 }
