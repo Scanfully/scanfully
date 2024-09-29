@@ -5,7 +5,7 @@ namespace Scanfully\Profiler\Data;
 /**
  * Data trait
  */
-trait Data {
+trait ResultData {
 
 	// total time taken
 	public string $display_time = '0.0000';
@@ -52,7 +52,7 @@ trait Data {
 	 *
 	 * @return array
 	 */
-	public final function data_array(): array {
+	public final function result_data_array(): array {
 		return [
 			'display_time'  => $this->display_time,
 			'time'          => $this->time,

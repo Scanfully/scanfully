@@ -7,7 +7,7 @@ namespace Scanfully\Profiler\Data;
  */
 class Plugin implements DataInterface {
 
-	use Data;
+	use ResultData;
 
 	/**
 	 * Plugin name

@@ -7,7 +7,7 @@ namespace Scanfully\Profiler\Data;
  */
 class Stage implements DataInterface {
 
-	use Data;
+	use ResultData;
 
 	/**
 	 * Plugin name
@@ -26,10 +26,10 @@ class Stage implements DataInterface {
 	/**
 	 * Format to JSON
 	 *
-	 * @return arrayy
+	 * @return array
 	 */
 	public final function data(): array {
-		return array_merge( [], $this->data_array() );
+		return array_merge( [], $this->result_data_array() );
 	}
 
 }

@@ -9,6 +9,7 @@ namespace Scanfully\Profiler;
  */
 class Utils {
 
+	// Byte order marks for UTF-8, UTF-16 (BE), and UTF-16 (LE).
 	const BYTE_ORDER_MARKS = [
 		'UTF-8'       => "\xEF\xBB\xBF",
 		'UTF-16 (BE)' => "\xFE\xFF",

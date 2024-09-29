@@ -2,6 +2,9 @@
 
 namespace Scanfully\Profiler;
 
+use Scanfully\Profiler\Data\Callback;
+use Scanfully\Profiler\Data\Hook;
+
 /**
  * Profiler class.
  * Heavily inspired by https://github.com/wp-cli/profile-command/blob/main/src/Profiler.php
@@ -10,8 +13,6 @@ namespace Scanfully\Profiler;
  * it's meant to be used in Scanfully's custom profile file.
  */
 class Profiler {
-
-//	private HookCollection $hook_collection;
 
 	// hook related
 	private array $hooks;
@@ -101,6 +102,9 @@ class Profiler {
 		// get current filter
 		$hook_name = current_filter();
 
+		// create object with hook name
+		$hook = new Data\Hook( $hook_name );
+
 		// get all callbacks for given hook/filter/action/whatever
 		$callbacks = self::get_hook_callbacks( $hook_name );
 
@@ -110,17 +114,26 @@ class Profiler {
 			foreach ( $callbacks as $priority => $priority_callbacks ) {
 				foreach ( $priority_callbacks as $cb_key => $callback ) {
 					$callbacks[ $priority ][ $cb_key ] = array(
-						'function'      => function () use ( $callback, $cb_key, $hook_name ) {
+						'function'      => function () use ( $callback, $cb_key, $hook ) {
 
-							// --
-							//$this->hook_start( $hook_name );
-							self::debug( "CB", 'wrapped cb', [ 'cb' => sprintf( "%v", $callback['function'] ) ] );
+							// get callback details
+							$cb_details = self::get_callback_details( $callback['function'] );
+
+							// create callback object
+							$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
+
+							// add callback to hook stack
+							$hook->add_callback( $callback_object );
+							//self::debug( "CB", 'wrapped cb', [ 'cb' => sprintf( "%v", $callback['function'] ) ] );
+
+							// start callback
+							$callback_object->start();
 
 							// run original callback
 							$value = call_user_func_array( $callback['function'], func_get_args() );
 
-							// --
-							//$this->hook_end();
+							// stop callback
+							$callback_object->stop();
 
 							return $value;
 						},
@@ -133,15 +146,12 @@ class Profiler {
 		// override actual hooks
 		self::set_hook_callbacks( $hook_name, $callbacks );
 
-		// create object with hook name
-		$hook = new Data\Hook( $hook_name );
-
 		// if current hook stack is empty, this is a 'root' hook
 		if ( empty( $this->hook_stack ) ) {
 			$this->hooks[] = $hook;
 		} else {
 			// Otherwise, it's a child hook of the last hook on the stack
-			$parent_hook = end( $this->hook_stack );
+			$parent_hook = $this->get_current_hook();
 			$parent_hook->add_child( $hook );
 		}
 
@@ -199,6 +209,15 @@ class Profiler {
 	}
 
 	/**
+	 * Get the current hook, end of the stack
+	 *
+	 * @return Hook|null
+	 */
+	private final function get_current_hook(): ?Hook {
+		return count( $this->hook_stack ) > 0 ? end( $this->hook_stack ) : null;
+	}
+
+	/**
 	 * Generate JSON data for current profiler results
 	 *
 	 * @return string
@@ -227,7 +246,7 @@ class Profiler {
 	 *
 	 * @return true
 	 */
-	public static function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ): bool {
+	public static final function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ): bool {
 		global $wp_filter, $merged_filters;
 
 		if ( function_exists( 'add_filter' ) ) {
@@ -244,6 +263,44 @@ class Profiler {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Get the details of a callback
+	 *
+	 * @param  mixed $callback
+	 *
+	 * @return array
+	 */
+	private static final function get_callback_details( $callback ): array {
+		$name       = '';
+		$reflection = false;
+		if ( is_array( $callback ) && is_object( $callback[0] ) ) {
+			$reflection = new \ReflectionMethod( $callback[0], $callback[1] );
+			$name       = get_class( $callback[0] ) . '->' . $callback[1] . '()';
+		} elseif ( is_array( $callback ) && method_exists( $callback[0], $callback[1] ) ) {
+			$reflection = new \ReflectionMethod( $callback[0], $callback[1] );
+			$name       = $callback[0] . '::' . $callback[1] . '()';
+		} elseif ( is_object( $callback ) && is_a( $callback, 'Closure' ) ) {
+			$reflection = new \ReflectionFunction( $callback );
+			$name       = 'function(){}';
+		} elseif ( is_string( $callback ) && function_exists( $callback ) ) {
+			$reflection = new \ReflectionFunction( $callback );
+			$name       = $callback . '()';
+		}
+		if ( ! $reflection ) {
+			return [
+				'name' => 'unknown',
+				'file' => 'unknown',
+				'line' => 0,
+			];
+		}
+
+		return [
+			'name' => $name,
+			'file' => $reflection->getFileName(),
+			'line' => $reflection->getStartLine(),
+		];
 	}
 
 	/**
