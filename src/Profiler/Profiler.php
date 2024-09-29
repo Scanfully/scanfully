@@ -17,10 +17,14 @@ class Profiler {
 	private array $hooks;
 	private array $hook_stack;
 
-	// plugins
+	// stages
 	private array $stages;
 
-	private $stage_hooks = array(
+	// the plugins
+	private array $plugins;
+
+	// stage hooks, used to check on hook end if we should add that data to a stage data
+	private array $stage_hooks = array(
 		'bootstrap'  => array(
 			'muplugins_loaded',
 			'plugins_loaded',
@@ -46,6 +50,8 @@ class Profiler {
 		),
 	);
 
+	const debug = true;
+
 	/**
 	 * Constructor
 	 */
@@ -57,6 +63,233 @@ class Profiler {
 			'main_query' => new Data\Stage( 'main_query' ),
 			'template'   => new Data\Stage( 'template' )
 		];
+	}
+
+	/**
+	 * Check and set if not set needed PHP constants
+	 *
+	 * @return void
+	 */
+	public function handle_constants(): void {
+		self::debug( 'HANDLE_CONSTANTS', 'handling constants' );
+		if ( defined( 'SAVEQUERIES' ) && ! SAVEQUERIES ) {
+			die( "'SAVEQUERIES' is defined as false, and must be true. Please check your wp-config.php" );
+		}
+		if ( ! defined( 'SAVEQUERIES' ) ) {
+			define( 'SAVEQUERIES', true );
+		}
+	}
+
+	/**
+	 * Listen for hooks.
+	 *
+	 * @return void
+	 */
+	public function listen(): void {
+		self::add_wp_hook( 'all', [ $this, 'hook_begin' ], 1, 0 );
+
+		// @todo: add request begin and end hooks
+	}
+
+	/**
+	 * Called on all filters and actions
+	 *
+	 * @return void
+	 */
+	public function hook_begin(): void {
+
+		// get current filter
+		$hook_name = current_filter();
+
+		// get all callbacks for given hook/filter/action/whatever
+		$callbacks = self::get_hook_callbacks( $hook_name );
+
+		// check if there are any callbacks
+		if ( $callbacks !== null ) {
+			// loop through current hooks, and wrap them all within our own func
+			foreach ( $callbacks as $priority => $priority_callbacks ) {
+				foreach ( $priority_callbacks as $cb_key => $callback ) {
+					$callbacks[ $priority ][ $cb_key ] = array(
+						'function'      => function () use ( $callback, $cb_key, $hook_name ) {
+
+							// --
+							//$this->hook_start( $hook_name );
+							self::debug( "CB", 'wrapped cb', [ 'cb' => sprintf( "%v", $callback['function'] ) ] );
+
+							// run original callback
+							$value = call_user_func_array( $callback['function'], func_get_args() );
+
+							// --
+							//$this->hook_end();
+
+							return $value;
+						},
+						'accepted_args' => $callback['accepted_args'],
+					);
+				}
+			}
+		}
+
+		// override actual hooks
+		self::set_hook_callbacks( $hook_name, $callbacks );
+
+		// create object with hook name
+		$hook = new Data\Hook( $hook_name );
+
+		// if current hook stack is empty, this is a 'root' hook
+		if ( empty( $this->hook_stack ) ) {
+			$this->hooks[] = $hook;
+		} else {
+			// Otherwise, it's a child hook of the last hook on the stack
+			$parent_hook = end( $this->hook_stack );
+			$parent_hook->add_child( $hook );
+		}
+
+		// Push the current event onto the stack
+		$this->hook_stack[] = $hook;
+
+		// start the hook
+		$hook->start();
+
+		// bind hook_end to the end of this hook
+		add_action( $hook_name, [ $this, 'hook_end' ], PHP_INT_MAX );
+
+//		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
+	}
+
+	/**
+	 * Called when a hook is done (end)
+	 *
+	 * @return void
+	 */
+	public function hook_end( $filter_value = null ) {
+
+		// get current filter
+		$hook_name = current_filter();
+
+		// start hook in log collection
+		$s = count( $this->hook_stack );
+
+		// ge the hook from the stack
+		$hook = array_pop( $this->hook_stack );
+
+		if ( $hook == null ) {
+			self::debug( 'HOOK_END', 'Hook not started but we\'re in hook_end', [ 'name' => $hook_name, 'stack_count' => $s ] );
+
+			return null;
+		}
+
+		// stop the hook
+		$hook->stop();
+
+		// check if this hook is part of one of the stages
+		foreach ( $this->stage_hooks as $stage_name => $stage_hooks ) {
+			foreach ( $stage_hooks as $stage_hook ) {
+				if ( $hook->hook_name == $stage_hook ) {
+					self::debug( 'STAGE_ADD', 'adding data to stage hook', [ 'name' => $stage_name, 'hook' => $stage_hook ] );
+					$this->stages[ $stage_name ]->add( $hook );
+				}
+			}
+		}
+
+		// let's identify the origin of the
+
+
+		return $filter_value;
+	}
+
+	/**
+	 * Generate JSON data for current profiler results
+	 *
+	 * @return string
+	 */
+	public final function generate_json(): string {
+		$json_data = [ 'stages' => [], 'hooks' => [] ];
+
+		foreach ( $this->stages as $stage ) {
+			$json_data['stages'][] = $stage->data();
+		}
+
+		foreach ( $this->hooks as $hook ) {
+			$json_data['hooks'][] = $hook->data();
+		}
+
+		return json_encode( $json_data );
+	}
+
+	/**
+	 * This way we can add hooks before loading WordPress.
+	 *
+	 * @param $tag
+	 * @param $function_to_add
+	 * @param $priority
+	 * @param $accepted_args
+	 *
+	 * @return true
+	 */
+	public static function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ): bool {
+		global $wp_filter, $merged_filters;
+
+		if ( function_exists( 'add_filter' ) ) {
+			add_filter( $tag, $function_to_add, $priority, $accepted_args );
+		} else {
+			$idx = self::wp_hook_build_unique_id( $tag, $function_to_add, $priority );
+
+			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- This is intentional & the purpose of this function.
+			$wp_filter[ $tag ][ $priority ][ $idx ] = [
+				'function'      => $function_to_add,
+				'accepted_args' => $accepted_args,
+			];
+			unset( $merged_filters[ $tag ] );
+		}
+
+		return true;
+	}
+
+	/**
+	 * Get the callbacks for a given filter
+	 *
+	 * @param  string $hook_name
+	 *
+	 * @return array
+	 */
+	private static final function get_hook_callbacks( string $hook_name ): ?array {
+		global $wp_filter;
+
+		if ( ! isset( $wp_filter[ $hook_name ] ) ) {
+			return null;
+		}
+
+		if ( is_a( $wp_filter[ $hook_name ], 'WP_Hook' ) ) {
+			$callbacks = $wp_filter[ $hook_name ]->callbacks;
+		} else {
+			$callbacks = $wp_filter[ $hook_name ];
+		}
+		if ( is_array( $callbacks ) ) {
+			return $callbacks;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Set the callbacks for a given filter
+	 *
+	 * @param  string $hook
+	 * @param  mixed $callbacks
+	 */
+	private static function set_hook_callbacks( string $hook, $callbacks ): void {
+		global $wp_filter;
+
+		if ( ! isset( $wp_filter[ $hook ] ) && class_exists( 'WP_Hook' ) ) {
+			$wp_filter[ $hook ] = new \WP_Hook(); // phpcs:ignore
+		}
+
+		if ( is_a( $wp_filter[ $hook ], 'WP_Hook' ) ) {
+			$wp_filter[ $hook ]->callbacks = $callbacks;
+		} else {
+			$wp_filter[ $hook ] = $callbacks; // phpcs:ignore
+		}
 	}
 
 	/**
@@ -113,152 +346,27 @@ class Profiler {
 	}
 
 	/**
-	 * Method forked from CLI. This way we can add hooks before loading WordPress.
+	 * Pretty CLI debugging
 	 *
-	 * @param $tag
-	 * @param $function_to_add
-	 * @param $priority
-	 * @param $accepted_args
-	 *
-	 * @return true
-	 */
-	public static function add_wp_hook( $tag, $function_to_add, $priority = 10, $accepted_args = 1 ): bool {
-		global $wp_filter, $merged_filters;
-
-		if ( function_exists( 'add_filter' ) ) {
-			add_filter( $tag, $function_to_add, $priority, $accepted_args );
-		} else {
-			$idx = self::wp_hook_build_unique_id( $tag, $function_to_add, $priority );
-
-			// phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- This is intentional & the purpose of this function.
-			$wp_filter[ $tag ][ $priority ][ $idx ] = [
-				'function'      => $function_to_add,
-				'accepted_args' => $accepted_args,
-			];
-			unset( $merged_filters[ $tag ] );
-		}
-
-		return true;
-	}
-
-	/**
-	 * Check and set if not set needed PHP constants
+	 * @param  string $key
+	 * @param  string $message
+	 * @param  array|null $values
 	 *
 	 * @return void
 	 */
-	public function handle_constants(): void {
-		error_log( 'handle_constants' );
-
-		if ( defined( 'SAVEQUERIES' ) && ! SAVEQUERIES ) {
-			die( "'SAVEQUERIES' is defined as false, and must be true. Please check your wp-config.php" );
+	private static final function debug( string $key, string $message, ?array $values = null ): void {
+		if ( ! self::debug ) {
+			return;
 		}
-		if ( ! defined( 'SAVEQUERIES' ) ) {
-			define( 'SAVEQUERIES', true );
-		}
-	}
-
-	/**
-	 * Listen for hooks.
-	 *
-	 * @return void
-	 */
-	public function listen(): void {
-		self::add_wp_hook( 'all', [ $this, 'hook_begin' ], 1, 0 );
-
-		// @todo: add request begin and end hooks
-	}
-
-	/**
-	 * Called on all filters and actions
-	 *
-	 * @return void
-	 */
-	public function hook_begin(): void {
-
-		// get current filter
-		$hook_name = current_filter();
-
-		// @todo wrap the callback
-
-		// create object with hook name
-		$hook = new Data\Hook( $hook_name );
-
-		// if current hook stack is empty, this is a 'root' hook
-		if ( empty( $this->hook_stack ) ) {
-			$this->hooks[] = $hook;
-		} else {
-			// Otherwise, it's a child hook of the last hook on the stack
-			$parent_hook = end( $this->hook_stack );
-			$parent_hook->add_child( $hook );
-		}
-
-		// Push the current event onto the stack
-		$this->hook_stack[] = $hook;
-
-		// start the hook
-		$hook->start();
-
-		// bind hook_end to the end of this hook
-		add_action( $hook_name, [ $this, 'hook_end' ], PHP_INT_MAX );
-
-//		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
-	}
-
-	/**
-	 * Called when a hook is done (end)
-	 *
-	 * @return void
-	 */
-	public function hook_end( $filter_value = null ) {
-
-		// get current filter
-		$hook_name = current_filter();
-
-		// start hook in log collection
-		$s = count( $this->hook_stack );
-
-		// ge the hook from the stack
-		$hook = array_pop( $this->hook_stack );
-
-		if ( $hook == null ) {
-			error_log( 'Hook not started but we\'re in hook_end: ' . $hook_name . ' | current stack count: ' . $s );
-
-			return null;
-		}
-
-		// stop the hook
-		$hook->stop();
-
-		// check if this hook is part of one of the stages
-		foreach ( $this->stage_hooks as $stage_name => $stage_hooks ) {
-			foreach ( $stage_hooks as $stage_hook ) {
-				if ( $hook->hook_name == $stage_hook ) {
-					error_log( sprintf( "adding to %s for hook %s", $stage_name, $stage_hook ) );
-					$this->stages[ $stage_name ]->add( $hook );
-				}
+		$fv     = " |" . str_repeat( " ", 5 );
+		$spaces = 15;
+		if ( $values != null ) {
+			foreach ( $values as $k => $v ) {
+				$s  = $spaces - strlen( $v );
+				$fv .= sprintf( "%s: %s%s", $k, $v, str_repeat( " ", max( $s, 0 ) ) );
 			}
 		}
 
-
-		return $filter_value;
-	}
-
-	/**
-	 * Generate JSON data for current profiler results
-	 *
-	 * @return string
-	 */
-	public function generate_json(): string {
-		$json_data = [ 'stages' => [], 'hooks' => [] ];
-
-		foreach ( $this->stages as $stage ) {
-			$json_data['stages'][] = $stage->data();
-		}
-
-		foreach ( $this->hooks as $hook ) {
-			$json_data['hooks'][] = $hook->data();
-		}
-
-		return json_encode( $json_data );
+		error_log( sprintf( "[PROFILER][%s]: %s %s", $key, $message, $fv ) );
 	}
 }

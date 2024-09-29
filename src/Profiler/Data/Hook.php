@@ -149,7 +149,7 @@ class Hook implements DataInterface {
 	/**
 	 * Format data to JSON
 	 *
-	 * @return string
+	 * @return array
 	 */
 	public final function data(): array {
 		return array_merge( $this->hook_data( $this ), $this->data_array() );
@@ -163,11 +163,11 @@ class Hook implements DataInterface {
 	 * @return array
 	 */
 	private final function hook_data( Hook $h ): array {
-		return [
+		return array_merge( [
 			'id'        => $h->id,
 			'hook_name' => $h->hook_name,
 			'children'  => array_map( fn( $child ) => $this->hook_data( $child ), $h->children ),
-		];
+		], $h->data_array() );
 	}
 
 

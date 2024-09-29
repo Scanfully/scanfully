@@ -5,7 +5,7 @@ namespace Scanfully\Profiler\Data;
 /**
  * Plugin profile data
  */
-class Plugin {
+class Plugin implements DataInterface {
 
 	use Data;
 
@@ -23,4 +23,12 @@ class Plugin {
 		$this->name = $name;
 	}
 
+	/**
+	 * Plugin data
+	 *
+	 * @return array
+	 */
+	public function data(): array {
+		return [ 'plugin' => 'hehe' ];
+	}
 }

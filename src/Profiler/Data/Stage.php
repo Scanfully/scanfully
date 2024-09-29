@@ -26,7 +26,7 @@ class Stage implements DataInterface {
 	/**
 	 * Format to JSON
 	 *
-	 * @return string
+	 * @return arrayy
 	 */
 	public final function data(): array {
 		return array_merge( [], $this->data_array() );
