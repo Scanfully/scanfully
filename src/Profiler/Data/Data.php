@@ -33,7 +33,7 @@ trait Data {
 	 *
 	 * @return void
 	 */
-	public function add( DataInterface $data ) {
+	public final function add( DataInterface $data ) {
 		$this->time          += $data->time;
 		$this->query_count   += $data->query_count;
 		$this->query_time    += $data->query_time;
@@ -45,6 +45,27 @@ trait Data {
 		$this->request_time  += $data->request_time;
 
 		$this->format_display_time();
+	}
+
+	/**
+	 * Get data as array
+	 *
+	 * @return array
+	 */
+	public final function data_array(): array {
+		return [
+			'display_time'  => $this->display_time,
+			'time'          => $this->time,
+			'query_count'   => $this->query_count,
+			'query_time'    => $this->query_time,
+			'cache_hits'    => $this->cache_hits,
+			'cache_misses'  => $this->cache_misses,
+			'cache_ratio'   => $this->cache_ratio,
+			'hook_count'    => $this->hook_count,
+			'hook_time'     => $this->hook_time,
+			'request_count' => $this->request_count,
+			'request_time'  => $this->request_time,
+		];
 	}
 
 	/**

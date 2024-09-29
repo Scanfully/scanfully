@@ -44,7 +44,7 @@ class Hook implements DataInterface {
 	 * @param  string $id
 	 */
 	public function __construct( string $id ) {
-		$this->id        = $id;
+		$this->id        = $id . '_' . uniqid();
 		$this->hook_name = $id;
 	}
 
@@ -145,5 +145,30 @@ class Hook implements DataInterface {
 		}
 		$this->request_start_time = null;
 	}
+
+	/**
+	 * Format data to JSON
+	 *
+	 * @return string
+	 */
+	public final function data(): array {
+		return array_merge( $this->hook_data( $this ), $this->data_array() );
+	}
+
+	/**
+	 * A recursive function to format the hook data, so we can include an infinite number of children
+	 *
+	 * @param  Hook $h
+	 *
+	 * @return array
+	 */
+	private final function hook_data( Hook $h ): array {
+		return [
+			'id'        => $h->id,
+			'hook_name' => $h->hook_name,
+			'children'  => array_map( fn( $child ) => $this->hook_data( $child ), $h->children ),
+		];
+	}
+
 
 }

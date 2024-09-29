@@ -232,7 +232,7 @@ class Profiler {
 		// check if this hook is part of one of the stages
 		foreach ( $this->stage_hooks as $stage_name => $stage_hooks ) {
 			foreach ( $stage_hooks as $stage_hook ) {
-				if ( $hook->id == $stage_hook ) {
+				if ( $hook->hook_name == $stage_hook ) {
 					error_log( sprintf( "adding to %s for hook %s", $stage_name, $stage_hook ) );
 					$this->stages[ $stage_name ]->add( $hook );
 				}
@@ -249,10 +249,15 @@ class Profiler {
 	 * @return string
 	 */
 	public function generate_json(): string {
-		$json_data = [
-			'stages' => $this->stages,
-			'hook'   => $this->hooks,
-		];
+		$json_data = [ 'stages' => [], 'hooks' => [] ];
+
+		foreach ( $this->stages as $stage ) {
+			$json_data['stages'][] = $stage->data();
+		}
+
+		foreach ( $this->hooks as $hook ) {
+			$json_data['hooks'][] = $hook->data();
+		}
 
 		return json_encode( $json_data );
 	}
