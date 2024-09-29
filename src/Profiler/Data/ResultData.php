@@ -44,6 +44,9 @@ trait ResultData {
 		$this->request_count += $data->request_count;
 		$this->request_time  += $data->request_time;
 
+		// a hook is added
+		++$this->hook_count;
+
 		$this->format_display_time();
 	}
 
