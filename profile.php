@@ -1,5 +1,8 @@
 <?php
 
+ini_set( "log_errors", 1 );
+ini_set( "error_log", $_SERVER['DOCUMENT_ROOT'] . "/wp-content/debug.log" );
+
 // WordPress can't be loaded more than once
 if ( function_exists( 'add_filter' ) ) {
 	echo 'already ran';
@@ -59,4 +62,6 @@ ob_get_clean();
 // --------------- End the WordPress simulation ---------------
 
 // stop listening, gather info, yadayadayadayada
-echo 'done';
+//echo 'done';
+header( 'Content-Type: application/json' );
+echo $profiler->generate_json();

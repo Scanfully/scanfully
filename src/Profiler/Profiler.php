@@ -11,15 +11,52 @@ namespace Scanfully\Profiler;
  */
 class Profiler {
 
-	private LogCollection $collection;
+//	private HookCollection $hook_collection;
 
-//	private int $hook_depth = 0;
+	// hook related
+	private array $hooks;
+	private array $hook_stack;
+
+	// plugins
+	private array $stages;
+
+	private $stage_hooks = array(
+		'bootstrap'  => array(
+			'muplugins_loaded',
+			'plugins_loaded',
+			'setup_theme',
+			'after_setup_theme',
+			'init',
+			'wp_loaded',
+		),
+		'main_query' => array(
+			'parse_request',
+			'send_headers',
+			'pre_get_posts',
+			'the_posts',
+			'wp',
+		),
+		'template'   => array(
+			'template_redirect',
+			'template_include',
+			'wp_head',
+			'loop_start',
+			'loop_end',
+			'wp_footer',
+		),
+	);
 
 	/**
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->collection = new LogCollection();
+		$this->hooks      = [];
+		$this->hook_stack = [];
+		$this->stages     = [
+			'bootstrap'  => new Data\Stage( 'bootstrap' ),
+			'main_query' => new Data\Stage( 'main_query' ),
+			'template'   => new Data\Stage( 'template' )
+		];
 	}
 
 	/**
@@ -139,15 +176,32 @@ class Profiler {
 	public function hook_begin(): void {
 
 		// get current filter
-		$current_filter = current_filter();
+		$hook_name = current_filter();
 
-		// one level down in hook depth
-//		++$this->hook_depth;
+		// @todo wrap the callback
+
+		// create object with hook name
+		$hook = new Data\Hook( $hook_name );
+
+		// if current hook stack is empty, this is a 'root' hook
+		if ( empty( $this->hook_stack ) ) {
+			$this->hooks[] = $hook;
+		} else {
+			// Otherwise, it's a child hook of the last hook on the stack
+			$parent_hook = end( $this->hook_stack );
+			$parent_hook->add_child( $hook );
+		}
+
+		// Push the current event onto the stack
+		$this->hook_stack[] = $hook;
+
+		// start the hook
+		$hook->start();
 
 		// bind hook_end to the end of this hook
-		add_action( $current_filter, [ $this, 'hook_end' ], PHP_INT_MAX );
+		add_action( $hook_name, [ $this, 'hook_end' ], PHP_INT_MAX );
 
-		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
+//		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
 	}
 
 	/**
@@ -156,14 +210,50 @@ class Profiler {
 	 * @return void
 	 */
 	public function hook_end( $filter_value = null ) {
-		$current_filter = current_filter();
 
-		error_log( sprintf( "[END] Hook: %s | Depth: %d", $current_filter, 0 ) );
+		// get current filter
+		$hook_name = current_filter();
 
-		// one level up in hook depth
-//		--$this->hook_depth;
+		// start hook in log collection
+		$s = count( $this->hook_stack );
+
+		// ge the hook from the stack
+		$hook = array_pop( $this->hook_stack );
+
+		if ( $hook == null ) {
+			error_log( 'Hook not started but we\'re in hook_end: ' . $hook_name . ' | current stack count: ' . $s );
+
+			return null;
+		}
+
+		// stop the hook
+		$hook->stop();
+
+		// check if this hook is part of one of the stages
+		foreach ( $this->stage_hooks as $stage_name => $stage_hooks ) {
+			foreach ( $stage_hooks as $stage_hook ) {
+				if ( $hook->id == $stage_hook ) {
+					error_log( sprintf( "adding to %s for hook %s", $stage_name, $stage_hook ) );
+					$this->stages[ $stage_name ]->add( $hook );
+				}
+			}
+		}
+
 
 		return $filter_value;
 	}
 
+	/**
+	 * Generate JSON data for current profiler results
+	 *
+	 * @return string
+	 */
+	public function generate_json(): string {
+		$json_data = [
+			'stages' => $this->stages,
+			'hook'   => $this->hooks,
+		];
+
+		return json_encode( $json_data );
+	}
 }

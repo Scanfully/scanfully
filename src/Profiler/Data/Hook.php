@@ -1,36 +1,41 @@
 <?php
 
-namespace Scanfully\Profiler;
+namespace Scanfully\Profiler\Data;
 
 /**
- * Log class
+ * HookLog class
  *
  * Inspired from https://github.com/wp-cli/profile-command/blob/main/src/Logger.php
  */
-class Log {
+class Hook implements DataInterface {
 
-	private string $id;
+	// use the data trait
+	use Data;
 
-	public float $time = 0;
+	// unique identifier
+	public string $id;
+
+	// hook name
+	public string $hook_name;
+
+	// children log objects
+	private array $children = [];
+
+	// internal
 	private ?float $start_time = null;
 
-	public int $query_count = 0;
-	public float $query_time = 0;
+	// internal
 	private ?int $query_offset = null;
 
+	// internal
 	private ?int $cache_hit_offset = null;
 	private ?int $cache_miss_offset = null;
-	public int $cache_hits = 0;
-	public int $cache_misses = 0;
-	public ?string $cache_ratio = null;
 
-	public int $hook_count = 0;
-	public float $hook_time = 0;
+	// internal
 	private ?float $hook_start_time = null;
 	private int $hook_depth = 0;
 
-	public int $request_count = 0;
-	public float $request_time = 0;
+	// internal
 	private ?float $request_start_time = null;
 
 	/**
@@ -39,7 +44,19 @@ class Log {
 	 * @param  string $id
 	 */
 	public function __construct( string $id ) {
-		$this->id = $id;
+		$this->id        = $id;
+		$this->hook_name = $id;
+	}
+
+	/**
+	 * Add a child log
+	 *
+	 * @param  Hook $child
+	 *
+	 * @return void
+	 */
+	public final function add_child( Hook $child ): void {
+		$this->children[] = $child;
 	}
 
 	/**
@@ -47,7 +64,7 @@ class Log {
 	 *
 	 * @return void
 	 */
-	public function start(): void {
+	public final function start(): void {
 		global $wpdb, $wp_object_cache;
 		$this->start_time        = microtime( true );
 		$this->query_offset      = ! empty( $wpdb->queries ) ? count( $wpdb->queries ) : 0;
@@ -60,12 +77,13 @@ class Log {
 	 *
 	 * @return void
 	 */
-	public function stop(): void {
+	public final function stop(): void {
 		global $wpdb, $wp_object_cache;
 
 		// set total time
 		if ( ! is_null( $this->start_time ) ) {
 			$this->time += microtime( true ) - $this->start_time;
+			$this->format_display_time();
 		}
 
 		// set total query time and count
@@ -102,7 +120,7 @@ class Log {
 	/**
 	 * Check if the log is running
 	 */
-	public function running(): bool {
+	public final function running(): bool {
 		return ! is_null( $this->start_time );
 	}
 
@@ -111,7 +129,7 @@ class Log {
 	 *
 	 * @return void
 	 */
-	public function start_request_timer(): void {
+	public final function start_request_timer(): void {
 		++ $this->request_count;
 		$this->request_start_time = microtime( true );
 	}
@@ -121,46 +139,11 @@ class Log {
 	 *
 	 * @return void
 	 */
-	public function stop_request_timer(): void {
+	public final function stop_request_timer(): void {
 		if ( ! is_null( $this->request_start_time ) ) {
 			$this->request_time += microtime( true ) - $this->request_start_time;
 		}
 		$this->request_start_time = null;
-	}
-
-	/**
-	 * Start this logger's hook timer
-	 *
-	 * @return void
-	 * @todo check if this is needed
-	 *
-	 */
-	public function start_hook_timer(): void {
-		++ $this->hook_count;
-		// Timer already running means a subhook has been called
-		if ( ! is_null( $this->hook_start_time ) ) {
-			++ $this->hook_depth;
-		} else {
-			$this->hook_start_time = microtime( true );
-		}
-	}
-
-	/**
-	 * Stop this logger's hook timer
-	 *
-	 * @return void
-	 * @todo check if this is needed
-	 *
-	 */
-	public function stop_hook_timer(): void {
-		if ( $this->hook_depth ) {
-			-- $this->hook_depth;
-		} else {
-			if ( ! is_null( $this->hook_start_time ) ) {
-				$this->hook_time += microtime( true ) - $this->hook_start_time;
-			}
-			$this->hook_start_time = null;
-		}
 	}
 
 }
