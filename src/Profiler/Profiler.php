@@ -19,7 +19,10 @@ class Profiler {
 	private array $stack;
 	private array $child_stack;
 	private string $prev_hook;
-	private array $prev_callbacks;
+	private ?array $prev_callbacks = null;
+
+	// internal, we need this to avoid wrapping the same hook multiple times
+	private int $hook_depth = 0;
 
 	// hooks
 	private array $hooks;
@@ -108,17 +111,15 @@ class Profiler {
 		$hook_name = current_filter();
 
 		// debugging
-		if ( $hook_name != "query" ) {
-//			return;
+		if ( $hook_name != "parse_request" && $hook_name != "hehe_action" && $hook_name != "hehe_action_child" ) {
+			//return;
 		}
 
-		self::debug( 'HOOK_BEGIN', 'hook begin', [ 'name' => $hook_name ] );
+//		self::debug( 'HOOK_BEGIN', 'hook begin', [ 'name' => $hook_name ] );
 
 		// create object with hook name
 		$hook = new Data\StackItem( $hook_name );
 
-		// wrap all callbacks for this hook
-		$this->wrap_hook_callbacks( $hook );
 
 		// if current hook stack is empty, this is a 'root' hook
 		if ( empty( $this->child_stack ) ) {
@@ -134,6 +135,19 @@ class Profiler {
 
 		// start the hook
 		$hook->start();
+
+		if ( 0 === $this->hook_depth
+		     && ! is_null( $this->prev_callbacks ) ) {
+			self::set_hook_callbacks( $this->prev_hook, $this->prev_callbacks );
+			$this->prev_callbacks = null;
+		}
+
+		// wrap all callbacks for this hook
+//		if ( 0 === $this->filter_depth ) {
+//			$this->wrap_hook_callbacks( $hook );
+//		}
+
+		++ $this->hook_depth;
 
 		// bind hook_end to the end of this hook
 		add_action( $hook_name, [ $this, 'hook_end' ], PHP_INT_MAX );
@@ -182,18 +196,29 @@ class Profiler {
 		}
 		$this->hooks[ $hook_name ]->add( $hook );
 
+		-- $this->hook_depth;
 
 		return $filter_value;
 	}
 
+	/**
+	 *
+	 * @param  StackItem $hook
+	 *
+	 * @return void
+	 */
 	private final function wrap_hook_callbacks( Data\StackItem $hook ): void {
 
 //		return;
 
-		self::debug( 'WRAP_HOOK_CALLBACKS', 'wrapping hook callbacks', [ 'name' => $hook->hook_name ] );
+		//self::debug( 'WRAP_HOOK_CALLBACKS', 'wrapping hook callbacks', [ 'name' => $hook->hook_name ] );
 
 		// get all callbacks for given hook/filter/action/whatever
 		$callbacks = self::get_hook_callbacks( $hook->hook_name );
+
+		if ( $callbacks === null ) {
+			return;
+		}
 
 		// debug
 		//if ( $hook_name != "barry_antwoord" ) return;
@@ -203,52 +228,52 @@ class Profiler {
 
 
 		// check if there are any callbacks
-		if ( $callbacks !== null ) {
 
-			// set prev stuff, testing
-			$this->prev_hook      = $hook->hook_name;
-			$this->prev_callbacks = $callbacks;
+		// set prev stuff, testing
+		$this->prev_hook      = $hook->hook_name;
+		$this->prev_callbacks = $callbacks;
 
-			// loop through current hooks, and wrap them all within our own func
-			foreach ( $callbacks as $priority => $priority_callbacks ) {
-				foreach ( $priority_callbacks as $cb_key => $callback ) {
+		// loop through current hooks, and wrap them all within our own func
+		foreach ( $callbacks as $priority => $priority_callbacks ) {
+			foreach ( $priority_callbacks as $cb_key => $callback ) {
 
 
-					$cb_details      = self::get_callback_details( $callback['function'] );
-					$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
-					$hook->add_callback( $callback_object );
-					continue;
+				/*					$cb_details      = self::get_callback_details( $callback['function'] );
+									$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
+									$hook->add_callback( $callback_object );
+									continue;
+				*/
 
-					$callbacks[ $priority ][ $cb_key ] = array(
-						'function'      => function () use ( $callback, $cb_key, $hook ) {
-							// get callback details
-							$cb_details = self::get_callback_details( $callback['function'] );
+				$callbacks[ $priority ][ $cb_key ] = array(
+					'function'      => function () use ( $callback, $cb_key, $hook ) {
+						// get callback details
+						$cb_details = self::get_callback_details( $callback['function'] );
 
-							// create callback object
-							$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
+						// create callback object
+						$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
 
-							// add callback to hook stack
-							$hook->add_callback( $callback_object );
+						// add callback to hook stack
+						$hook->add_callback( $callback_object );
 
-							// start callback
-							$callback_object->start();
+						// start callback
+						$callback_object->start();
 
-							// run original callback
-							$value = call_user_func_array( $callback['function'], func_get_args() );
+						// run original callback
+						$value = call_user_func_array( $callback['function'], func_get_args() );
 
-							// stop callback
-							$callback_object->stop();
+						// stop callback
+						$callback_object->stop();
 
-							return $value;
-						},
-						'accepted_args' => $callback['accepted_args'],
-					);
-				}
+						return $value;
+					},
+					'accepted_args' => $callback['accepted_args'],
+				);
 			}
-
-			// override actual hooks
-			self::set_hook_callbacks( $hook->hook_name, $callbacks );
 		}
+
+		// override actual hooks
+		self::set_hook_callbacks( $hook->hook_name, $callbacks );
+
 	}
 
 	/**
@@ -268,9 +293,9 @@ class Profiler {
 	public final function generate_json(): string {
 		$json_data = [ 'hooks' => [], 'stages' => [], 'stack' => [] ];
 
-		/*foreach ( $this->stages as $stage ) {
+		foreach ( $this->stages as $stage ) {
 			$json_data['stages'][] = $stage->data();
-		}*/
+		}
 
 		foreach ( $this->stack as $hook ) {
 			$json_data['stack'][] = $hook->data();
@@ -318,6 +343,7 @@ class Profiler {
 	 * @param  mixed $callback
 	 *
 	 * @return array
+	 * @throws \ReflectionException
 	 */
 	private static final function get_callback_details( $callback ): array {
 		$name       = '';
