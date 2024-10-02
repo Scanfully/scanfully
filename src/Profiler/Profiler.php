@@ -208,26 +208,13 @@ class Profiler {
 	 * @return void
 	 */
 	private final function wrap_hook_callbacks( Data\StackItem $hook ): void {
-
-//		return;
-
-		//self::debug( 'WRAP_HOOK_CALLBACKS', 'wrapping hook callbacks', [ 'name' => $hook->hook_name ] );
-
 		// get all callbacks for given hook/filter/action/whatever
 		$callbacks = self::get_hook_callbacks( $hook->hook_name );
 
+		// check if there are any callbacks
 		if ( $callbacks === null ) {
 			return;
 		}
-
-		// debug
-		//if ( $hook_name != "barry_antwoord" ) return;
-
-		///self::debug( 'barry_antwoord', ':)', [ 'name' => $hook->hook_name, 'cb_size' => count( $callbacks ) ] );
-//			error_log( print_r( $callbacks, 1 ) );
-
-
-		// check if there are any callbacks
 
 		// set prev stuff, testing
 		$this->prev_hook      = $hook->hook_name;
@@ -236,13 +223,6 @@ class Profiler {
 		// loop through current hooks, and wrap them all within our own func
 		foreach ( $callbacks as $priority => $priority_callbacks ) {
 			foreach ( $priority_callbacks as $cb_key => $callback ) {
-
-
-				/*					$cb_details      = self::get_callback_details( $callback['function'] );
-									$callback_object = new Callback( $cb_details['name'], $cb_details['file'], $cb_details['line'] );
-									$hook->add_callback( $callback_object );
-									continue;
-				*/
 
 				$callbacks[ $priority ][ $cb_key ] = array(
 					'function'      => function () use ( $callback, $cb_key, $hook ) {
@@ -273,7 +253,6 @@ class Profiler {
 
 		// override actual hooks
 		self::set_hook_callbacks( $hook->hook_name, $callbacks );
-
 	}
 
 	/**
