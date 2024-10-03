@@ -13,7 +13,7 @@ use Scanfully\Profiler\Data\StackItem;
  * Do NOT use this from within WordPress,
  * it's meant to be used in Scanfully's custom profile file.
  */
-class Profiler {
+class HookProfiler {
 
 	// hook related
 	private array $stack;
@@ -22,7 +22,10 @@ class Profiler {
 	private ?array $prev_callbacks = null;
 
 	// internal, we need this to avoid wrapping the same hook multiple times
-	private int $hook_depth = 0;
+//	private int $hook_depth = 0;
+
+	// ticks
+	private array $tick_stack = [];
 
 	// hooks
 	private array $hooks;
@@ -80,12 +83,17 @@ class Profiler {
 	 *
 	 * @return void
 	 */
-	public function handle_constants(): void {
+	public function check_constants(): void {
 		if ( defined( 'SAVEQUERIES' ) && ! SAVEQUERIES ) {
 			die( "'SAVEQUERIES' is defined as false, and must be true. Please check your wp-config.php" );
 		}
 		if ( ! defined( 'SAVEQUERIES' ) ) {
 			define( 'SAVEQUERIES', true );
+		}
+
+		// disable Query Monitor
+		if (! defined('QM_DISABLED') ) {
+			define('QM_DISABLED', true);
 		}
 	}
 
@@ -95,8 +103,8 @@ class Profiler {
 	 * @return void
 	 */
 	public function listen(): void {
+		// hook into all hooks
 		self::add_wp_hook( 'all', [ $this, 'hook_begin' ], 1, 0 );
-
 		// @todo: add request begin and end hooks
 	}
 
@@ -109,13 +117,6 @@ class Profiler {
 
 		// get current filter
 		$hook_name = current_filter();
-
-		// debugging
-		if ( $hook_name != "parse_request" && $hook_name != "hehe_action" && $hook_name != "hehe_action_child" ) {
-			//return;
-		}
-
-//		self::debug( 'HOOK_BEGIN', 'hook begin', [ 'name' => $hook_name ] );
 
 		// create object with hook name
 		$hook = new Data\StackItem( $hook_name );
@@ -136,23 +137,33 @@ class Profiler {
 		// start the hook
 		$hook->start();
 
-		if ( 0 === $this->hook_depth
+		/*
+		if ( 0 == $this->hook_depth
 		     && ! is_null( $this->prev_callbacks ) ) {
 			self::set_hook_callbacks( $this->prev_hook, $this->prev_callbacks );
 			$this->prev_callbacks = null;
 		}
 
+
 		// wrap all callbacks for this hook
-//		if ( 0 === $this->filter_depth ) {
-//			$this->wrap_hook_callbacks( $hook );
-//		}
+		if ( 0 == $this->hook_depth ) {
+			$this->wrap_hook_callbacks( $hook );
+		}
 
 		++ $this->hook_depth;
+		*/
+
+		/*
+		if ( ! is_null( $this->prev_callbacks ) ) {
+			self::set_hook_callbacks( $this->prev_hook, $this->prev_callbacks );
+			$this->prev_callbacks = null;
+		}
+
+		$this->wrap_hook_callbacks( $hook );
+		*/
 
 		// bind hook_end to the end of this hook
 		add_action( $hook_name, [ $this, 'hook_end' ], PHP_INT_MAX );
-
-//		error_log( sprintf( "[START] Hook: %s | Depth: %d", $current_filter, 0 ) );
 	}
 
 	/**
@@ -208,6 +219,8 @@ class Profiler {
 	 * @return void
 	 */
 	private final function wrap_hook_callbacks( Data\StackItem $hook ): void {
+		//self::debug( 'WRAP_HOOK', 'wrapping hook callbacks', [ 'name' => $hook->hook_name ]);
+
 		// get all callbacks for given hook/filter/action/whatever
 		$callbacks = self::get_hook_callbacks( $hook->hook_name );
 
@@ -276,12 +289,12 @@ class Profiler {
 			$json_data['stages'][] = $stage->data();
 		}
 
-		foreach ( $this->stack as $hook ) {
-			$json_data['stack'][] = $hook->data();
-		}
-
 		foreach ( $this->hooks as $hook ) {
 			$json_data['hooks'][] = $hook->data();
+		}
+
+		foreach ( $this->stack as $hook ) {
+			$json_data['stack'][] = $hook->data();
 		}
 
 		return json_encode( $json_data );

@@ -105,13 +105,55 @@ class Utils {
 	}
 
 	/**
+	 * Identify the origin of a file.
+	 *
+	 * @param  string $file
+	 *
+	 * @return array
+	 */
+	public static function identify_file_origin( string $file ): array {
+
+		if ( strpos( $file, WP_PLUGIN_DIR ) !== false ) {
+			// Extract the plugin directory from the file path
+			$plugin_dir = str_replace( WP_PLUGIN_DIR . '/', '', $file );
+
+			$plugin_slug = explode( '/', $plugin_dir )[0];
+
+			return [ 'type' => 'plugin', 'name' => $plugin_slug ];
+		}
+
+		if ( strpos( $file, WPMU_PLUGIN_DIR ) !== false ) {
+			// Recognize MU-plugins
+			$mu_plugin = str_replace( WPMU_PLUGIN_DIR . '/', '', $file );
+
+			return [ 'type' => 'muplugin', 'name' => $mu_plugin ];
+		}
+
+		// theme files
+		if ( function_exists( 'get_stylesheet_directory' ) ) {
+			if ( strpos( $file, get_stylesheet_directory() ) !== false ) {
+				return [ 'type' => 'theme', 'name' => '' ];
+			}
+		}
+
+
+		// core files
+		if ( strpos( $file, WPINC ) !== false ) {
+			return [ 'type' => 'core', 'name' => '' ];
+		}
+
+		return [ 'type' => 'unknown', 'name' => '' ];
+	}
+
+	/**
 	 * Replace magic constants in some PHP source code.
 	 *
 	 * Replaces the __FILE__ and __DIR__ magic constants with the values they are
 	 * supposed to represent at runtime.
 	 *
-	 * @param string $source The PHP code to manipulate.
-	 * @param string $path The path to use instead of the magic constants.
+	 * @param  string $source The PHP code to manipulate.
+	 * @param  string $path The path to use instead of the magic constants.
+	 *
 	 * @return string Adapted PHP code.
 	 */
 	private static function replace_path_consts( $source, $path ) {

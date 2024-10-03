@@ -1,4 +1,6 @@
 <?php
+declare( ticks=1 );
+
 
 ini_set( "log_errors", 1 );
 ini_set( "error_log", $_SERVER['DOCUMENT_ROOT'] . "/wp-content/debug.log" );
@@ -25,26 +27,35 @@ $_SERVER['QUERY_STRING']   = ''; // @todo: parse query string from $request_data
 // load Scanfully autoloader so we can use profiler
 require __DIR__ . '/vendor/autoload.php';
 
+// stream wrapper
+\Scanfully\Profiler\Ticks\StreamWrapper::start();
+
 // load Scanfully Profiler
-$profiler = new \Scanfully\Profiler\Profiler();
+//$profiler = new \Scanfully\Profiler\HookProfiler();
 
 // load our custom wp-config.php manually
 eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.PHP.Eval.Discouraged
 
+// tick profiler
+$tick = new \Scanfully\Profiler\Ticks\TickProfiler();
+$tick->start();
+
 // handle constants
-$profiler->handle_constants();
+//$profiler->check_constants();
 
 // start listening
-$profiler->listen();
+//$profiler->listen();
 
 // --------------- Start the WordPress simulation ---------------
 
 // do WP 'bootstrap',
 //require_once $_SERVER['DOCUMENT_ROOT'] . '/wp-load.php';
 require ABSPATH . 'wp-settings.php';
-
+exit;
 // Set up the WordPress query.
 wp();
+
+return;
 
 define( 'WP_USE_THEMES', true );
 
