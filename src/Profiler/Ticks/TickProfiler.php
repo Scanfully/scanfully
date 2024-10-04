@@ -158,11 +158,11 @@ class TickProfiler {
 	public final function shutdown(): void {
 		unregister_tick_function( [ $this, 'tick_handler' ] );
 		$d = [];
-		foreach($this->plugins as $p) {
+		foreach ( $this->plugins as $p ) {
 			$d[] = $p->data();
 		}
-		header('Content-Type: application/json');
-		echo json_encode($d);
+		header( 'Content-Type: application/json' );
+		echo json_encode( $d );
 	}
 
 	private function disable_code_optimizers(): void {
