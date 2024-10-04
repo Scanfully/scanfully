@@ -7,7 +7,7 @@ namespace Scanfully\Profiler\Data;
  *
  * Inspired from https://github.com/wp-cli/profile-command/blob/main/src/Logger.php
  */
-class StackItem implements DataInterface {
+class StackItem implements ResultDataInterface, ProfilingInterface {
 
 	// use the data and profiling traits
 	use ResultData, Profiling;

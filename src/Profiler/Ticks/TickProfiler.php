@@ -3,6 +3,8 @@
 namespace Scanfully\Profiler\Ticks;
 
 
+use Scanfully\Profiler\Data\Plugin;
+use Scanfully\Profiler\Data\ProfilingInterface;
 use Scanfully\Profiler\Utils;
 
 class TickProfiler {
@@ -11,6 +13,13 @@ class TickProfiler {
 	const debug_backtrace_limit = 2;
 
 	private ?Tick $current_tick = null;
+
+	private ?ProfilingInterface $current_profiling = null;
+
+	/**
+	 * @var array key is plugin slug, value is plugin object
+	 */
+	private array $plugins = [];
 
 	private array $stack = [];
 
@@ -40,6 +49,30 @@ class TickProfiler {
 		// get backtrace
 		$backtrace = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, self::debug_backtrace_limit );
 
+		// get the "real" source of
+		if ( isset( $backtrace[1]['function'] ) &&
+		     isset( $backtrace[0]['function'] ) && $backtrace[0]['function'] == __FUNCTION__ ) {
+
+			// class method or function
+			if ( isset( $backtrace[1]['class'] ) && isset( $backtrace[1]['type'] ) ) {
+				if ( method_exists( $backtrace[1]['class'], $backtrace[1]['function'] ) ) {
+					$rm                   = new \ReflectionMethod( $backtrace[1]['class'], $backtrace[1]['function'] );
+					$backtrace[1]['line'] = $rm->getStartLine();
+					$backtrace[1]['file'] = $backtrace[0]['file'];
+				}
+			} elseif ( function_exists( $backtrace[1]['function'] ) ) {
+				$rm                   = new \ReflectionFunction( $backtrace[1]['function'] );
+				$backtrace[1]['line'] = $rm->getStartLine();
+				$backtrace[1]['file'] = $backtrace[0]['file'];
+			}
+
+			// check for closures / anon funcs
+			if ( strpos( $backtrace[1]['function'], '{closure}' ) !== false ) {
+				$backtrace[1]['line'] = $backtrace[0]['line'];
+				$backtrace[1]['file'] = $backtrace[0]['file'];
+			}
+		}
+
 		// remove first item
 		array_shift( $backtrace );
 
@@ -48,11 +81,27 @@ class TickProfiler {
 			return;
 		}
 
+		// check if we're not in our own function
+		if ( isset( $backtrace[0]['function'] ) && $backtrace[0]['function'] == __FUNCTION__ ) {
+			return;
+		}
+
+		// check we're not in profile.php
+		if ( isset( $backtrace[0]['file'] ) && strpos( $backtrace[0]['file'], "scanfully/profile.php" ) > 0 ) {
+			return;
+		}
+
 		// check if we're in the same tick
 		$tick = Tick::from_backtrace( $backtrace[0] );
-		if ( $this->current_tick != null && $this->current_tick->equals( $tick ) ) {
+		if ( $this->current_tick != null && $this->current_tick->same_function( $tick ) ) {
 			// @todo increase timer whatever ,,...,,..
 			return;
+		}
+
+		// it's a different function, stop the current profiling
+		if ( $this->current_profiling !== null ) {
+			$this->current_profiling->stop();
+			$this->current_profiling = null;
 		}
 
 		// check if there's a file
@@ -63,6 +112,34 @@ class TickProfiler {
 		// identify origin
 		$file_origin = Utils::identify_file_origin( $tick->file );
 
+		switch ( $file_origin['type'] ) {
+			case 'plugin':
+			case 'muplugin':
+				if ( ! isset( $this->plugins[ $file_origin['name'] ] ) ) {
+					$this->plugins[ $file_origin['name'] ] = new Plugin( $file_origin['name'], $file_origin['type'] === 'muplugin' );
+				}
+
+				$this->current_profiling = $this->plugins[ $file_origin['name'] ];
+
+				/*
+				if ( $file_origin['name'] == 'scanfully' ) {
+					error_log( sprintf( "adding time to %s", $file_origin['name'] ), 0 );
+					error_log( print_r( $backtrace, true ), 0 );
+					error_log( "--------------------", 0 );
+				}
+				*/
+
+				break;
+		}
+
+		// start whatever we're profiling
+		if ( $this->current_profiling !== null ) {
+			$this->current_profiling->start();
+		}
+
+		if ( $file_origin['type'] === 'plugin' ) {
+//			error_log( sprintf( "[FUNCTION] %s | [TYPE] %s | [NAME] %s | %s %s:%d", $tick->function ?? 'NOTHING', $file_origin['type'], $file_origin['name'], $tick->function, $tick->file, $tick->line ) );
+		}
 
 		// new tick, set current tick
 		$this->current_tick = $tick;
@@ -70,7 +147,7 @@ class TickProfiler {
 		// add stack to tick stack
 //		$this->stack[] = $stack; // todo, check if the last item on the stick is already this
 //		error_log( print_r( $backtrace, true ), 0 );
-		error_log( sprintf( "%s is %s (%s)", $tick->function ?? 'NOTHING', $file_origin['type'], $file_origin['name'] ) );
+
 	}
 
 	/**
@@ -80,7 +157,12 @@ class TickProfiler {
 	 */
 	public final function shutdown(): void {
 		unregister_tick_function( [ $this, 'tick_handler' ] );
-		//error_log( print_r( $this->stack, true ), 0 );
+		$d = [];
+		foreach($this->plugins as $p) {
+			$d[] = $p->data();
+		}
+		header('Content-Type: application/json');
+		echo json_encode($d);
 	}
 
 	private function disable_code_optimizers(): void {

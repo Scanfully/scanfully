@@ -19,13 +19,27 @@ if ( ! is_array( $request_data ) || empty( $request_data ) || ! isset( $request_
 	exit;
 }
 
-// Mock $_SERVER variables
+// Mock $_SERVER variables0
 $_SERVER['REQUEST_METHOD'] = 'GET';
 $_SERVER['REQUEST_URI']    = $request_data['url']; // @todo: validate this
 $_SERVER['QUERY_STRING']   = ''; // @todo: parse query string from $request_data['url'] and set here
 
-// load Scanfully autoloader so we can use profiler
-require __DIR__ . '/vendor/autoload.php';
+// load Scanfully classes, not autoloading to avoid conflicts / our autoloader trying to load other classes
+//require __DIR__ . '/vendor/autoload.php';
+require __DIR__ . '/src/Profiler/Utils.php';
+require __DIR__ . '/src/Profiler/HookProfiler.php';
+require __DIR__ . '/src/Profiler/Ticks/StreamWrapper.php';
+require __DIR__ . '/src/Profiler/Data/ResultDataInterface.php';
+require __DIR__ . '/src/Profiler/Data/ProfilingInterface.php';
+require __DIR__ . '/src/Profiler/Data/Profiling.php';
+require __DIR__ . '/src/Profiler/Data/ResultData.php';
+require __DIR__ . '/src/Profiler/Ticks/Tick.php';
+require __DIR__ . '/src/Profiler/Ticks/TickProfiler.php';
+require __DIR__ . '/src/Profiler/Data/Callback.php';
+require __DIR__ . '/src/Profiler/Data/Hook.php';
+require __DIR__ . '/src/Profiler/Data/Plugin.php';
+require __DIR__ . '/src/Profiler/Data/StackItem.php';
+require __DIR__ . '/src/Profiler/Data/Stage.php';
 
 // stream wrapper
 \Scanfully\Profiler\Ticks\StreamWrapper::start();
@@ -35,6 +49,9 @@ require __DIR__ . '/vendor/autoload.php';
 
 // load our custom wp-config.php manually
 eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.PHP.Eval.Discouraged
+
+// setup the required constants
+\Scanfully\Profiler\Utils::setup_required_constants();
 
 // tick profiler
 $tick = new \Scanfully\Profiler\Ticks\TickProfiler();
@@ -51,11 +68,9 @@ $tick->start();
 // do WP 'bootstrap',
 //require_once $_SERVER['DOCUMENT_ROOT'] . '/wp-load.php';
 require ABSPATH . 'wp-settings.php';
-exit;
+
 // Set up the WordPress query.
 wp();
-
-return;
 
 define( 'WP_USE_THEMES', true );
 
@@ -74,5 +89,5 @@ ob_get_clean();
 
 // stop listening, gather info, yadayadayadayada
 //echo 'done';
-header( 'Content-Type: application/json' );
-echo $profiler->generate_json();
+//header( 'Content-Type: application/json' );
+//echo $profiler->generate_json();

@@ -5,7 +5,7 @@ namespace Scanfully\Profiler\Data;
 /**
  * Plugin profile data
  */
-class Hook implements DataInterface {
+class Hook implements ResultDataInterface {
 
 	use ResultData;
 

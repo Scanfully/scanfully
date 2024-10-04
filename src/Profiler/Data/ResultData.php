@@ -29,11 +29,11 @@ trait ResultData {
 	public float $request_time = 0;
 
 	/**
-	 * @param  DataInterface $data
+	 * @param  ResultDataInterface $data
 	 *
 	 * @return void
 	 */
-	public final function add( DataInterface $data ) {
+	public final function add( ResultDataInterface $data ) {
 		$this->time          += $data->time;
 		$this->query_count   += $data->query_count;
 		$this->query_time    += $data->query_time;

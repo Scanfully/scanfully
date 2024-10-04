@@ -105,6 +105,28 @@ class Utils {
 	}
 
 	/**
+	 * Call this AFTER the custom wp-config is loaded
+	 *
+	 * @return void
+	 */
+	public static function setup_required_constants(): void {
+
+		if ( ! defined( 'WP_CONTENT_DIR' ) ) {
+			define( 'WP_CONTENT_DIR', ABSPATH . 'wp-content' ); // No trailing slash, full paths only - WP_CONTENT_URL is defined further down.
+		}
+
+		if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
+			define( 'WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins' ); // Full path, no trailing slash.
+		}
+
+		if ( ! defined( 'WPMU_PLUGIN_DIR' ) ) {
+			define( 'WPMU_PLUGIN_DIR', WP_CONTENT_DIR . '/mu-plugins' ); // Full path, no trailing slash.
+		}
+
+	}
+
+
+	/**
 	 * Identify the origin of a file.
 	 *
 	 * @param  string $file
@@ -129,6 +151,9 @@ class Utils {
 			return [ 'type' => 'muplugin', 'name' => $mu_plugin ];
 		}
 
+		/**
+		 * @todo fix themes, get_stylesheet_directory() is not available when we're calling this
+		 */
 		// theme files
 		if ( function_exists( 'get_stylesheet_directory' ) ) {
 			if ( strpos( $file, get_stylesheet_directory() ) !== false ) {
@@ -136,9 +161,8 @@ class Utils {
 			}
 		}
 
-
 		// core files
-		if ( strpos( $file, WPINC ) !== false ) {
+		if ( strpos( $file, 'wp-includes' ) !== false ) {
 			return [ 'type' => 'core', 'name' => '' ];
 		}
 

@@ -5,7 +5,7 @@ namespace Scanfully\Profiler\Data;
 /**
  * Plugin profile data
  */
-class Stage implements DataInterface {
+class Stage implements ResultDataInterface {
 
 	use ResultData;
 

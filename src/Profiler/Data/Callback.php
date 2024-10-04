@@ -2,9 +2,9 @@
 
 namespace Scanfully\Profiler\Data;
 
-class Callback implements DataInterface {
+class Callback implements ResultDataInterface, ProfilingInterface {
 
-	// use the data and profiling traits
+	// traits
 	use ResultData, Profiling;
 
 	public string $name;

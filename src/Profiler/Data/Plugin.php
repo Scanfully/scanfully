@@ -5,9 +5,9 @@ namespace Scanfully\Profiler\Data;
 /**
  * Plugin profile data
  */
-class Plugin implements DataInterface {
+class Plugin implements ResultDataInterface, ProfilingInterface {
 
-	use ResultData;
+	use ResultData, Profiling;
 
 	/**
 	 * Plugin name
@@ -17,10 +17,19 @@ class Plugin implements DataInterface {
 	public string $name;
 
 	/**
-	 * @param  string $name
+	 * Is this a must-use plugin
+	 *
+	 * @var bool
 	 */
-	public function __construct( string $name ) {
-		$this->name = $name;
+	public bool $is_mu;
+
+	/**
+	 * @param  string $name
+	 * @param  bool $is_mu
+	 */
+	public function __construct( string $name, bool $is_mu = false ) {
+		$this->name  = $name;
+		$this->is_mu = $is_mu;
 	}
 
 	/**
@@ -29,6 +38,6 @@ class Plugin implements DataInterface {
 	 * @return array
 	 */
 	public function data(): array {
-		return [ 'plugin' => 'hehe' ];
+		return array_merge( [ 'name' => $this->name, 'mu' => $this->is_mu ], $this->result_data_array() );
 	}
 }

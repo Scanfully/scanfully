@@ -42,8 +42,8 @@ class Tick {
 	 *
 	 * @return bool
 	 */
-	public final function equals( self $tick ): bool {
-		return $this->file === $tick->file && $this->line === $tick->line && $this->function === $tick->function && $this->class === $tick->class && $this->type === $tick->type;
+	public final function same_function( self $tick ): bool {
+		return $this->file === $tick->file && $this->function === $tick->function && $this->class === $tick->class && $this->type === $tick->type;
 	}
 }
 
