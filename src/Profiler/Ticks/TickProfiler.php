@@ -124,12 +124,8 @@ class TickProfiler {
 		// check if this tick is in the same function as the last tick
 		$tick = Tick::from_backtrace( $backtrace[0] );
 
-		if($tick->function == "aaasdasda") {
-			error_log(print_r($tick, true));
-		}
-
 		if ( $this->current_tick != null && $this->current_tick->same_function( $tick ) ) {
-			// @todo check if we need to do something here?
+
 			return;
 		}
 
@@ -156,14 +152,7 @@ class TickProfiler {
 
 				// set current profiling
 				$this->current_profiling = $this->plugins[ $file_origin['name'] ];
-
-				/*
-				if ( $file_origin['name'] == 'scanfully' ) {
-					error_log( sprintf( "adding time to %s", $file_origin['name'] ), 0 );
-					error_log( print_r( $backtrace, true ), 0 );
-					error_log( "--------------------", 0 );
-				}
-				*/
+				
 				break;
 			case 'theme':
 				if ( ! isset( $this->themes[ $file_origin['name'] ] ) ) {
@@ -181,10 +170,6 @@ class TickProfiler {
 			$this->current_profiling->start();
 		}
 
-		//if ( $file_origin['type'] === 'plugin' ) {
-//			error_log( sprintf( "[FUNCTION] %s | [TYPE] %s | [NAME] %s | %s %s:%d", $tick->function ?? 'NOTHING', $file_origin['type'], $file_origin['name'], $tick->function, $tick->file, $tick->line ) );
-		//}
-
 		// new tick, set current tick
 		$this->current_tick = $tick;
 
@@ -200,6 +185,12 @@ class TickProfiler {
 	 * @return void
 	 */
 	public final function shutdown(): void {
+
+		// close last profiler if we have one
+		if ( $this->current_profiling !== null ) {
+			$this->current_profiling->stop();
+		}
+
 		unregister_tick_function( [ $this, 'tick_handler' ] );
 	}
 

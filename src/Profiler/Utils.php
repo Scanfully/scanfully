@@ -151,9 +151,6 @@ class Utils {
 			return [ 'type' => 'muplugin', 'name' => $mu_plugin ];
 		}
 
-		/**
-		 * @todo fix themes, get_stylesheet_directory() is not available when we're calling this
-		 */
 		// theme files
 		if ( function_exists( 'get_template_directory' ) ) {
 			$parent_theme_dir = get_template_directory();

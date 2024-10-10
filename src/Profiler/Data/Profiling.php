@@ -4,7 +4,7 @@ namespace Scanfully\Profiler\Data;
 
 trait Profiling {
 	// internal
-	private ?float $start_time = null;
+	public ?float $start_time = null;
 
 	// internal
 	private ?int $query_offset = null;
