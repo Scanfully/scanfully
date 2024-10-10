@@ -38,6 +38,7 @@ require __DIR__ . '/src/Profiler/Ticks/TickProfiler.php';
 require __DIR__ . '/src/Profiler/Data/Callback.php';
 require __DIR__ . '/src/Profiler/Data/Hook.php';
 require __DIR__ . '/src/Profiler/Data/Plugin.php';
+require __DIR__ . '/src/Profiler/Data/Theme.php';
 require __DIR__ . '/src/Profiler/Data/StackItem.php';
 require __DIR__ . '/src/Profiler/Data/Stage.php';
 
@@ -54,8 +55,8 @@ eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.P
 \Scanfully\Profiler\Utils::setup_required_constants();
 
 // tick profiler
-$tick = new \Scanfully\Profiler\Ticks\TickProfiler();
-$tick->start();
+$tick_profiler = new \Scanfully\Profiler\Ticks\TickProfiler();
+$tick_profiler->start();
 
 // handle constants
 //$profiler->check_constants();
@@ -89,5 +90,13 @@ ob_get_clean();
 
 // stop listening, gather info, yadayadayadayada
 //echo 'done';
-//header( 'Content-Type: application/json' );
+
+// stop the tick profiler
+$tick_profiler->shutdown();
+
+$a            = [];
+$a['themes']  = $tick_profiler->get_themes();
+$a['plugins'] = $tick_profiler->get_plugins();
+header( 'Content-Type: application/json' );
+echo json_encode( $a );
 //echo $profiler->generate_json();

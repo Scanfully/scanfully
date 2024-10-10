@@ -155,10 +155,24 @@ class Utils {
 		 * @todo fix themes, get_stylesheet_directory() is not available when we're calling this
 		 */
 		// theme files
-		if ( function_exists( 'get_stylesheet_directory' ) ) {
-			if ( strpos( $file, get_stylesheet_directory() ) !== false ) {
-				return [ 'type' => 'theme', 'name' => '' ];
+		if ( function_exists( 'get_template_directory' ) ) {
+			$parent_theme_dir = get_template_directory();
+			$child_theme_dir  = get_stylesheet_directory();
+			$theme_parts      = [];
+
+			if ( strpos( $file, $parent_theme_dir ) !== false ) { // check for parent theme
+				$theme_parts = explode( '/', $parent_theme_dir );
+			} elseif ( strpos( $file, $child_theme_dir ) !== false ) { // check for child theme
+				$theme_parts = explode( '/', $child_theme_dir );
 			}
+
+			// if we have theme parts, we found a match for parent or child theme
+			if ( count( $theme_parts ) > 0 ) {
+				$theme_slug = end( $theme_parts );
+
+				return [ 'type' => 'theme', 'name' => $theme_slug ];
+			}
+
 		}
 
 		// core files

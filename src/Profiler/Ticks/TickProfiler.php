@@ -5,6 +5,7 @@ namespace Scanfully\Profiler\Ticks;
 
 use Scanfully\Profiler\Data\Plugin;
 use Scanfully\Profiler\Data\ProfilingInterface;
+use Scanfully\Profiler\Data\Theme;
 use Scanfully\Profiler\Utils;
 
 class TickProfiler {
@@ -17,11 +18,16 @@ class TickProfiler {
 	private ?ProfilingInterface $current_profiling = null;
 
 	/**
-	 * @var array key is plugin slug, value is plugin object
+	 * @var array key is plugin slug, value is Data\Plugin
 	 */
 	private array $plugins = [];
 
-	private array $stack = [];
+	/**
+	 * @var array key is theme slug, value is Data\Theme
+	 */
+	private array $themes = [];
+
+	//private array $stack = [];
 
 	/**
 	 * Start time
@@ -37,6 +43,30 @@ class TickProfiler {
 
 		// register shutdown function
 		register_shutdown_function( [ $this, 'shutdown' ] );
+	}
+
+	/**
+	 * @return array
+	 */
+	public final function get_plugins(): array {
+		$d = [];
+		foreach ( $this->plugins as $p ) {
+			$d[] = $p->data();
+		}
+
+		return $d;
+	}
+
+	/**
+	 * @return array
+	 */
+	public final function get_themes(): array {
+		$d = [];
+		foreach ( $this->themes as $t ) {
+			$d[] = $t->data();
+		}
+
+		return $d;
 	}
 
 	/**
@@ -66,7 +96,7 @@ class TickProfiler {
 				$backtrace[1]['file'] = $backtrace[0]['file'];
 			}
 
-			// check for closures / anon funcs
+			// check for closures / anon functions
 			if ( strpos( $backtrace[1]['function'], '{closure}' ) !== false ) {
 				$backtrace[1]['line'] = $backtrace[0]['line'];
 				$backtrace[1]['file'] = $backtrace[0]['file'];
@@ -91,10 +121,15 @@ class TickProfiler {
 			return;
 		}
 
-		// check if we're in the same tick
+		// check if this tick is in the same function as the last tick
 		$tick = Tick::from_backtrace( $backtrace[0] );
+
+		if($tick->function == "aaasdasda") {
+			error_log(print_r($tick, true));
+		}
+
 		if ( $this->current_tick != null && $this->current_tick->same_function( $tick ) ) {
-			// @todo increase timer whatever ,,...,,..
+			// @todo check if we need to do something here?
 			return;
 		}
 
@@ -119,6 +154,7 @@ class TickProfiler {
 					$this->plugins[ $file_origin['name'] ] = new Plugin( $file_origin['name'], $file_origin['type'] === 'muplugin' );
 				}
 
+				// set current profiling
 				$this->current_profiling = $this->plugins[ $file_origin['name'] ];
 
 				/*
@@ -128,6 +164,14 @@ class TickProfiler {
 					error_log( "--------------------", 0 );
 				}
 				*/
+				break;
+			case 'theme':
+				if ( ! isset( $this->themes[ $file_origin['name'] ] ) ) {
+					$this->themes[ $file_origin['name'] ] = new Theme( $file_origin['name'] );
+				}
+
+				// set current profiling
+				$this->current_profiling = $this->themes[ $file_origin['name'] ];
 
 				break;
 		}
@@ -137,9 +181,9 @@ class TickProfiler {
 			$this->current_profiling->start();
 		}
 
-		if ( $file_origin['type'] === 'plugin' ) {
+		//if ( $file_origin['type'] === 'plugin' ) {
 //			error_log( sprintf( "[FUNCTION] %s | [TYPE] %s | [NAME] %s | %s %s:%d", $tick->function ?? 'NOTHING', $file_origin['type'], $file_origin['name'], $tick->function, $tick->file, $tick->line ) );
-		}
+		//}
 
 		// new tick, set current tick
 		$this->current_tick = $tick;
@@ -157,14 +201,13 @@ class TickProfiler {
 	 */
 	public final function shutdown(): void {
 		unregister_tick_function( [ $this, 'tick_handler' ] );
-		$d = [];
-		foreach ( $this->plugins as $p ) {
-			$d[] = $p->data();
-		}
-		header( 'Content-Type: application/json' );
-		echo json_encode( $d );
 	}
 
+	/**
+	 * Disable known code optimizers, as they can hide / edit calls from the tick handler
+	 *
+	 * @return void
+	 */
 	private function disable_code_optimizers(): void {
 //		if ( version_compare( PHP_VERSION, '7.0.0' ) >= 0 ) {
 //			error_log( 'Profiling intermediate hooks is broken in PHP 7, see https://bugs.php.net/bug.php?id=72966' );
