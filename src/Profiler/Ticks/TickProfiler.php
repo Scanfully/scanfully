@@ -152,7 +152,7 @@ class TickProfiler {
 
 				// set current profiling
 				$this->current_profiling = $this->plugins[ $file_origin['name'] ];
-				
+
 				break;
 			case 'theme':
 				if ( ! isset( $this->themes[ $file_origin['name'] ] ) ) {
