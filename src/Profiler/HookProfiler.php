@@ -16,10 +16,10 @@ use Scanfully\Profiler\Data\StackItem;
 class HookProfiler {
 
 	// hook related
-	private array $stack;
+//	private array $stack;
 	private array $child_stack;
-	private string $prev_hook;
-	private ?array $prev_callbacks = null;
+//	private string $prev_hook;
+//	private ?array $prev_callbacks = null;
 
 	// internal, we need this to avoid wrapping the same hook multiple times
 //	private int $hook_depth = 0;
@@ -29,9 +29,6 @@ class HookProfiler {
 
 	// stages
 	private array $stages;
-
-	// the plugins
-	private array $plugins;
 
 	// stage hooks, used to check on hook end if we should add that data to a stage data
 	private array $stage_hooks = array(
@@ -66,8 +63,9 @@ class HookProfiler {
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->stack       = [];
+//		$this->stack       = [];
 		$this->child_stack = [];
+		$this->hooks       = [];
 		$this->stages      = [
 			'bootstrap'  => new Data\Stage( 'bootstrap' ),
 			'main_query' => new Data\Stage( 'main_query' ),
@@ -120,7 +118,7 @@ class HookProfiler {
 
 		// if current hook stack is empty, this is a 'root' hook
 		if ( empty( $this->child_stack ) ) {
-//			$this->stack[] = $hook;
+			$this->stack[] = $hook;
 		} else {
 			// Otherwise, it's a child hook of the last hook on the stack
 			$parent_hook = $this->get_current_hook();
@@ -140,14 +138,14 @@ class HookProfiler {
 			$this->prev_callbacks = null;
 		}
 
-
 		// wrap all callbacks for this hook
 		if ( 0 == $this->hook_depth ) {
 			$this->wrap_hook_callbacks( $hook );
 		}
 
 		++ $this->hook_depth;
-		*/
+*/
+
 
 		/*
 		if ( ! is_null( $this->prev_callbacks ) ) {
@@ -203,7 +201,7 @@ class HookProfiler {
 		}
 		$this->hooks[ $hook_name ]->add( $hook );
 
-		//-- $this->hook_depth;
+//		-- $this->hook_depth;
 
 		return $filter_value;
 	}
@@ -215,7 +213,6 @@ class HookProfiler {
 	 * @return void
 	 */
 	private final function wrap_hook_callbacks( Data\StackItem $hook ): void {
-		//self::debug( 'WRAP_HOOK', 'wrapping hook callbacks', [ 'name' => $hook->hook_name ]);
 
 		// get all callbacks for given hook/filter/action/whatever
 		$callbacks = self::get_hook_callbacks( $hook->hook_name );
@@ -279,7 +276,7 @@ class HookProfiler {
 	 * @return array
 	 */
 	public final function get_data(): array {
-		$json_data = [ 'hooks' => [], 'stages' => [], 'stack' => [] ];
+		$json_data = [ 'hooks' => [], 'stages' => [] ];
 
 		foreach ( $this->stages as $stage ) {
 			$json_data['stages'][] = $stage->data();
@@ -289,9 +286,9 @@ class HookProfiler {
 			$json_data['hooks'][] = $hook->data();
 		}
 
-		foreach ( $this->stack as $stack ) {
-			$json_data['stack'][] = $stack->data();
-		}
+//		foreach ( $this->stack as $stack ) {
+//			$json_data['stack'][] = $stack->data();
+//		}
 
 		return $json_data;
 	}
@@ -463,28 +460,4 @@ class HookProfiler {
 		return '';
 	}
 
-	/**
-	 * Pretty CLI debugging
-	 *
-	 * @param  string $key
-	 * @param  string $message
-	 * @param  array|null $values
-	 *
-	 * @return void
-	 */
-	private static final function debug( string $key, string $message, ?array $values = null ): void {
-		if ( ! self::debug ) {
-			return;
-		}
-		$fv     = " |" . str_repeat( " ", 5 );
-		$spaces = 15;
-		if ( $values != null ) {
-			foreach ( $values as $k => $v ) {
-				$s  = $spaces - strlen( $v );
-				$fv .= sprintf( "%s: %s%s", $k, $v, str_repeat( " ", max( $s, 0 ) ) );
-			}
-		}
-
-		error_log( sprintf( "[PROFILER][%s]: %s %s", $key, $message, $fv ) );
-	}
 }
