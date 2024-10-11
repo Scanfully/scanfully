@@ -69,7 +69,6 @@ $tick_profiler->start();
 // --------------- Start the WordPress simulation ---------------
 
 // do WP 'bootstrap',
-//require_once $_SERVER['DOCUMENT_ROOT'] . '/wp-load.php';
 require ABSPATH . 'wp-settings.php';
 
 // Set up the WordPress query.
