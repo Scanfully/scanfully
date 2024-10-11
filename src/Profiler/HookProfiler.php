@@ -24,9 +24,6 @@ class HookProfiler {
 	// internal, we need this to avoid wrapping the same hook multiple times
 //	private int $hook_depth = 0;
 
-	// ticks
-	private array $tick_stack = [];
-
 	// hooks
 	private array $hooks;
 
@@ -92,8 +89,8 @@ class HookProfiler {
 		}
 
 		// disable Query Monitor
-		if (! defined('QM_DISABLED') ) {
-			define('QM_DISABLED', true);
+		if ( ! defined( 'QM_DISABLED' ) ) {
+			define( 'QM_DISABLED', true );
 		}
 	}
 
@@ -121,10 +118,9 @@ class HookProfiler {
 		// create object with hook name
 		$hook = new Data\StackItem( $hook_name );
 
-
 		// if current hook stack is empty, this is a 'root' hook
 		if ( empty( $this->child_stack ) ) {
-			$this->stack[] = $hook;
+//			$this->stack[] = $hook;
 		} else {
 			// Otherwise, it's a child hook of the last hook on the stack
 			$parent_hook = $this->get_current_hook();
@@ -179,7 +175,7 @@ class HookProfiler {
 		// start hook in log collection
 		$s = count( $this->child_stack );
 
-		// ge the hook from the stack
+		// get the hook from the stack
 		$hook = array_pop( $this->child_stack );
 
 		if ( $hook == null ) {
@@ -207,7 +203,7 @@ class HookProfiler {
 		}
 		$this->hooks[ $hook_name ]->add( $hook );
 
-		-- $this->hook_depth;
+		//-- $this->hook_depth;
 
 		return $filter_value;
 	}
@@ -280,9 +276,9 @@ class HookProfiler {
 	/**
 	 * Generate JSON data for current profiler results
 	 *
-	 * @return string
+	 * @return array
 	 */
-	public final function generate_json(): string {
+	public final function get_data(): array {
 		$json_data = [ 'hooks' => [], 'stages' => [], 'stack' => [] ];
 
 		foreach ( $this->stages as $stage ) {
@@ -293,11 +289,11 @@ class HookProfiler {
 			$json_data['hooks'][] = $hook->data();
 		}
 
-		foreach ( $this->stack as $hook ) {
-			$json_data['stack'][] = $hook->data();
+		foreach ( $this->stack as $stack ) {
+			$json_data['stack'][] = $stack->data();
 		}
 
-		return json_encode( $json_data );
+		return $json_data;
 	}
 
 	/**
