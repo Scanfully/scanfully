@@ -2,8 +2,8 @@
 declare( ticks=1 );
 
 
-ini_set( "log_errors", 1 );
-ini_set( "error_log", $_SERVER['DOCUMENT_ROOT'] . "/wp-content/debug.log" );
+//ini_set( "log_errors", 1 );
+//ini_set( "error_log", $_SERVER['DOCUMENT_ROOT'] . "/wp-content/debug.log" );
 
 // WordPress can't be loaded more than once
 if ( function_exists( 'add_filter' ) ) {
@@ -14,10 +14,13 @@ if ( function_exists( 'add_filter' ) ) {
 // get request data
 $request_json = file_get_contents( 'php://input' );
 $request_data = json_decode( $request_json, true );
-if ( ! is_array( $request_data ) || empty( $request_data ) || ! isset( $request_data['url'] ) ) {
+if ( ! is_array( $request_data ) || empty( $request_data ) || ! isset( $request_data['url'] ) || ! isset( $request_data['type'] ) ) {
 	echo 'invalid request';
 	exit;
 }
+
+// check type
+$type = $request_data['type'] == 'hooks' ? 'hooks' : 'ticks';
 
 // Mock $_SERVER variables0
 $_SERVER['REQUEST_METHOD'] = 'GET';
@@ -25,7 +28,6 @@ $_SERVER['REQUEST_URI']    = $request_data['url']; // @todo: validate this
 $_SERVER['QUERY_STRING']   = ''; // @todo: parse query string from $request_data['url'] and set here
 
 // load Scanfully classes, not autoloading to avoid conflicts / our autoloader trying to load other classes
-//require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/src/Profiler/Utils.php';
 require __DIR__ . '/src/Profiler/HookProfiler.php';
 require __DIR__ . '/src/Profiler/Ticks/StreamWrapper.php';
@@ -43,37 +45,43 @@ require __DIR__ . '/src/Profiler/Data/Theme.php';
 require __DIR__ . '/src/Profiler/Data/StackItem.php';
 require __DIR__ . '/src/Profiler/Data/Stage.php';
 
-// stream wrapper
-\Scanfully\Profiler\Ticks\StreamWrapper::start();
-
-// load Scanfully Profiler
-$hook_profiler = new \Scanfully\Profiler\HookProfiler();
-
-// load our custom wp-config.php manually
+// load wp-config.php manually
 eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.PHP.Eval.Discouraged
 
 // setup the required constants
 \Scanfully\Profiler\Utils::setup_required_constants();
 
-// handle constants
-$hook_profiler->check_constants();
+if ( $type == "hooks" ) {
+	// load Scanfully Profiler
+	$hook_profiler = new \Scanfully\Profiler\HookProfiler();
 
-// start listening to hooks
-//$hook_profiler->listen();
+	// load our custom wp-config.php manually
+//	eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.PHP.Eval.Discouraged
 
-// tick profiler
-$tick_profiler = new \Scanfully\Profiler\Ticks\TickProfiler();
-$tick_profiler->start();
+	// handle constants
+	$hook_profiler->check_constants();
 
+	// start listening to hooks
+	$hook_profiler->listen();
+} elseif ( $type == "ticks" ) {
+	// stream wrapper
+	\Scanfully\Profiler\Ticks\StreamWrapper::start();
+
+	// setup the tick profiler
+	$tick_profiler = new \Scanfully\Profiler\Ticks\TickProfiler();
+	$tick_profiler->start();
+} else {
+	die( 'Invalid type' );
+}
 
 // --------------- Start the WordPress simulation ---------------
-
 // do WP 'bootstrap',
 require ABSPATH . 'wp-settings.php';
 
 // Set up the WordPress query.
 wp();
 
+// Define the template related constants.
 define( 'WP_USE_THEMES', true );
 
 // Template is normally loaded in global scope, so we need to replicate
@@ -86,22 +94,20 @@ foreach ( $GLOBALS as $key => $value ) {
 ob_start();
 require_once ABSPATH . WPINC . '/template-loader.php';
 ob_get_clean();
-
 // --------------- End the WordPress simulation ---------------
 
-// stop listening, gather info, yadayadayadayada
-//echo 'done';
 
-// stop the tick profiler
-$tick_profiler->shutdown();
-
-//$response            = array_merge( $hook_profiler->get_data(), $tick_profiler->get_data() );
-//$response            = array_merge( $hook_profiler->get_data(), []);
-$response            = array_merge( $tick_profiler->get_data(), []);
-
-//echo (memory_get_usage()/1000000).'MB';
-//exit;
-
+// json response
 header( 'Content-Type: application/json' );
-echo json_encode( $response );
-//echo $profiler->generate_json();
+
+if ( $type == "hooks" ) {
+	echo json_encode( $hook_profiler->get_data() );
+} elseif ( $type == "ticks" ) {
+	// stop the tick profiler
+	$tick_profiler->shutdown();
+
+	echo json_encode( $tick_profiler->get_data() );
+}
+
+// bye
+exit;
