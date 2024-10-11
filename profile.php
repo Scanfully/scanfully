@@ -37,6 +37,7 @@ require __DIR__ . '/src/Profiler/Ticks/Tick.php';
 require __DIR__ . '/src/Profiler/Ticks/TickProfiler.php';
 require __DIR__ . '/src/Profiler/Data/Callback.php';
 require __DIR__ . '/src/Profiler/Data/Hook.php';
+require __DIR__ . '/src/Profiler/Data/Core.php';
 require __DIR__ . '/src/Profiler/Data/Plugin.php';
 require __DIR__ . '/src/Profiler/Data/Theme.php';
 require __DIR__ . '/src/Profiler/Data/StackItem.php';
@@ -46,7 +47,7 @@ require __DIR__ . '/src/Profiler/Data/Stage.php';
 \Scanfully\Profiler\Ticks\StreamWrapper::start();
 
 // load Scanfully Profiler
-//$profiler = new \Scanfully\Profiler\HookProfiler();
+$hook_profiler = new \Scanfully\Profiler\HookProfiler();
 
 // load our custom wp-config.php manually
 eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.PHP.Eval.Discouraged
@@ -54,15 +55,16 @@ eval( \Scanfully\Profiler\Utils::get_wp_config_code() ); // phpcs:ignore Squiz.P
 // setup the required constants
 \Scanfully\Profiler\Utils::setup_required_constants();
 
+// handle constants
+$hook_profiler->check_constants();
+
+// start listening to hooks
+//$hook_profiler->listen();
+
 // tick profiler
 $tick_profiler = new \Scanfully\Profiler\Ticks\TickProfiler();
 $tick_profiler->start();
 
-// handle constants
-//$profiler->check_constants();
-
-// start listening
-//$profiler->listen();
 
 // --------------- Start the WordPress simulation ---------------
 
@@ -94,9 +96,13 @@ ob_get_clean();
 // stop the tick profiler
 $tick_profiler->shutdown();
 
-$a            = [];
-$a['themes']  = $tick_profiler->get_themes();
-$a['plugins'] = $tick_profiler->get_plugins();
+//$response            = array_merge( $hook_profiler->get_data(), $tick_profiler->get_data() );
+//$response            = array_merge( $hook_profiler->get_data(), []);
+$response            = array_merge( $tick_profiler->get_data(), []);
+
+//echo (memory_get_usage()/1000000).'MB';
+//exit;
+
 header( 'Content-Type: application/json' );
-echo json_encode( $a );
+echo json_encode( $response );
 //echo $profiler->generate_json();
