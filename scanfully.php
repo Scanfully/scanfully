@@ -3,12 +3,12 @@
  * Scanfully WordPress plugin
  *
  * @package   Scanfully\Main
- * @copyright Copyright (C) 2023-2024, Scanfully BV - support@scanfully.com
+ * @copyright Copyright (C) 2023-2025, Scanfully BV - support@scanfully.com
  * @license   http://www.gnu.org/licenses/gpl-3.0.html GNU General Public License, version 3 or higher
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.2.6
+ * Version:     1.2.7
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully
@@ -46,7 +46,7 @@ function Scanfully(): \Scanfully\Main {
 add_action( 'plugins_loaded', function () {
 	// meta
 	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
-	define( 'SCANFULLY_VERSION', '1.2.6' );
+	define( 'SCANFULLY_VERSION', '1.2.7' );
 
 	// boot
 	require __DIR__ . '/vendor/autoload.php';
