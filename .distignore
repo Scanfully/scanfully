@@ -6,6 +6,10 @@
 /scripts
 /docs
 
+DOCKER_ENV
+Dockerfile-php-build
+output.log
+
 .distignore
 .gitignore
 .editorconfig
