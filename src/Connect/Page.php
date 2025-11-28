@@ -92,14 +92,14 @@ class Page {
 					<?php if ( $options->is_connected ) : ?>
 						<?php
 						$last_used = "-";
-						if ( $options->last_used != "" ) {
+						if ( $options->last_used != "" ) :
 							$last_used_dt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->last_used, new \DateTimeZone( 'UTC' ) );
 							try {
 								$last_used_dt->setTimezone( Util\Date::get_timezone() );
 							} catch ( \Exception $e ) {
 							}
 							$last_used = $last_used_dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
-						}
+						endif;
 						?>
 						<li>
 							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last used', 'scanfully' ); ?></div>
