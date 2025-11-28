@@ -12,6 +12,7 @@ output.log
 
 .distignore
 .gitignore
+.gitattributes
 .editorconfig
 CONTRIBUTING.md
 docker-compose.yaml
