@@ -95,6 +95,9 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.3.0: November 28, 2025 =
+* Feature: Added Scanfully edit feature, allowing you to directly open a post/page edit page from the Scanfully dashboard.
+
 = 1.2.7 : May 12, 2025 =
 * Tweak: Meta updates.
 
