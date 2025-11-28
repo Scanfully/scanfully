@@ -91,7 +91,7 @@ abstract class Event {
 	/**
 	 * The callback for the action
 	 *
-	 * @param  any ...$args The arguments passed to the action.
+	 * @param  mixed ...$args The arguments passed to the action.
 	 *
 	 * @return void
 	 */

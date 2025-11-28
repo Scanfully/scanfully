@@ -86,6 +86,7 @@ class Controller {
 	 */
 	public static function clear_scheduled_events(): void {
 		wp_clear_scheduled_hook( self::ACTION_DAILY );
+		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY );
 	}
 
 	/**
@@ -121,8 +122,6 @@ class Controller {
 
 				// check if we got tokens
 				if ( empty( $tokens ) ) {
-					error_log( 'Failed to refresh access token' );
-
 					return;
 				}
 				// create a new expires time object

@@ -64,6 +64,9 @@ class Main {
 		Connect\Controller::setup();
 		Connect\Page::register();
 		Connect\AdminNotice::setup();
+
+		/** Register Page Edit */
+		PageEdit\Controller::setup();
 	}
 
 	/**

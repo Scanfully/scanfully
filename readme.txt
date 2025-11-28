@@ -3,8 +3,8 @@ Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
-Tested up to: 6.8.1
-Stable tag: 1.2.7
+Tested up to: 6.9.0
+Stable tag: 1.3.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -94,6 +94,13 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.3.0: November 28, 2025 =
+* Feature: Added Scanfully edit feature, allowing you to directly open a post/page edit page from the Scanfully dashboard.
+* Tweak: Meta updates.
+* Fix: PHP documentation fixes.
+* Fix: Overal PHP code clean up.
+* Fix: Clean twice_daily cron on plugin deactivation.
 
 = 1.2.7 : May 12, 2025 =
 * Tweak: Meta updates.
