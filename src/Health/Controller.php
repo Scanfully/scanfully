@@ -38,7 +38,7 @@ class Controller {
 		return sprintf(
 			'%s %s',
 			PHP_VERSION,
-			( ( PHP_INT_SIZE * 8 === 64 ) ? __( 'x64' ) : __( 'x86' ) )
+			( PHP_INT_SIZE * 8 === 64 ) ? 'x64' : 'x86'
 		);
 	}
 
@@ -77,11 +77,11 @@ class Controller {
 	 */
 	private static function get_php_settings(): array {
 		$ini_values = [
-			'memory_limit'        => null,
-			'max_input_time'      => null,
-			'max_execution_time'  => null,
+			'memory_limit' => null,
+			'max_input_time' => null,
+			'max_execution_time' => null,
 			'upload_max_filesize' => null,
-			'post_max_size'       => null,
+			'post_max_size' => null,
 		];
 
 		// get actual values if ini_get is available.
@@ -235,11 +235,11 @@ class Controller {
 		$upload_dir = wp_upload_dir();
 
 		return [
-			'abspath'    => wp_is_writable( ABSPATH ),
+			'abspath' => wp_is_writable( ABSPATH ),
 			'wp_content' => wp_is_writable( WP_CONTENT_DIR ),
-			'uploads'    => wp_is_writable( $upload_dir['basedir'] ),
-			'plugins'    => wp_is_writable( WP_PLUGIN_DIR ),
-			'theme'      => wp_is_writable( get_theme_root( get_template() ) ),
+			'uploads' => wp_is_writable( $upload_dir['basedir'] ),
+			'plugins' => wp_is_writable( WP_PLUGIN_DIR ),
+			'theme' => wp_is_writable( get_theme_root( get_template() ) ),
 		];
 	}
 
@@ -255,14 +255,14 @@ class Controller {
 
 		foreach ( $plugins as $plugin_path => $plugin ) {
 			$map[] = [
-				'active'      => is_plugin_active( $plugin_path ),
-				'name'        => $plugin['Name'],
-				'slug'        => dirname( plugin_basename( $plugin_path ) ),
-				'url'         => $plugin['PluginURI'],
-				'version'     => $plugin['Version'],
+				'active' => is_plugin_active( $plugin_path ),
+				'name' => $plugin['Name'],
+				'slug' => dirname( plugin_basename( $plugin_path ) ),
+				'url' => $plugin['PluginURI'],
+				'version' => $plugin['Version'],
 				'description' => $plugin['Description'],
-				'author'      => $plugin['Author'],
-				'author_uri'  => $plugin['AuthorURI'],
+				'author' => $plugin['Author'],
+				'author_uri' => $plugin['AuthorURI'],
 			];
 		}
 
@@ -283,47 +283,47 @@ class Controller {
 		$php_settings = self::get_php_settings();
 
 		$data = [
-			'data'    => [
-				'wp_version'           => get_bloginfo( 'version' ),
-				'wp_multisite'         => is_multisite(),
+			'data' => [
+				'wp_version' => get_bloginfo( 'version' ),
+				'wp_multisite' => is_multisite(),
 				'wp_user_registration' => (bool) get_option( 'users_can_register' ),
-				'wp_blog_public'       => (bool) get_option( 'blog_public' ),
-				'https'                => is_ssl(),
+				'wp_blog_public' => (bool) get_option( 'blog_public' ),
+				'https' => is_ssl(),
 
-				'wp_cache'            => (bool) WP_CACHE,
-				'wp_debug'            => (bool) WP_DEBUG,
-				'wp_debug_display'    => (bool) WP_DEBUG_DISPLAY,
-				'wp_debug_log'        => (bool) WP_DEBUG_LOG,
-				'wp_script_debug'     => (bool) SCRIPT_DEBUG,
-				'wp_memory_limit'     => WP_MEMORY_LIMIT,
+				'wp_cache' => (bool) WP_CACHE,
+				'wp_debug' => (bool) WP_DEBUG,
+				'wp_debug_display' => (bool) WP_DEBUG_DISPLAY,
+				'wp_debug_log' => (bool) WP_DEBUG_LOG,
+				'wp_script_debug' => (bool) SCRIPT_DEBUG,
+				'wp_memory_limit' => WP_MEMORY_LIMIT,
 				'wp_max_memory_limit' => WP_MAX_MEMORY_LIMIT,
 				'wp_environment_type' => wp_get_environment_type(),
 				'permalink_structure' => get_option( 'permalink_structure' ),
-				'locale'              => get_locale(),
-				'user_count'          => (int) count_users()['total_users'],
-				'site_url'            => get_site_url(),
+				'locale' => get_locale(),
+				'user_count' => (int) count_users()['total_users'],
+				'site_url' => get_site_url(),
 
-				'server_arch'       => self::get_server_arch(),
-				'web_server'        => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
-				'curl_version'      => self::get_curl_version(),
+				'server_arch' => self::get_server_arch(),
+				'web_server' => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				'curl_version' => self::get_curl_version(),
 				'imagick_available' => extension_loaded( 'imagick' ),
 
-				'php_version'             => self::get_php_version(),
-				'php_sapi'                => self::get_php_sapi(),
-				'php_memory_limit'        => \WP_Site_Health::get_instance()->php_memory_limit,
-				'php_memory_limit_admin'  => $php_settings['memory_limit'],
-				'php_max_input_time'      => (int) $php_settings['max_input_time'],
-				'php_max_execution_time'  => (int) $php_settings['max_execution_time'],
+				'php_version' => self::get_php_version(),
+				'php_sapi' => self::get_php_sapi(),
+				'php_memory_limit' => \WP_Site_Health::get_instance()->php_memory_limit,
+				'php_memory_limit_admin' => $php_settings['memory_limit'],
+				'php_max_input_time' => (int) $php_settings['max_input_time'],
+				'php_max_execution_time' => (int) $php_settings['max_execution_time'],
 				'php_upload_max_filesize' => $php_settings['upload_max_filesize'],
-				'php_post_max_size'       => $php_settings['post_max_size'],
+				'php_post_max_size' => $php_settings['post_max_size'],
 
-				'db_extension'       => self::get_db_extension(),
-				'db_server_version'  => self::get_db_server_version(),
-				'db_client_version'  => self::get_db_client_version(),
-				'db_user'            => self::get_db_user(),
+				'db_extension' => self::get_db_extension(),
+				'db_server_version' => self::get_db_server_version(),
+				'db_client_version' => self::get_db_client_version(),
+				'db_user' => self::get_db_user(),
 				'db_max_connections' => self::get_db_max_connections(),
-				'db_charset'         => self::get_db_charset(),
-				'db_collate'         => self::get_db_collate(),
+				'db_charset' => self::get_db_charset(),
+				'db_collate' => self::get_db_collate(),
 			],
 			'plugins' => self::get_plugins(),
 		];
@@ -368,7 +368,7 @@ class Controller {
 		$dirs = [
 			'content' => WP_CONTENT_DIR,
 			'plugins' => WP_PLUGIN_DIR,
-			'themes'  => get_theme_root( get_template() ),
+			'themes' => get_theme_root( get_template() ),
 			'uploads' => wp_upload_dir()['basedir'],
 		];
 
@@ -384,9 +384,9 @@ class Controller {
 
 		// add data for each directory.
 		foreach ( $dirs as $key => $dir ) {
-			$data['data'][ $key . '_size' ]     = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
+			$data['data'][ $key . '_size' ] = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
 			$data['data'][ $key . '_writable' ] = wp_is_writable( $dir );
-			$data['data'][ $key . '_dir' ]      = $dir;
+			$data['data'][ $key . '_dir' ] = $dir;
 		}
 
 		// send event.

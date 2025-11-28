@@ -42,7 +42,6 @@ class RewriteRules extends Event {
 	 * @return bool
 	 */
 	public function should_fire( array $data ): bool {
-//		error_log(print_r($data, true));
 		return true;
 	}
 }

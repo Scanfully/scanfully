@@ -122,8 +122,6 @@ class Controller {
 
 				// check if we got tokens
 				if ( empty( $tokens ) ) {
-					error_log( 'Failed to refresh access token' );
-
 					return;
 				}
 				// create a new expires time object

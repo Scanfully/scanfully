@@ -47,7 +47,7 @@ class Controller {
 	 * @return string
 	 */
 	public static function get_option( string $name ): string {
-		return apply_filters( 'scanfully_option', get_option( self::$db_prefix . $name, ) );
+		return apply_filters( 'scanfully_option', get_option( self::$db_prefix . $name ) );
 	}
 
 	/**

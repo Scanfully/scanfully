@@ -147,7 +147,6 @@ class Controller {
 			$now = new \DateTime();
 			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
-			error_log( $e->getMessage() );
 			wp_die( 'Error setting parsing now date. Please contact support.' );
 		}
 
@@ -155,7 +154,6 @@ class Controller {
 			$expires = new \DateTime( $tokens['expires'] );
 			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
-			error_log( $e->getMessage() );
 			wp_die( 'Error setting parsing expires date. Please contact support.' );
 		}
 
@@ -206,16 +204,6 @@ class Controller {
 			}
 
 			self::print_notice( $error_message, 'error' );
-
-			/*
-			add_action( 'scanfully_connect_notices', function () use ( $error_message ) {
-				?>
-				<div class="scanfully-connect-notice scanfully-connect-notice-error">
-					<p><?php //printf( esc_html__( 'There was an error connecting to Scanfully: %s', 'scanfully' ), $error_message ); ?></p>
-				</div>
-<?php
-			} );
-			*/
 		}
 	}
 
