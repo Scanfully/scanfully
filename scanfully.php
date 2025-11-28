@@ -31,7 +31,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -45,7 +45,7 @@ function Scanfully(): \Scanfully\Main {
 // boot
 add_action( 'plugins_loaded', function () {
 	// meta
-	define( 'SCANFULLY_PLUGIN_FILE', value: __FILE__ );
+	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
 	define( 'SCANFULLY_VERSION', '1.3.0' );
 
 	// boot
@@ -54,6 +54,6 @@ add_action( 'plugins_loaded', function () {
 }, 20 );
 
 // register deactivation hook
-register_deactivation_hook( __FILE__, function() {
+register_deactivation_hook( __FILE__, function () {
 	\Scanfully\Cron\Controller::clear_scheduled_events();
 } );
