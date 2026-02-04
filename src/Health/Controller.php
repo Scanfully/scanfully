@@ -48,8 +48,8 @@ class Controller {
 			return true;
 		}
 
-		// Check if site URL uses HTTPS.
-		if ( 0 === strpos( get_site_url(), 'https://' ) ) {
+		// Check if home URL uses HTTPS (use home_url for Bedrock compatibility).
+		if ( 0 === strpos( home_url(), 'https://' ) ) {
 			return true;
 		}
 
@@ -341,7 +341,7 @@ class Controller {
 				'permalink_structure' => get_option( 'permalink_structure' ),
 				'locale' => get_locale(),
 				'user_count' => (int) count_users()['total_users'],
-				'site_url' => get_site_url(),
+				'site_url' => home_url(),
 
 				'server_arch' => self::get_server_arch(),
 				'web_server' => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
