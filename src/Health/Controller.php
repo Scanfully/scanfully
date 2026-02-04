@@ -17,6 +17,46 @@ use Scanfully\API\SiteDirectoriesRequest;
 class Controller {
 
 	/**
+	 * Detect if the site is using SSL/HTTPS.
+	 *
+	 * This improves upon is_ssl() by also checking common headers
+	 * set by reverse proxies and load balancers.
+	 *
+	 * @return bool
+	 */
+	private static function detect_ssl(): bool {
+		// First check WordPress's built-in function.
+		if ( is_ssl() ) {
+			return true;
+		}
+
+		// Check X-Forwarded-Proto header (common for reverse proxies/load balancers).
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && 'https' === strtolower( wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) ) {
+			return true;
+		}
+
+		// Check X-Forwarded-SSL header.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_SSL'] ) && 'on' === strtolower( wp_unslash( $_SERVER['HTTP_X_FORWARDED_SSL'] ) ) ) {
+			return true;
+		}
+
+		// Check X-Forwarded-Scheme header.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		if ( isset( $_SERVER['HTTP_X_FORWARDED_SCHEME'] ) && 'https' === strtolower( wp_unslash( $_SERVER['HTTP_X_FORWARDED_SCHEME'] ) ) ) {
+			return true;
+		}
+
+		// Check if site URL uses HTTPS.
+		if ( 0 === strpos( get_site_url(), 'https://' ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Get the server architecture
 	 *
 	 * @return string|null
@@ -288,7 +328,7 @@ class Controller {
 				'wp_multisite' => is_multisite(),
 				'wp_user_registration' => (bool) get_option( 'users_can_register' ),
 				'wp_blog_public' => (bool) get_option( 'blog_public' ),
-				'https' => is_ssl(),
+				'https' => self::detect_ssl(),
 
 				'wp_cache' => (bool) WP_CACHE,
 				'wp_debug' => (bool) WP_DEBUG,
