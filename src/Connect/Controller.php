@@ -74,10 +74,13 @@ class Controller {
 		}
 
 		// build the connect URL and redirect.
+		// Use home_url() instead of get_site_url() for Bedrock compatibility.
+		// home_url() returns the public-facing URL, while site_url() returns
+		// the WordPress installation URL (which may be in a subdirectory).
 		$connect_url = add_query_arg(
 			[
 				'redirect_uri' => rawurlencode( Page::get_page_url() ),
-				'site'         => rawurlencode( get_site_url() ),
+				'site'         => rawurlencode( home_url() ),
 				'state'        => self::generate_state(),
 			],
 			Main::get_connect_url()
