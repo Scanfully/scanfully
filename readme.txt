@@ -3,7 +3,7 @@ Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
 Tags: scanfully, performance, monitoring, site health
 Requires at least: 6.0
-Tested up to: 6.9.0
+Tested up to: 6.9.1
 Stable tag: 1.3.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
@@ -15,7 +15,13 @@ Scanfully is your favorite WordPress performance and site health monitoring tool
 
 ## SCANFULLY FOR WORDPRESS 
 
-Scanfully is your favorite WordPress Performance and Site Health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and bridges the two. It syncs critical information from your WordPress site to our dashboard as well as it collects the changes happening in your WordPress site. Combined with our various performance-related scans, Scanfully offers you insight into a fully encompasing overview of your site's health.
+Scanfully is a WordPress performance, site health, and content health monitoring tool. This plugin connects your WordPress site to your [Scanfully](https://scanfully.com) dashboard and acts as the bridge between the two.
+
+The plugin syncs essential site information and securely sends activity data to Scanfully, where it is stored and processed externally. By hosting this data outside of WordPress, Scanfully avoids adding database load or performance overhead to your site.
+
+Combined with external performance checks, uptime monitoring, Broken Links, Broken Media, and a hosted WordPress Activity Log, Scanfully gives you a clear and actionable overview of your site’s health. You can see what changed, when it changed, and how those changes affect performance, stability, and user experience.
+
+The result is a healthier WordPress site, with better visibility, less guesswork, and full control over what happens on your site.
 
 ## ONE DASHBOARD TO RULE THEM ALL 
 
@@ -30,6 +36,15 @@ Scanfully helps you stay on top of your WordPress Site Health and Performance in
 #### SINGLE DASHBOARD
 **All your sites in one dashboard** allowing you to easily navigate to the various monitoring features.
 
+#### WORDPRESS ACTIVITY LOG
+Our WordPress Events Timeline **collects all changes happening inside your WordPress admin**. All these events combined with our checks provide you a unique insight into what’s going on. No longer do you have to guess what change caused the problem your client just reported and insisted he didn't do anything to cause it.
+
+#### BROKEN LINKS MONITOR
+The Broken Links monitor checks your site for internal and external links that no longer work. It detects links that return error responses and shows where they were found, so you can fix dead ends before users run into them. This helps keep navigation predictable and content references accurate.
+
+#### BROKEN MEDIA MONITOR
+The Broken Media monitor checks the media assets used on your pages, including images, scripts, stylesheets, (YouTube) videos, audio, embeds, and iframes. It detects assets that fail to load and shows exactly where they are used. This helps prevent layout issues, broken functionality, and silent performance regressions.
+
 #### UPTIME MONITORING 
 Scanfully checks your WordPress sites with **comprehensive uptime monitoring** and **smart notifications**
 
@@ -39,9 +54,6 @@ We do fequent **Performance Checks** to measure how fast your site loads, and pr
 #### SITE HEALTH
 **One Site Health dashboard to rule them all**. We collect and import all of your WordPress site’s health data in one view. Easy insights into the site health metrics that matter the most for your site.
 
-#### WORDPRESS EVENTS TIMELINE
-Our WordPress Events Timeline **collects all changes happening inside your WordPress admin**. All these events combined with our checks provide you a unique insight into what’s going on. No longer do you have to guess what change caused the problem your client just reported and insisted he didn't do anything to cause it.
-
 #### SMART NOTIFICATIONS
 Scanfully's smart notification systems allows you to define where you want to receive [whatever kind of notification you prefer](https://scanfully.com/docs/channels/). We currently offer Slack, Discord, email, and Pushover. 
 
@@ -50,6 +62,7 @@ Automated insights into the performance, accessibility, and quality of your webs
 
 #### VULNERABILITTY SCANS (coming soon)
 You will want to know as soon as possible when your WordPress site has a vulnerable plugin or theme, right? Well, that's exactly what you'll be receiving notification for when we launch this feature. 
+
 
 ### More information
 
