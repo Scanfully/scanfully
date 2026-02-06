@@ -1,7 +1,7 @@
 === Scanfully ===
 Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
-Tags: scanfully, performance, monitoring, site health
+Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 6.9.1
 Stable tag: 1.3.0
