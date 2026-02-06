@@ -108,6 +108,11 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.3.1: February 6, 2026 =
+Fix: Use home_url() instead of get_site_url() for site URL detection.
+Fix: Improved SSL detection for sites behind reverse proxies and load balancers.
+Fix: Meta changes and updates.
+
 = 1.3.0: November 28, 2025 =
 * Feature: Added Scanfully edit feature, allowing you to directly open a post/page edit page from the Scanfully dashboard.
 * Tweak: Meta updates.
