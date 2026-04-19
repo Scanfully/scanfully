@@ -4,6 +4,7 @@
       "Scanfully\\": "src/"
     }
   },
-  "require": {
+  "require-dev": {
+    "php-stubs/wordpress-stubs": "^6.9"
   }
 }
