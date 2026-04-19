@@ -8,8 +8,13 @@ use Scanfully\Options;
 
 class Controller {
 
-	public const ACTION_TWICE_DAILY = 'scanfully_twice_daily';
+	public const ACTION_THREE_HOURLY = 'scanfully_three_hourly';
 	public const ACTION_DAILY = 'scanfully_daily';
+
+	/**
+	 * Legacy action constant, used only to clear old schedules on update.
+	 */
+	private const ACTION_TWICE_DAILY_LEGACY = 'scanfully_twice_daily';
 
 	/**
 	 *
@@ -17,12 +22,31 @@ class Controller {
 	 * @return void
 	 */
 	public static function setup(): void {
+		// register custom cron schedules
+		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
+
 		// cron 'callbacks'
-		add_action( self::ACTION_TWICE_DAILY, [ self::class, 'twice_daily' ] );
+		add_action( self::ACTION_THREE_HOURLY, [ self::class, 'three_hourly' ] );
 		add_action( self::ACTION_DAILY, [ self::class, 'daily' ] );
 
-		// schedule events
+		// clear legacy schedules and schedule events
+		self::clear_legacy_schedules();
 		self::schedule_events();
+	}
+
+	/**
+	 * Register custom cron schedules
+	 *
+	 * @param array $schedules Existing cron schedules.
+	 * @return array
+	 */
+	public static function add_cron_schedules( array $schedules ): array {
+		$schedules['every_three_hours'] = [
+			'interval' => 3 * HOUR_IN_SECONDS,
+			'display'  => 'Every 3 Hours',
+		];
+
+		return $schedules;
 	}
 
 	/**
@@ -49,7 +73,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	public static function twice_daily(): void {
+	public static function three_hourly(): void {
 		// check if we need to refresh the access token
 		self::refresh_access_token_if_needed();
 
@@ -58,7 +82,7 @@ class Controller {
 
 		// connected only actions
 		if ( $options->is_connected ) {
-			// send site data twice per day
+			// send site data every 3 hours
 			Health\Controller::send_site_data();
 		}
 
@@ -70,13 +94,22 @@ class Controller {
 	 * @return void
 	 */
 	private static function schedule_events(): void {
-		if ( ! wp_next_scheduled( self::ACTION_TWICE_DAILY ) ) {
-			wp_schedule_event( time(), 'twicedaily', self::ACTION_TWICE_DAILY );
+		if ( ! wp_next_scheduled( self::ACTION_THREE_HOURLY ) ) {
+			wp_schedule_event( time(), 'every_three_hours', self::ACTION_THREE_HOURLY );
 		}
 
 		if ( ! wp_next_scheduled( self::ACTION_DAILY ) ) {
 			wp_schedule_event( time(), 'daily', self::ACTION_DAILY );
 		}
+	}
+
+	/**
+	 * Clear legacy schedules from older plugin versions
+	 *
+	 * @return void
+	 */
+	private static function clear_legacy_schedules(): void {
+		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY_LEGACY );
 	}
 
 	/**
@@ -86,7 +119,8 @@ class Controller {
 	 */
 	public static function clear_scheduled_events(): void {
 		wp_clear_scheduled_hook( self::ACTION_DAILY );
-		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY );
+		wp_clear_scheduled_hook( self::ACTION_THREE_HOURLY );
+		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY_LEGACY );
 	}
 
 	/**
