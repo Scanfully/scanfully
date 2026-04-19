@@ -10,6 +10,13 @@ class Controller {
 
 	public const ACTION_THREE_HOURLY = 'scanfully_three_hourly';
 	public const ACTION_DAILY = 'scanfully_daily';
+	public const ACTION_HEALTH_SYNC = 'scanfully_health_sync';
+
+	/**
+	 * Grace period in seconds before the health sync fires.
+	 * Each new triggering action resets this delay.
+	 */
+	private const HEALTH_SYNC_DELAY = 60;
 
 	/**
 	 * Legacy action constant, used only to clear old schedules on update.
@@ -28,6 +35,10 @@ class Controller {
 		// cron 'callbacks'
 		add_action( self::ACTION_THREE_HOURLY, [ self::class, 'three_hourly' ] );
 		add_action( self::ACTION_DAILY, [ self::class, 'daily' ] );
+		add_action( self::ACTION_HEALTH_SYNC, [ self::class, 'health_sync' ] );
+
+		// register hooks that trigger a debounced health sync
+		self::register_health_sync_hooks();
 
 		// clear legacy schedules and schedule events
 		self::clear_legacy_schedules();
@@ -121,6 +132,61 @@ class Controller {
 		wp_clear_scheduled_hook( self::ACTION_DAILY );
 		wp_clear_scheduled_hook( self::ACTION_THREE_HOURLY );
 		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY_LEGACY );
+		wp_clear_scheduled_hook( self::ACTION_HEALTH_SYNC );
+	}
+
+	/**
+	 * Register WordPress hooks that trigger a debounced health data sync.
+	 *
+	 * @return void
+	 */
+	private static function register_health_sync_hooks(): void {
+		add_action( 'activated_plugin', [ self::class, 'schedule_health_sync' ] );
+		add_action( 'deactivated_plugin', [ self::class, 'schedule_health_sync' ] );
+		add_action( 'deleted_plugin', [ self::class, 'schedule_health_sync' ] );
+		add_action( 'upgrader_process_complete', [ self::class, 'handle_upgrader_complete' ], 10, 2 );
+	}
+
+	/**
+	 * Schedule a debounced health data sync.
+	 *
+	 * Clears any previously scheduled sync and reschedules with a fresh grace period,
+	 * so rapid or bulk plugin actions collapse into a single sync.
+	 *
+	 * @return void
+	 */
+	public static function schedule_health_sync(): void {
+		wp_clear_scheduled_hook( self::ACTION_HEALTH_SYNC );
+		wp_schedule_single_event( time() + self::HEALTH_SYNC_DELAY, self::ACTION_HEALTH_SYNC );
+	}
+
+	/**
+	 * Handle the upgrader_process_complete action.
+	 * Only schedules a health sync for plugin installs and updates.
+	 *
+	 * @param \WP_Upgrader $upgrader The upgrader instance.
+	 * @param array        $hook_extra Extra arguments passed by the upgrader.
+	 *
+	 * @return void
+	 */
+	public static function handle_upgrader_complete( $upgrader, array $hook_extra ): void {
+		if ( isset( $hook_extra['type'] ) && 'plugin' === $hook_extra['type'] ) {
+			self::schedule_health_sync();
+		}
+	}
+
+	/**
+	 * Callback for the debounced health sync cron event.
+	 * Sends site data to the API if connected.
+	 *
+	 * @return void
+	 */
+	public static function health_sync(): void {
+		$options = Options\Controller::get_options();
+
+		if ( $options->is_connected ) {
+			Health\Controller::send_site_data();
+		}
 	}
 
 	/**
