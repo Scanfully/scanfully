@@ -49,6 +49,11 @@ class AdminNotice {
 	 * @return bool
 	 */
 	private static function is_connection_stale( \Scanfully\Options\Options $options ): bool {
+		// If refresh has failed repeatedly, the connection is broken.
+		if ( \Scanfully\Cron\Controller::has_refresh_failure() ) {
+			return true;
+		}
+
 		$reference_date = $options->last_used;
 
 		// Fall back to date_connected if last_used is empty.
@@ -94,6 +99,12 @@ class AdminNotice {
 			</div>
 			<p>
 				<?php esc_html_e( 'Your Scanfully connection does not appear to be working. The plugin has not communicated with the Scanfully service for over 2 days.', 'scanfully' ); ?><br/>
+				<?php
+				$refresh_error = \Scanfully\Cron\Controller::get_refresh_error();
+				if ( ! empty( $refresh_error ) ) {
+					printf( '<strong>%s</strong> %s<br/>', esc_html__( 'Reason:', 'scanfully' ), esc_html( $refresh_error ) );
+				}
+				?>
 				<?php esc_html_e( 'Please reconnect your website to restore monitoring.', 'scanfully' ); ?>
 			</p>
 			<p>

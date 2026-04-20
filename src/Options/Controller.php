@@ -93,6 +93,8 @@ class Controller {
 		delete_option( self::$db_prefix . 'last_used' );
 		delete_option( self::$db_prefix . 'date_connected' );
 
+		\Scanfully\Cron\Controller::clear_refresh_failures();
+
 		do_action( 'scanfully_options_cleared' );
 	}
 }

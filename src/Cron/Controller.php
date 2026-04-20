@@ -194,6 +194,21 @@ class Controller {
 	 *
 	 * @return void
 	 */
+	/**
+	 * Transient key for tracking consecutive refresh failures.
+	 */
+	private const TRANSIENT_REFRESH_FAILURES = 'scanfully_refresh_failures';
+
+	/**
+	 * Transient key for storing the last refresh error message.
+	 */
+	private const TRANSIENT_REFRESH_ERROR = 'scanfully_refresh_error';
+
+	/**
+	 * Number of consecutive failures before the connection is considered broken.
+	 */
+	private const MAX_REFRESH_FAILURES = 3;
+
 	private static function refresh_access_token_if_needed(): void {
 
 		// get options
@@ -205,47 +220,100 @@ class Controller {
 		}
 
 		try {
-			// create a time object for now
 			$now = new \DateTime();
 			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
 
-			// create time object for expires
 			$expires = new \DateTime( $options->expires );
 			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
 			$expires->modify( '-2 days' );
-
-
-			// check if the access token is expired
-			if ( $now > $expires ) {
-				// refresh the access token
-				$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id );
-
-				// check if we got tokens
-				if ( empty( $tokens ) ) {
-					return;
-				}
-				// create a new expires time object
-				$new_expires = new \DateTime( $tokens['expires'] );
-				$new_expires->setTimezone( new \DateTimeZone( 'UTC' ) );
-
-				// update the options
-				$options = new Options\Options(
-					true,
-					$tokens['site_id'],
-					$tokens['access_token'],
-					$tokens['refresh_token'],
-					$new_expires->format( Connect\Controller::DATE_FORMAT ),
-					'',
-					$now->format( Connect\Controller::DATE_FORMAT )
-				);
-
-				// save options
-				Options\Controller::set_options( $options );
-			}
 		} catch ( \Exception $e ) {
-			// handle the exception
+			self::record_refresh_failure( 'Failed to parse token expiry date: ' . $e->getMessage() );
+			return;
 		}
 
+		// check if the access token needs refreshing
+		if ( $now <= $expires ) {
+			return;
+		}
+
+		// refresh the access token
+		$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id );
+
+		// check if we got tokens
+		if ( empty( $tokens ) ) {
+			self::record_refresh_failure( 'Token refresh request failed. The Scanfully API may be unreachable or the refresh token may be invalid.' );
+			return;
+		}
+
+		try {
+			$new_expires = new \DateTime( $tokens['expires'] );
+			$new_expires->setTimezone( new \DateTimeZone( 'UTC' ) );
+		} catch ( \Exception $e ) {
+			self::record_refresh_failure( 'Failed to parse new token expiry date: ' . $e->getMessage() );
+			return;
+		}
+
+		// update the options
+		$options = new Options\Options(
+			true,
+			$tokens['site_id'],
+			$tokens['access_token'],
+			$tokens['refresh_token'],
+			$new_expires->format( Connect\Controller::DATE_FORMAT ),
+			'',
+			$now->format( Connect\Controller::DATE_FORMAT )
+		);
+
+		// save options
+		Options\Controller::set_options( $options );
+
+		// refresh succeeded, clear any previous failure state
+		self::clear_refresh_failures();
+	}
+
+	/**
+	 * Record a refresh failure. Increments the consecutive failure counter
+	 * and stores the error message for display in admin notices.
+	 *
+	 * @param string $error_message
+	 *
+	 * @return void
+	 */
+	private static function record_refresh_failure( string $error_message ): void {
+		$failures = (int) get_transient( self::TRANSIENT_REFRESH_FAILURES );
+		$failures++;
+
+		// Store for 1 week so it survives between cron runs.
+		set_transient( self::TRANSIENT_REFRESH_FAILURES, $failures, WEEK_IN_SECONDS );
+		set_transient( self::TRANSIENT_REFRESH_ERROR, $error_message, WEEK_IN_SECONDS );
+	}
+
+	/**
+	 * Clear all refresh failure tracking state.
+	 *
+	 * @return void
+	 */
+	public static function clear_refresh_failures(): void {
+		delete_transient( self::TRANSIENT_REFRESH_FAILURES );
+		delete_transient( self::TRANSIENT_REFRESH_ERROR );
+	}
+
+	/**
+	 * Check if the refresh failure threshold has been reached.
+	 *
+	 * @return bool
+	 */
+	public static function has_refresh_failure(): bool {
+		return (int) get_transient( self::TRANSIENT_REFRESH_FAILURES ) >= self::MAX_REFRESH_FAILURES;
+	}
+
+	/**
+	 * Get the last recorded refresh error message.
+	 *
+	 * @return string
+	 */
+	public static function get_refresh_error(): string {
+		return (string) get_transient( self::TRANSIENT_REFRESH_ERROR );
 	}
 
 }
