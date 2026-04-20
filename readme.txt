@@ -57,11 +57,11 @@ We do fequent **Performance Checks** to measure how fast your site loads, and pr
 #### SMART NOTIFICATIONS
 Scanfully's smart notification systems allows you to define where you want to receive [whatever kind of notification you prefer](https://scanfully.com/docs/channels/). We currently offer Slack, Discord, email, and Pushover. 
 
+#### VULNERABILITY SCANNER
+Get notified as soon as a plugin or theme on your WordPress site has a known vulnerability. Scanfully checks your installed plugins and themes against known vulnerability databases and alerts you immediately, so you can take action before your site is at risk.
+
 #### LIGHTHOUSE SCANS (coming soon)
 Automated insights into the performance, accessibility, and quality of your website in one place
-
-#### VULNERABILITTY SCANS (coming soon)
-You will want to know as soon as possible when your WordPress site has a vulnerable plugin or theme, right? Well, that's exactly what you'll be receiving notification for when we launch this feature. 
 
 
 ### More information
