@@ -19,10 +19,6 @@ class AdminNotice {
 	public static function setup(): void {
 		global $pagenow;
 
-		if ( 'options-general.php' === $pagenow && isset( $_GET['page'] ) && 'scanfully' === $_GET['page'] ) {
-			return;
-		}
-
 		$options = OptionsController::get_options();
 
 		if ( $options->is_connected && self::is_connection_stale( $options ) ) {
@@ -30,6 +26,11 @@ class AdminNotice {
 			add_action( 'admin_enqueue_scripts', function () {
 				wp_enqueue_style( 'scanfully-not-connected-notice', plugins_url( '/assets/css/not-connected-notice.css', SCANFULLY_PLUGIN_FILE ), [], SCANFULLY_VERSION );
 			} );
+			return;
+		}
+
+		// Don't show the onboarding notice on the Scanfully settings page.
+		if ( 'options-general.php' === $pagenow && isset( $_GET['page'] ) && 'scanfully' === $_GET['page'] ) {
 			return;
 		}
 
