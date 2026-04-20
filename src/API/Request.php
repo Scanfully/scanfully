@@ -39,7 +39,7 @@ abstract class Request {
 		$request_args = [
 			'headers'     => $headers,
 			'timeout'     => 60,
-			'blocking'    => false,
+			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => false,
 		];
@@ -50,16 +50,20 @@ abstract class Request {
 			$request_args['body'] = wp_json_encode( $request_body );
 		}
 
-		// later check if post failed and show a notice to admins.
-		wp_remote_post( $this->get_url( $endpoint ), $request_args );
+		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
 
-		// update last used of the access token.
-		try {
-			$now = new \DateTime();
-			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-			OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
-		} catch ( \Exception $e ) {
-			// do nothing for now, just don't break the plugin.
+		// Only update last_used when we can confirm a successful response.
+		if ( ! is_wp_error( $response ) ) {
+			$status = wp_remote_retrieve_response_code( $response );
+			if ( $status >= 200 && $status < 300 ) {
+				try {
+					$now = new \DateTime();
+					$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+					OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
+				} catch ( \Exception $e ) {
+					// do nothing for now, just don't break the plugin.
+				}
+			}
 		}
 	}
 
