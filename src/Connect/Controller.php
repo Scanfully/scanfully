@@ -214,8 +214,8 @@ class Controller {
 
 
 		// run cron jobs a single time so user doesn't have to wait for the next cron job
-		wp_schedule_single_event( time(), \Scanfully\Cron\Controller::ACTION_DAILY );
-		wp_schedule_single_event( time(), \Scanfully\Cron\Controller::ACTION_THREE_HOURLY );
+		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [], 'scanfully' );
+		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], 'scanfully' );
 
 		// redirect to base connect page with success message
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );

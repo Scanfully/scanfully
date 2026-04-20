@@ -37,6 +37,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 } // Exit if accessed directly
 
+// Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
+require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
 function Scanfully(): \Scanfully\Main {
 	return \Scanfully\Main::get();

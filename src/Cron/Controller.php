@@ -1,142 +1,153 @@
 <?php
+/**
+ * The cron controller class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Cron;
 
 use Scanfully\Connect;
+use Scanfully\Events;
 use Scanfully\Health;
 use Scanfully\Options;
 
+/**
+ * Class Controller
+ */
 class Controller {
 
-	public const ACTION_THREE_HOURLY = 'scanfully_three_hourly';
-	public const ACTION_DAILY = 'scanfully_daily';
-	public const ACTION_HEALTH_SYNC = 'scanfully_health_sync';
+	/**
+	 * Hook: sync site health data (recurring every 3h + debounced single runs
+	 * after plugin install/activate/deactivate/update).
+	 */
+	public const ACTION_SYNC_SITE_HEALTH = 'scanfully_sync_site_health';
 
 	/**
-	 * Grace period in seconds before the health sync fires.
+	 * Hook: sync directory sizes (recurring daily).
+	 */
+	public const ACTION_SYNC_DIRECTORIES = 'scanfully_sync_directories';
+
+	/**
+	 * Args marker for debounced (single) site health runs, to distinguish them
+	 * from the recurring schedule so each can be managed independently.
+	 */
+	private const DEBOUNCED_ARGS = [ 'trigger' => 'debounced' ];
+
+	/**
+	 * Option flag marking that legacy WP-Cron hooks have been cleaned up.
+	 */
+	private const OPTION_HOOKS_MIGRATED = 'scanfully_as_hooks_migrated_v2';
+
+	/**
+	 * Action Scheduler group for all Scanfully jobs.
+	 */
+	private const AS_GROUP = 'scanfully';
+
+	/**
+	 * Grace period in seconds before the debounced site health sync fires.
 	 * Each new triggering action resets this delay.
 	 */
 	private const HEALTH_SYNC_DELAY = 60;
 
 	/**
-	 * Legacy action constant, used only to clear old schedules on update.
-	 */
-	private const ACTION_TWICE_DAILY_LEGACY = 'scanfully_twice_daily';
-
-	/**
-	 *
+	 * Register cron callbacks, triggers and scheduling.
 	 *
 	 * @return void
 	 */
 	public static function setup(): void {
-		// register custom cron schedules
-		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
+		// Register Action Scheduler callbacks.
+		add_action( self::ACTION_SYNC_SITE_HEALTH, [ self::class, 'sync_site_health' ] );
+		add_action( self::ACTION_SYNC_DIRECTORIES, [ self::class, 'sync_directories' ] );
 
-		// cron 'callbacks'
-		add_action( self::ACTION_THREE_HOURLY, [ self::class, 'three_hourly' ] );
-		add_action( self::ACTION_DAILY, [ self::class, 'daily' ] );
-		add_action( self::ACTION_HEALTH_SYNC, [ self::class, 'health_sync' ] );
-
-		// register hooks that trigger a debounced health sync
+		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
 
-		// clear legacy schedules and schedule events
-		self::clear_legacy_schedules();
-		self::schedule_events();
+		// Schedule recurring events once Action Scheduler has initialised its data store.
+		add_action( 'action_scheduler_init', [ self::class, 'schedule_events' ] );
 	}
 
 	/**
-	 * Register custom cron schedules
-	 *
-	 * @param array $schedules Existing cron schedules.
-	 * @return array
-	 */
-	public static function add_cron_schedules( array $schedules ): array {
-		$schedules['every_three_hours'] = [
-			'interval' => 3 * HOUR_IN_SECONDS,
-			'display'  => 'Every 3 Hours',
-		];
-
-		return $schedules;
-	}
-
-	/**
-	 * Daily cron function
+	 * Sync site health data.
+	 * Runs on the recurring 3-hour schedule AND as a debounced single action after
+	 * plugin install/activate/deactivate/update. Refreshes the access token if needed.
 	 *
 	 * @return void
 	 */
-	public static function daily(): void {
-		// check if we need to refresh the access token
+	public static function sync_site_health(): void {
 		self::refresh_access_token_if_needed();
 
-		// get options
 		$options = Options\Controller::get_options();
-
-		// connected only actions
 		if ( $options->is_connected ) {
-			// send directory data daily
+			Health\Controller::send_site_data();
+		}
+	}
+
+	/**
+	 * Sync directory size data. Runs on the recurring daily schedule.
+	 * Refreshes the access token if needed.
+	 *
+	 * @return void
+	 */
+	public static function sync_directories(): void {
+		self::refresh_access_token_if_needed();
+
+		$options = Options\Controller::get_options();
+		if ( $options->is_connected ) {
 			Health\Controller::send_directories_data();
 		}
 	}
 
 	/**
-	 * Daily cron function
+	 * Schedule recurring events if not already scheduled, and run one-time
+	 * cleanup of legacy hook names from older plugin versions.
+	 * Must run after Action Scheduler is initialised (action_scheduler_init or later).
 	 *
 	 * @return void
 	 */
-	public static function three_hourly(): void {
-		// check if we need to refresh the access token
-		self::refresh_access_token_if_needed();
+	public static function schedule_events(): void {
+		self::migrate_legacy_hooks();
 
-		// get options
-		$options = Options\Controller::get_options();
-
-		// connected only actions
-		if ( $options->is_connected ) {
-			// send site data every 3 hours
-			Health\Controller::send_site_data();
+		if ( ! as_has_scheduled_action( self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( time(), 3 * HOUR_IN_SECONDS, self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
 		}
 
-	}
-
-	/**
-	 * Schedule events
-	 *
-	 * @return void
-	 */
-	private static function schedule_events(): void {
-		if ( ! wp_next_scheduled( self::ACTION_THREE_HOURLY ) ) {
-			wp_schedule_event( time(), 'every_three_hours', self::ACTION_THREE_HOURLY );
-		}
-
-		if ( ! wp_next_scheduled( self::ACTION_DAILY ) ) {
-			wp_schedule_event( time(), 'daily', self::ACTION_DAILY );
+		if ( ! as_has_scheduled_action( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
 		}
 	}
 
 	/**
-	 * Clear legacy schedules from older plugin versions
+	 * One-time cleanup of legacy WP-Cron events from the pre-Action-Scheduler release.
 	 *
 	 * @return void
 	 */
-	private static function clear_legacy_schedules(): void {
-		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY_LEGACY );
+	private static function migrate_legacy_hooks(): void {
+		if ( get_option( self::OPTION_HOOKS_MIGRATED ) ) {
+			return;
+		}
+
+		// Clear WP-Cron hooks scheduled by prior plugin versions.
+		wp_clear_scheduled_hook( 'scanfully_twice_daily' );
+		wp_clear_scheduled_hook( 'scanfully_daily' );
+
+		update_option( self::OPTION_HOOKS_MIGRATED, 1, false );
 	}
 
 	/**
-	 * Clear all scheduled events
+	 * Unschedule all Scanfully Action Scheduler jobs.
 	 *
 	 * @return void
 	 */
 	public static function clear_scheduled_events(): void {
-		wp_clear_scheduled_hook( self::ACTION_DAILY );
-		wp_clear_scheduled_hook( self::ACTION_THREE_HOURLY );
-		wp_clear_scheduled_hook( self::ACTION_TWICE_DAILY_LEGACY );
-		wp_clear_scheduled_hook( self::ACTION_HEALTH_SYNC );
+		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, self::DEBOUNCED_ARGS, self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
+		as_unschedule_all_actions( Events\Controller::ACTION_SEND_EVENT, [], self::AS_GROUP );
 	}
 
 	/**
-	 * Register WordPress hooks that trigger a debounced health data sync.
+	 * Register WordPress hooks that trigger a debounced site health sync.
 	 *
 	 * @return void
 	 */
@@ -148,21 +159,27 @@ class Controller {
 	}
 
 	/**
-	 * Schedule a debounced health data sync.
+	 * Schedule a debounced site health sync.
 	 *
-	 * Clears any previously scheduled sync and reschedules with a fresh grace period,
-	 * so rapid or bulk plugin actions collapse into a single sync.
+	 * Cancels any previously scheduled debounced sync and reschedules with a fresh
+	 * grace period so rapid or bulk plugin actions collapse into a single sync.
+	 * The recurring schedule is untouched because it uses different args.
 	 *
 	 * @return void
 	 */
 	public static function schedule_health_sync(): void {
-		wp_clear_scheduled_hook( self::ACTION_HEALTH_SYNC );
-		wp_schedule_single_event( time() + self::HEALTH_SYNC_DELAY, self::ACTION_HEALTH_SYNC );
+		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, self::DEBOUNCED_ARGS, self::AS_GROUP );
+		as_schedule_single_action(
+			time() + self::HEALTH_SYNC_DELAY,
+			self::ACTION_SYNC_SITE_HEALTH,
+			self::DEBOUNCED_ARGS,
+			self::AS_GROUP
+		);
 	}
 
 	/**
 	 * Handle the upgrader_process_complete action.
-	 * Only schedules a health sync for plugin installs and updates.
+	 * Only schedules a debounced site health sync for plugin installs and updates.
 	 *
 	 * @param \WP_Upgrader $upgrader The upgrader instance.
 	 * @param array        $hook_extra Extra arguments passed by the upgrader.
@@ -172,20 +189,6 @@ class Controller {
 	public static function handle_upgrader_complete( $upgrader, array $hook_extra ): void {
 		if ( isset( $hook_extra['type'] ) && 'plugin' === $hook_extra['type'] ) {
 			self::schedule_health_sync();
-		}
-	}
-
-	/**
-	 * Callback for the debounced health sync cron event.
-	 * Sends site data to the API if connected.
-	 *
-	 * @return void
-	 */
-	public static function health_sync(): void {
-		$options = Options\Controller::get_options();
-
-		if ( $options->is_connected ) {
-			Health\Controller::send_site_data();
 		}
 	}
 

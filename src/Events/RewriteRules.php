@@ -29,9 +29,9 @@ class RewriteRules extends Event {
 	 * @return array
 	 */
 	public function get_post_body( array $data ): array {
-		return [
-			'rewrite_rules' => $data[1],
-		];
+		// The rewrite rules array is large and not useful in the timeline.
+		// The event type alone is sufficient to indicate the rules changed.
+		return [];
 	}
 
 	/**

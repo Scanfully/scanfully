@@ -7,12 +7,20 @@
 
 namespace Scanfully\Events;
 
+use Scanfully\API\EventRequest;
+use Scanfully\Options;
+
 /**
  * Class Controller
  *
  * @package Scanfully\Events
  */
 class Controller {
+
+	/**
+	 * Action Scheduler hook name for sending events.
+	 */
+	public const ACTION_SEND_EVENT = 'scanfully_send_event';
 
 	/**
 	 * The events
@@ -30,6 +38,38 @@ class Controller {
 	 */
 	public static function register( Event $event ): void {
 		self::$events[] = $event;
+	}
+
+	/**
+	 * Register the Action Scheduler callback that performs the actual API send.
+	 *
+	 * @return void
+	 */
+	public static function register_send_callback(): void {
+		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 3 );
+	}
+
+	/**
+	 * Action Scheduler callback: send a scheduled event to the API.
+	 *
+	 * @param  string $type The event type.
+	 * @param  array  $user The user data.
+	 * @param  array  $data The event data.
+	 *
+	 * @return void
+	 */
+	public static function send_event( string $type, array $user, array $data ): void {
+		$options = Options\Controller::get_options();
+		if ( ! $options->is_connected ) {
+			return;
+		}
+
+		$request = new EventRequest();
+		$request->send( [
+			'type' => $type,
+			'user' => $user,
+			'data' => $data,
+		] );
 	}
 
 	/**
