@@ -108,6 +108,14 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.4.0: April 20, 2026 =
+Added: debounced health data sync after plugin install, removal, update, and activation changes.
+Added: admin notice when Scanfully connection is stale for over 2 days with one-click reconnect button.
+Added: wordpress-stubs dev dependency.
+Changed: FAQ connect instructions to reflect OAuth flow.
+Changed: site data sync frequency from twice daily to every 3 hours.
+Fixed: send site health data instead of legacy twice_daily hook on connect.
+
 = 1.3.1: February 6, 2026 =
 Fix: Use home_url() instead of get_site_url() for site URL detection.
 Fix: Improved SSL detection for sites behind reverse proxies and load balancers.
