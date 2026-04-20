@@ -40,6 +40,11 @@ class Controller {
 			self::handle_disconnect_start();
 		}
 
+		// handle reconnect request (disconnect + start new connect)
+		if ( isset( $_GET['scanfully-reconnect'] ) ) {
+			self::handle_reconnect();
+		}
+
 		// handle connect success return request
 		if ( isset( $_GET['scanfully-connect-success'] ) ) {
 			self::handle_request_connect_success();
@@ -111,6 +116,39 @@ class Controller {
 
 		// redirect to base connect page
 		wp_redirect( Page::get_page_url() );
+		exit;
+	}
+
+	/**
+	 * Handle a reconnect request: disconnect the current account and immediately start a new connect flow.
+	 *
+	 * @return void
+	 */
+	private static function handle_reconnect(): void {
+		// check nonce
+		if ( ! isset( $_GET['scanfully-reconnect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-reconnect-nonce'], 'scanfully-reconnect' ) ) {
+			wp_die( 'Invalid Scanfully reconnect nonce' );
+		}
+
+		// check permissions
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		// clear existing connection
+		OptionsController::clear();
+
+		// build the connect URL and redirect directly into the connect flow
+		$connect_url = add_query_arg(
+			[
+				'redirect_uri' => rawurlencode( Page::get_page_url() ),
+				'site'         => rawurlencode( home_url() ),
+				'state'        => self::generate_state(),
+			],
+			Main::get_connect_url()
+		);
+
+		wp_redirect( $connect_url );
 		exit;
 	}
 
