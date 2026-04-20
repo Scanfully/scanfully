@@ -95,7 +95,7 @@ Starting with Scanfully consists of just two steps: installing and setting up th
 == Frequently Asked Questions ==
 
 = How do I connect my website to Scanfully? =
-In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your [Scanfully dashboard](https://dashboard.scanfully.com/sites?utm_source=wp-plugin-repo&utm_medium=link&utm_campaign=more-information). Copy and paste these details in the Scanfully settings screen in your WordPress admin panel.
+Go to Settings > Scanfully in your WordPress admin and click the "Connect" button. You will be redirected to your Scanfully dashboard to authorize the connection. Once approved, you will be redirected back to your WordPress site and the connection is complete.
 
 = Where's the Scanfully settings screen? =
 Settings > Scanfully.
