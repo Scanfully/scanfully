@@ -112,6 +112,7 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 Added: Debounced health data sync after plugin install, removal, update, and activation changes.
 Added: Admin notice when Scanfully connection is stale for over 2 days with one-click reconnect button.
 Added: Refresh failure tracking with error reason in stale connection notice
+Added: Background job processing via Action Scheduler for events and health sync, replacing blocking inline API calls and WP-Cron.
 Added: wordpress-stubs dev dependency.
 Changed: Update last_used only on confirmed successful API responses.
 Changed: FAQ connect instructions to reflect OAuth flow.
