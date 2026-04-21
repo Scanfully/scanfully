@@ -7,8 +7,6 @@
 
 namespace Scanfully\Events;
 
-use Scanfully\API\EventRequest;
-
 /**
  * Class Event
  */
@@ -102,14 +100,16 @@ abstract class Event {
 			return;
 		}
 
-		// build the request and send it.
-		$request = new EventRequest();
-		$request->send(
+		// Schedule the API request as a background job so it does not block the current request.
+		as_schedule_single_action(
+			time(),
+			Controller::ACTION_SEND_EVENT,
 			[
 				'type' => $this->type,
 				'user' => $this->get_user(),
 				'data' => $this->get_post_body( $args ),
-			]
+			],
+			'scanfully'
 		);
 	}
 

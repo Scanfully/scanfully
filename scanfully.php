@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.3.1
+ * Version:     1.4.0
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully
@@ -37,6 +37,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 } // Exit if accessed directly
 
+// Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
+require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
 function Scanfully(): \Scanfully\Main {
 	return \Scanfully\Main::get();
@@ -46,7 +48,7 @@ function Scanfully(): \Scanfully\Main {
 add_action( 'plugins_loaded', function () {
 	// meta
 	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
-	define( 'SCANFULLY_VERSION', '1.3.1' );
+	define( 'SCANFULLY_VERSION', '1.4.0' );
 
 	// boot
 	require __DIR__ . '/vendor/autoload.php';

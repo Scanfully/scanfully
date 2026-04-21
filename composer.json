@@ -4,6 +4,10 @@
       "Scanfully\\": "src/"
     }
   },
+  "require-dev": {
+    "php-stubs/wordpress-stubs": "^6.9"
+  },
   "require": {
+    "woocommerce/action-scheduler": "^3.9"
   }
 }

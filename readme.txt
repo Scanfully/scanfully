@@ -3,8 +3,8 @@ Contributors: barrykooij,defries,scanfully
 Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
-Tested up to: 6.9.1
-Stable tag: 1.3.1
+Tested up to: 6.9.4
+Stable tag: 1.4.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -57,11 +57,11 @@ We do fequent **Performance Checks** to measure how fast your site loads, and pr
 #### SMART NOTIFICATIONS
 Scanfully's smart notification systems allows you to define where you want to receive [whatever kind of notification you prefer](https://scanfully.com/docs/channels/). We currently offer Slack, Discord, email, and Pushover. 
 
+#### VULNERABILITY SCANNER
+Get notified as soon as a plugin or theme on your WordPress site has a known vulnerability. Scanfully checks your installed plugins and themes against known vulnerability databases and alerts you immediately, so you can take action before your site is at risk.
+
 #### LIGHTHOUSE SCANS (coming soon)
 Automated insights into the performance, accessibility, and quality of your website in one place
-
-#### VULNERABILITTY SCANS (coming soon)
-You will want to know as soon as possible when your WordPress site has a vulnerable plugin or theme, right? Well, that's exactly what you'll be receiving notification for when we launch this feature. 
 
 
 ### More information
@@ -95,7 +95,7 @@ Starting with Scanfully consists of just two steps: installing and setting up th
 == Frequently Asked Questions ==
 
 = How do I connect my website to Scanfully? =
-In order for your website to securely communicate with your Scanfully dashboard, we need your site's API keys. Your site API details can be found in your [Scanfully dashboard](https://dashboard.scanfully.com/sites?utm_source=wp-plugin-repo&utm_medium=link&utm_campaign=more-information). Copy and paste these details in the Scanfully settings screen in your WordPress admin panel.
+Go to Settings > Scanfully in your WordPress admin and click the "Connect" button. You will be redirected to your Scanfully dashboard to authorize the connection. Once approved, you will be redirected back to your WordPress site and the connection is complete.
 
 = Where's the Scanfully settings screen? =
 Settings > Scanfully.
@@ -107,6 +107,17 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.4.0: April 20, 2026 =
+Added: Debounced health data sync after plugin install, removal, update, and activation changes.
+Added: Admin notice when Scanfully connection is stale for over 2 days with one-click reconnect button.
+Added: Refresh failure tracking with error reason in stale connection notice
+Added: Background job processing via Action Scheduler for events and health sync, replacing blocking inline API calls and WP-Cron.
+Added: wordpress-stubs dev dependency.
+Changed: Update last_used only on confirmed successful API responses.
+Changed: FAQ connect instructions to reflect OAuth flow.
+Changed: Site data sync frequency from twice daily to every 3 hours.
+Fixed: Send site health data instead of legacy twice_daily hook on connect.
 
 = 1.3.1: February 6, 2026 =
 Fix: Use home_url() instead of get_site_url() for site URL detection.
