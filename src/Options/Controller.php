@@ -70,13 +70,16 @@ class Controller {
 	/**
 	 * Set an option
 	 *
-	 * @param  string $name
-	 * @param  string $value
+	 * @param  string $name     The option name (without the Scanfully prefix).
+	 * @param  string $value    The string value to store.
+	 * @param  bool   $autoload Whether the option should be autoloaded by WordPress.
+	 *                          Defaults to true to preserve historical behaviour;
+	 *                          large or rarely-read options should pass false.
 	 *
 	 * @return void
 	 */
-	public static function set_option( string $name, string $value ): void {
-		update_option( self::$db_prefix . $name, $value );
+	public static function set_option( string $name, string $value, bool $autoload = true ): void {
+		update_option( self::$db_prefix . $name, $value, $autoload );
 	}
 
 	/**
@@ -92,6 +95,14 @@ class Controller {
 		delete_option( self::$db_prefix . 'expires' );
 		delete_option( self::$db_prefix . 'last_used' );
 		delete_option( self::$db_prefix . 'date_connected' );
+
+		// Email deliverability sub-feature: per-site secret + cached state.
+		delete_option( self::$db_prefix . 'email_deliverability_enabled' );
+		delete_option( self::$db_prefix . 'email_deliverability_secret' );
+		delete_option( self::$db_prefix . 'email_deliverability_inbound_address' );
+		delete_option( self::$db_prefix . 'email_deliverability_interval_seconds' );
+		delete_option( self::$db_prefix . 'email_deliverability_last_failure_at' );
+		delete_option( self::$db_prefix . 'email_deliverability_last_as_run_at' );
 
 		\Scanfully\Cron\Controller::clear_refresh_failures();
 

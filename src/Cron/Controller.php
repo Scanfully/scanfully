@@ -29,6 +29,12 @@ class Controller {
 	public const ACTION_SYNC_DIRECTORIES = 'scanfully_sync_directories';
 
 	/**
+	 * Hook: per-site email deliverability ping (recurring; cadence is
+	 * computed by EmailHealth\Controller::current_interval_seconds()).
+	 */
+	public const ACTION_EMAIL_DELIVERABILITY_PING = 'scanfully_email_deliverability_ping';
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -62,6 +68,13 @@ class Controller {
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
+
+		// Email deliverability sub-feature registers its own AS callback +
+		// admin panel hooks.
+		\Scanfully\EmailHealth\Controller::register();
+
+		// Cancel email-deliverability schedule on disconnect.
+		add_action( 'scanfully_options_cleared', [ self::class, 'clear_email_deliverability_schedule' ] );
 
 		// Schedule recurring events once Action Scheduler has initialised its data store.
 		add_action( 'action_scheduler_init', [ self::class, 'schedule_events' ] );
@@ -115,6 +128,24 @@ class Controller {
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP ) ) {
 			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
 		}
+
+		if ( ! as_has_scheduled_action( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP ) ) {
+			$interval = \Scanfully\EmailHealth\Controller::current_interval_seconds();
+			as_schedule_recurring_action( time() + $interval, $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+		}
+	}
+
+	/**
+	 * Cancel all scheduled email-deliverability actions. Called from the
+	 * scanfully_options_cleared hook on disconnect.
+	 *
+	 * @return void
+	 */
+	public static function clear_email_deliverability_schedule(): void {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+			as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [ 'source' => 'manual' ], self::AS_GROUP );
+		}
 	}
 
 	/**
@@ -143,6 +174,8 @@ class Controller {
 		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, self::DEBOUNCED_ARGS, self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [ 'source' => 'manual' ], self::AS_GROUP );
 		as_unschedule_all_actions( Events\Controller::ACTION_SEND_EVENT, [], self::AS_GROUP );
 	}
 
@@ -284,7 +317,7 @@ class Controller {
 	 */
 	private static function record_refresh_failure( string $error_message ): void {
 		$failures = (int) get_transient( self::TRANSIENT_REFRESH_FAILURES );
-		$failures++;
+		++$failures;
 
 		// Store for 1 week so it survives between cron runs.
 		set_transient( self::TRANSIENT_REFRESH_FAILURES, $failures, WEEK_IN_SECONDS );
@@ -318,5 +351,4 @@ class Controller {
 	public static function get_refresh_error(): string {
 		return (string) get_transient( self::TRANSIENT_REFRESH_ERROR );
 	}
-
 }
