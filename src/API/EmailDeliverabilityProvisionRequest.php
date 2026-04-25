@@ -13,10 +13,10 @@ use Scanfully\Options\Controller as OptionsController;
 /**
  * POST /v1/sites/{site_id}/email-health/deliverability/provision.
  *
- * Returns 201 with {secret, interval_seconds, inbound_address} on first call,
- * or 409 with {error, interval_seconds, inbound_address} if already
- * provisioned. The plugin treats both as an opportunity to refresh local
- * cache; the secret is only present on 201.
+ * Always returns 200 with {secret, interval_seconds, inbound_address} and
+ * rotates the per-site secret on every call. Idempotent from the plugin's
+ * perspective: call it whenever the local secret is missing or whenever
+ * /attempt rejects the current token (401 / 409).
  */
 class EmailDeliverabilityProvisionRequest extends Request {
 

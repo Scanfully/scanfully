@@ -117,7 +117,7 @@ class Controller {
 		$secret = OptionController::get_option( 'email_deliverability_secret' );
 		$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
 		if ( '' === $secret || '' === $inbound_address ) {
-			if ( ! self::ensure_provisioned() ) {
+			if ( ! self::provision_credentials() ) {
 				return;
 			}
 			$secret = OptionController::get_option( 'email_deliverability_secret' );
@@ -145,9 +145,45 @@ class Controller {
 			]
 		);
 		if ( null === $attempt_resp || $attempt_resp['status'] < 200 || $attempt_resp['status'] >= 300 ) {
-			self::record_failure();
-			self::reschedule_if_changed();
-			return;
+			// 401 (invalid HMAC) or 409 (site not provisioned) means our local
+			// secret is stale or missing on the server. Re-provision and retry
+			// once within the same cycle so existing customers self-heal.
+			$status = null === $attempt_resp ? 0 : (int) $attempt_resp['status'];
+			if ( 401 === $status || 409 === $status ) {
+				if ( ! self::provision_credentials() ) {
+					self::record_failure();
+					self::reschedule_if_changed();
+					return;
+				}
+				$secret = OptionController::get_option( 'email_deliverability_secret' );
+				$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
+				if ( '' === $secret || '' === $inbound_address ) {
+					self::record_failure();
+					self::reschedule_if_changed();
+					return;
+				}
+				$nonce = wp_generate_uuid4();
+				$timestamp = self::utc_now_iso();
+				$token = Token::compute( $secret, $site_id, $nonce, $timestamp );
+				$attempt_resp = $attempt_req->send(
+					[
+						'nonce' => $nonce,
+						'timestamp' => $timestamp,
+						'token' => $token,
+						'transport_hint' => $transport_hint,
+						'source' => $source,
+					]
+				);
+				if ( null === $attempt_resp || $attempt_resp['status'] < 200 || $attempt_resp['status'] >= 300 ) {
+					self::record_failure();
+					self::reschedule_if_changed();
+					return;
+				}
+			} else {
+				self::record_failure();
+				self::reschedule_if_changed();
+				return;
+			}
 		}
 
 		// (6) Build mail.
@@ -196,51 +232,33 @@ class Controller {
 	}
 
 	/**
-	 * Lazy provision. Returns true if we end up with a usable secret +
-	 * inbound address afterwards.
+	 * Provision (or rotate) the per-site HMAC secret. The API endpoint always
+	 * returns 200 with a fresh secret + inbound address + interval, so this is
+	 * a single, idempotent flow. Returns true on success.
+	 *
+	 * Called in two situations:
+	 *   1. Lazy provision when the local secret is missing (first connect or
+	 *      after disconnect cleared it).
+	 *   2. Self-heal when /attempt rejects our token with 401 or 409.
 	 *
 	 * @return bool
 	 */
-	private static function ensure_provisioned(): bool {
+	private static function provision_credentials(): bool {
 		$req = new EmailDeliverabilityProvisionRequest();
 		$res = $req->send();
-		if ( null === $res ) {
+		if ( null === $res || 200 !== (int) $res['status'] || ! is_array( $res['body'] ) ) {
 			return false;
 		}
-
-		if ( 201 === $res['status'] && is_array( $res['body'] ) ) {
-			$body = $res['body'];
-			if ( ! empty( $body['secret'] ) ) {
-				OptionController::set_option( 'email_deliverability_secret', (string) $body['secret'], false );
-			}
-			if ( ! empty( $body['inbound_address'] ) ) {
-				OptionController::set_option( 'email_deliverability_inbound_address', (string) $body['inbound_address'], false );
-			}
-			if ( ! empty( $body['interval_seconds'] ) ) {
-				OptionController::set_option( 'email_deliverability_interval_seconds', (string) (int) $body['interval_seconds'], false );
-			}
-			return true;
+		$body = $res['body'];
+		if ( empty( $body['secret'] ) || empty( $body['inbound_address'] ) ) {
+			return false;
 		}
-
-		if ( 409 === $res['status'] ) {
-			// Already provisioned server-side; refill cache from /state.
-			$state = self::fetch_state();
-			if ( null === $state ) {
-				return false;
-			}
-			if ( ! empty( $state['inbound_address'] ) ) {
-				OptionController::set_option( 'email_deliverability_inbound_address', (string) $state['inbound_address'], false );
-			}
-			if ( ! empty( $state['interval_seconds'] ) ) {
-				OptionController::set_option( 'email_deliverability_interval_seconds', (string) (int) $state['interval_seconds'], false );
-			}
-			// Without the plaintext secret we cannot HMAC; return false so
-			// the caller bails for this cycle. The admin can re-provision
-			// via disconnect/reconnect if state is wedged.
-			return ! empty( OptionController::get_option( 'email_deliverability_secret' ) );
+		OptionController::set_option( 'email_deliverability_secret', (string) $body['secret'], false );
+		OptionController::set_option( 'email_deliverability_inbound_address', (string) $body['inbound_address'], false );
+		if ( ! empty( $body['interval_seconds'] ) ) {
+			OptionController::set_option( 'email_deliverability_interval_seconds', (string) (int) $body['interval_seconds'], false );
 		}
-
-		return false;
+		return true;
 	}
 
 	/**
