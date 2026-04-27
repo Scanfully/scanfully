@@ -60,6 +60,16 @@ class Controller {
 	private const AJAX_RUN_NOW = 'scanfully_email_deliverability_run_now';
 
 	/**
+	 * admin-post action name for saving the From address.
+	 */
+	private const ADMIN_POST_SAVE_FROM = 'scanfully_email_deliverability_save_from';
+
+	/**
+	 * Nonce action used by the From-address save form.
+	 */
+	private const NONCE_SAVE_FROM = 'scanfully_email_deliverability_save_from';
+
+	/**
 	 * Domain suffixes whose admin_email indicates a feedback loop with
 	 * Scanfully's own outbound mail; the Pinger refuses to send if
 	 * admin_email matches.
@@ -74,6 +84,7 @@ class Controller {
 	public static function register(): void {
 		add_action( CronController::ACTION_EMAIL_DELIVERABILITY_PING, [ self::class, 'run_ping' ], 10, 1 );
 		add_action( 'wp_ajax_' . self::AJAX_RUN_NOW, [ self::class, 'handle_ajax_run_now' ] );
+		add_action( 'admin_post_' . self::ADMIN_POST_SAVE_FROM, [ self::class, 'handle_save_from_address' ] );
 	}
 
 	// --- Per-cycle Pinger ----------------------------------------------------
@@ -103,8 +114,8 @@ class Controller {
 		if ( self::is_local_environment() && ! apply_filters( 'scanfully_email_deliverability_force_in_local', false ) ) {
 			return;
 		}
-		if ( self::is_admin_email_loopable() ) {
-			self::log_warn( 'admin_email is on a Scanfully domain; refusing to send ping (anti-loop).' );
+		if ( self::is_from_address_loopable() ) {
+			self::log_warn( 'Configured From address is on a Scanfully domain; refusing to send ping (anti-loop).' );
 			return;
 		}
 
@@ -206,7 +217,7 @@ class Controller {
 			]
 		);
 		$headers = [
-			'From: ' . get_bloginfo( 'admin_email' ),
+			'From: ' . self::get_from_address(),
 			'X-Scanfully-Token: ' . $token,
 		];
 
@@ -382,21 +393,45 @@ class Controller {
 	}
 
 	/**
-	 * Whether the admin_email points at a Scanfully-managed domain (would
-	 * cause a feedback loop if used as the From address).
+	 * Resolve the From address used for outbound deliverability pings.
+	 * Falls back to the site's admin_email when the override option is empty.
+	 *
+	 * @return string
+	 */
+	public static function get_from_address(): string {
+		$override = trim( (string) OptionController::get_option( 'email_deliverability_from_address' ) );
+		if ( '' !== $override && is_email( $override ) ) {
+			return $override;
+		}
+		return (string) get_bloginfo( 'admin_email' );
+	}
+
+	/**
+	 * Whether the configured From address points at a Scanfully-managed domain
+	 * (would cause a feedback loop if used as the From address).
 	 *
 	 * @return bool
 	 */
-	public static function is_admin_email_loopable(): bool {
-		$admin = (string) get_bloginfo( 'admin_email' );
-		if ( '' === $admin ) {
+	public static function is_from_address_loopable(): bool {
+		return self::is_email_loopable( self::get_from_address() );
+	}
+
+	/**
+	 * Whether the given email address is on a Scanfully-managed domain.
+	 *
+	 * @param string $email Email address to test.
+	 *
+	 * @return bool
+	 */
+	private static function is_email_loopable( string $email ): bool {
+		if ( '' === $email ) {
 			return false;
 		}
-		$at = strrpos( $admin, '@' );
+		$at = strrpos( $email, '@' );
 		if ( false === $at ) {
 			return false;
 		}
-		$host = strtolower( trim( substr( $admin, $at + 1 ) ) );
+		$host = strtolower( trim( substr( $email, $at + 1 ) ) );
 		$host = rtrim( $host, '.' );
 		foreach ( self::LOOP_SUFFIXES as $suf ) {
 			if ( $host === $suf || self::str_ends_with( $host, '.' . $suf ) ) {
@@ -617,6 +652,10 @@ class Controller {
 			? as_next_scheduled_action( CronController::ACTION_EMAIL_DELIVERABILITY_PING, [], 'scanfully' )
 			: false;
 		$nonce = wp_create_nonce( self::AJAX_RUN_NOW );
+		$from_address = self::get_from_address();
+		$from_override = (string) OptionController::get_option( 'email_deliverability_from_address' );
+		$from_notice = isset( $_GET['scanfully_from_saved'] ) ? (string) sanitize_key( wp_unslash( $_GET['scanfully_from_saved'] ) ) : '';
+		$from_placeholder = (string) get_bloginfo( 'admin_email' );
 		?>
 		<hr />
 		<h2><?php esc_html_e( 'Email deliverability', 'scanfully' ); ?></h2>
@@ -689,6 +728,12 @@ class Controller {
 				</li>
 			<?php endif; ?>
 
+			<li>
+				<div class="scanfully-connect-details-label"><?php esc_html_e( 'From address', 'scanfully' ); ?></div>
+				<div class="scanfully-connect-details-value"><span
+						class="scanfully-connect-blob"><?php echo esc_html( $from_address ); ?></span></div>
+			</li>
+
 		</ul>
 		<div class="scanfully-connect-button-wrapper">
 			<button type="button" class="button button-secondary" id="scanfully-run-now"
@@ -699,6 +744,48 @@ class Controller {
 			<span class="description"
 				style="display:block;margin-top:4px;"><?php esc_html_e( 'Sends a test ping. Results appear within ~30 minutes.', 'scanfully' ); ?></span>
 		</div>
+
+		<h3><?php esc_html_e( 'Sender address', 'scanfully' ); ?></h3>
+		<p class="description" style="max-width:640px;">
+			<?php esc_html_e( "By default the site's administration email address is used as the From address for deliverability pings. Some mail providers (e.g. SendGrid, Mailgun) reject messages whose From address is on a different domain than the website. If that applies to your setup, override the From address with one on a domain that your mail provider accepts.", 'scanfully' ); ?>
+		</p>
+		<?php if ( 'ok' === $from_notice ) : ?>
+			<div class="notice notice-success inline">
+				<p><?php esc_html_e( 'From address saved.', 'scanfully' ); ?></p>
+			</div>
+		<?php elseif ( 'invalid' === $from_notice ) : ?>
+			<div class="notice notice-error inline">
+				<p><?php esc_html_e( 'Please enter a valid email address.', 'scanfully' ); ?></p>
+			</div>
+		<?php elseif ( 'loop' === $from_notice ) : ?>
+			<div class="notice notice-error inline">
+				<p><?php esc_html_e( 'That domain is reserved by Scanfully and cannot be used as the From address.', 'scanfully' ); ?>
+				</p>
+			</div>
+		<?php endif; ?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+			style="margin-top:8px;max-width:640px;">
+			<input type="hidden" name="action" value="<?php echo esc_attr( self::ADMIN_POST_SAVE_FROM ); ?>" />
+			<?php wp_nonce_field( self::NONCE_SAVE_FROM ); ?>
+			<p>
+				<label for="scanfully-email-from-address"
+					style="display:block;font-weight:600;margin-bottom:4px;"><?php esc_html_e( 'From address override', 'scanfully' ); ?></label>
+				<input type="email" id="scanfully-email-from-address" name="scanfully_from_address"
+					value="<?php echo esc_attr( $from_override ); ?>"
+					placeholder="<?php echo esc_attr( $from_placeholder ); ?>" class="regular-text" />
+				<span class="description" style="display:block;margin-top:4px;">
+					<?php
+					/* translators: %s: site's admin email address. */
+					echo esc_html( sprintf( __( 'Leave empty to use the site administration email (%s).', 'scanfully' ), (string) get_bloginfo( 'admin_email' ) ) );
+					?>
+				</span>
+			</p>
+			<p>
+				<button type="submit" class="button button-primary">
+					<?php esc_html_e( 'Save From address', 'scanfully' ); ?>
+				</button>
+			</p>
+		</form>
 		<script>
 			(function () {
 				var btn = document.getElementById('scanfully-run-now');
@@ -761,5 +848,43 @@ class Controller {
 				'message' => __( 'Check scheduled. Results appear in the Activity log within ~30 minutes.', 'scanfully' ),
 			]
 		);
+	}
+
+	/**
+	 * admin-post handler for saving the From-address override. Empty input
+	 * clears the override, restoring the admin_email fallback.
+	 *
+	 * @return void
+	 */
+	public static function handle_save_from_address(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Unauthorized', 'scanfully' ), '', [ 'response' => 403 ] );
+		}
+		check_admin_referer( self::NONCE_SAVE_FROM );
+
+		$raw = isset( $_POST['scanfully_from_address'] ) ? wp_unslash( $_POST['scanfully_from_address'] ) : '';
+		$value = trim( sanitize_email( (string) $raw ) );
+
+		$status = 'ok';
+		if ( '' === trim( (string) $raw ) ) {
+			// Empty input -> clear the override.
+			OptionController::set_option( 'email_deliverability_from_address', '', false );
+		} elseif ( '' === $value || ! is_email( $value ) ) {
+			$status = 'invalid';
+		} elseif ( self::is_email_loopable( $value ) ) {
+			$status = 'loop';
+		} else {
+			OptionController::set_option( 'email_deliverability_from_address', $value, false );
+		}
+
+		$redirect = add_query_arg(
+			[
+				'page' => 'scanfully',
+				'scanfully_from_saved' => $status,
+			],
+			admin_url( 'options-general.php' )
+		);
+		wp_safe_redirect( $redirect );
+		exit;
 	}
 }
