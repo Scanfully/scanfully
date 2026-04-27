@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 6.9.4
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -108,21 +108,25 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.5.0: April 27, 2026 =
+* Added: email deliverability monitoring via Action Scheduler and plugin admin UI
+* Fixed: prevent Action Scheduler args overflow on PostSaved events by summarizing post data
+
 = 1.4.0: April 20, 2026 =
-Added: Debounced health data sync after plugin install, removal, update, and activation changes.
-Added: Admin notice when Scanfully connection is stale for over 2 days with one-click reconnect button.
-Added: Refresh failure tracking with error reason in stale connection notice
-Added: Background job processing via Action Scheduler for events and health sync, replacing blocking inline API calls and WP-Cron.
-Added: wordpress-stubs dev dependency.
-Changed: Update last_used only on confirmed successful API responses.
-Changed: FAQ connect instructions to reflect OAuth flow.
-Changed: Site data sync frequency from twice daily to every 3 hours.
-Fixed: Send site health data instead of legacy twice_daily hook on connect.
+* Added: Debounced health data sync after plugin install, removal, update, and activation changes.
+* Added: Admin notice when Scanfully connection is stale for over 2 days with one-click reconnect button.
+* Added: Refresh failure tracking with error reason in stale connection notice
+* Added: Background job processing via Action Scheduler for events and health sync, replacing blocking inline API calls and WP-Cron.
+* Added: wordpress-stubs dev dependency.
+* Changed: Update last_used only on confirmed successful API responses.
+* Changed: FAQ connect instructions to reflect OAuth flow.
+* Changed: Site data sync frequency from twice daily to every 3 hours.
+* Fixed: Send site health data instead of legacy twice_daily hook on connect.
 
 = 1.3.1: February 6, 2026 =
-Fix: Use home_url() instead of get_site_url() for site URL detection.
-Fix: Improved SSL detection for sites behind reverse proxies and load balancers.
-Fix: Meta changes and updates.
+* Fix: Use home_url() instead of get_site_url() for site URL detection.
+* Fix: Improved SSL detection for sites behind reverse proxies and load balancers.
+* Fix: Meta changes and updates.
 
 = 1.3.0: November 28, 2025 =
 * Feature: Added Scanfully edit feature, allowing you to directly open a post/page edit page from the Scanfully dashboard.
