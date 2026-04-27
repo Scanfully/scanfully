@@ -108,6 +108,9 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 
 == Changelog ==
 
+= 1.5.1: April 28, 2026 =
+* Added: configurable From address override for email deliverability pings
+
 = 1.5.0: April 27, 2026 =
 * Added: email deliverability monitoring via Action Scheduler and plugin admin UI
 * Fixed: prevent Action Scheduler args overflow on PostSaved events by summarizing post data
