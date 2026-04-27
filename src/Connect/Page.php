@@ -139,6 +139,8 @@ class Page {
 					<?php endif; ?>
 				</div>
 
+				
+				<?php \Scanfully\EmailHealth\Controller::render_admin_panel(); ?>
 				<?php do_action( 'scanfully_connect_page_content_end' ); ?>
 			</div>
 			<div class="scanfully-setup-footer">

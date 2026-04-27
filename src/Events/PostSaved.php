@@ -38,9 +38,57 @@ class PostSaved extends Event {
 			'id'          => $post_id,
 			'title'       => $post->post_title,
 			'post_status' => $post->post_status,
-			'post_before' => $post_before,
-			'post'        => $post,
+			'post_before' => self::summarize_post( $post_before ),
+			'post'        => self::summarize_post( $post ),
 		];
+	}
+
+	/**
+	 * Reduce a WP_Post (or similar) to a small set of safe fields.
+	 *
+	 * The full WP_Post object includes `post_content` and other fields that can
+	 * easily push the Action Scheduler args payload past its 8000 character
+	 * JSON limit. We only keep the metadata fields that are useful for the
+	 * Scanfully timeline.
+	 *
+	 * @param  mixed $post The post to summarize.
+	 *
+	 * @return array|null
+	 */
+	private static function summarize_post( $post ): ?array {
+		if ( empty( $post ) ) {
+			return null;
+		}
+
+		$fields = [
+			'ID',
+			'post_author',
+			'post_date',
+			'post_date_gmt',
+			'post_modified',
+			'post_modified_gmt',
+			'post_status',
+			'post_title',
+			'post_name',
+			'post_type',
+			'post_parent',
+			'post_password',
+			'comment_status',
+			'ping_status',
+			'menu_order',
+			'guid',
+		];
+
+		$summary = [];
+		foreach ( $fields as $field ) {
+			if ( is_object( $post ) && isset( $post->$field ) ) {
+				$summary[ $field ] = $post->$field;
+			} elseif ( is_array( $post ) && isset( $post[ $field ] ) ) {
+				$summary[ $field ] = $post[ $field ];
+			}
+		}
+
+		return $summary;
 	}
 
 	/**
