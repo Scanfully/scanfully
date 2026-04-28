@@ -103,6 +103,7 @@ class Controller {
 		delete_option( self::$db_prefix . 'email_deliverability_interval_seconds' );
 		delete_option( self::$db_prefix . 'email_deliverability_last_failure_at' );
 		delete_option( self::$db_prefix . 'email_deliverability_last_as_run_at' );
+		delete_option( self::$db_prefix . 'email_deliverability_from_address' );
 
 		\Scanfully\Cron\Controller::clear_refresh_failures();
 

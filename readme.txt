@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 6.9.4
-Stable tag: 1.5.0
+Stable tag: 1.5.1
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -107,6 +107,9 @@ No, our plugin on listens to changes in the WordPress backend and sends these ch
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.5.1: April 28, 2026 =
+* Added: configurable From address override for email deliverability pings
 
 = 1.5.0: April 27, 2026 =
 * Added: email deliverability monitoring via Action Scheduler and plugin admin UI
