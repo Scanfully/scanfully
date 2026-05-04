@@ -184,6 +184,15 @@ class Controller {
 		// exchange authorization code for access token
 		$tokens = self::exchange_authorization_code( $code, $site );
 
+		// validate token response so we fail gracefully if the API is unreachable or returned an error
+		if ( ! is_array( $tokens )
+			|| empty( $tokens['access_token'] )
+			|| empty( $tokens['refresh_token'] )
+			|| empty( $tokens['expires'] )
+		) {
+			wp_die( 'Could not complete Scanfully connection: invalid response from the Scanfully API. Please try again or contact support.' );
+		}
+
 		try {
 			$now = new \DateTime();
 			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
