@@ -35,6 +35,11 @@ class Controller {
 	public const ACTION_EMAIL_DELIVERABILITY_PING = 'scanfully_email_deliverability_ping';
 
 	/**
+	 * Hook: sync WooCommerce checkout (probe) config (recurring daily).
+	 */
+	public const ACTION_SYNC_WOOCHECKOUT_CONFIG = 'scanfully_sync_woocheckout_config';
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -65,6 +70,7 @@ class Controller {
 		// Register Action Scheduler callbacks.
 		add_action( self::ACTION_SYNC_SITE_HEALTH, [ self::class, 'sync_site_health' ] );
 		add_action( self::ACTION_SYNC_DIRECTORIES, [ self::class, 'sync_directories' ] );
+		add_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [ self::class, 'sync_woocheckout_config' ] );
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
@@ -112,6 +118,25 @@ class Controller {
 	}
 
 	/**
+	 * Sync WooCommerce checkout probe config. Runs on the recurring daily
+	 * schedule; skipped silently when WooCommerce is inactive.
+	 *
+	 * @return void
+	 */
+	public static function sync_woocheckout_config(): void {
+		self::refresh_access_token_if_needed();
+
+		$options = Options\Controller::get_options();
+		if ( ! $options->is_connected ) {
+			return;
+		}
+		if ( ! class_exists( '\\Scanfully\\WooCheckout\\Controller' ) ) {
+			return;
+		}
+		\Scanfully\WooCheckout\Controller::report();
+	}
+
+	/**
 	 * Schedule recurring events if not already scheduled, and run one-time
 	 * cleanup of legacy hook names from older plugin versions.
 	 * Must run after Action Scheduler is initialised (action_scheduler_init or later).
@@ -132,6 +157,10 @@ class Controller {
 		if ( ! as_has_scheduled_action( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP ) ) {
 			$interval = \Scanfully\EmailHealth\Controller::current_interval_seconds();
 			as_schedule_recurring_action( time() + $interval, $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+		}
+
+		if ( ! as_has_scheduled_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
 		}
 	}
 
@@ -176,6 +205,7 @@ class Controller {
 		as_unschedule_all_actions( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [ 'source' => 'manual' ], self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
 		as_unschedule_all_actions( Events\Controller::ACTION_SEND_EVENT, [], self::AS_GROUP );
 	}
 

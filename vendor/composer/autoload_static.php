@@ -30,6 +30,7 @@ class ComposerStaticInit218d9ad2e41312fabffbca9c73fa0291
         'Scanfully\\API\\Request' => __DIR__ . '/../..' . '/src/API/Request.php',
         'Scanfully\\API\\SiteDataRequest' => __DIR__ . '/../..' . '/src/API/SiteDataRequest.php',
         'Scanfully\\API\\SiteDirectoriesRequest' => __DIR__ . '/../..' . '/src/API/SiteDirectoriesRequest.php',
+        'Scanfully\\API\\WooCheckoutConfigRequest' => __DIR__ . '/../..' . '/src/API/WooCheckoutConfigRequest.php',
         'Scanfully\\Connect\\AdminNotice' => __DIR__ . '/../..' . '/src/Connect/AdminNotice.php',
         'Scanfully\\Connect\\Buttons' => __DIR__ . '/../..' . '/src/Connect/Buttons.php',
         'Scanfully\\Connect\\Controller' => __DIR__ . '/../..' . '/src/Connect/Controller.php',
@@ -53,6 +54,11 @@ class ComposerStaticInit218d9ad2e41312fabffbca9c73fa0291
         'Scanfully\\Options\\Options' => __DIR__ . '/../..' . '/src/Options/Options.php',
         'Scanfully\\PageEdit\\Controller' => __DIR__ . '/../..' . '/src/PageEdit/Controller.php',
         'Scanfully\\Util\\Date' => __DIR__ . '/../..' . '/src/Util/Date.php',
+        'Scanfully\\WooCheckout\\AdminFilter' => __DIR__ . '/../..' . '/src/WooCheckout/AdminFilter.php',
+        'Scanfully\\WooCheckout\\Controller' => __DIR__ . '/../..' . '/src/WooCheckout/Controller.php',
+        'Scanfully\\WooCheckout\\LoginBridge' => __DIR__ . '/../..' . '/src/WooCheckout/LoginBridge.php',
+        'Scanfully\\WooCheckout\\ProbeGateway' => __DIR__ . '/../..' . '/src/WooCheckout/ProbeGateway.php',
+        'Scanfully\\WooCheckout\\StubPSP' => __DIR__ . '/../..' . '/src/WooCheckout/StubPSP.php',
     );
 
     public static function getInitializer(ClassLoader $loader)

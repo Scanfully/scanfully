@@ -67,6 +67,15 @@ class Main {
 
 		/** Register Page Edit */
 		PageEdit\Controller::setup();
+
+		/** Register WooCheckout (probe scanning) when WooCommerce is present. */
+		if ( class_exists( 'WooCommerce' ) ) {
+			WooCheckout\Controller::setup();
+			WooCheckout\ProbeGateway::setup();
+			WooCheckout\StubPSP::setup();
+			WooCheckout\LoginBridge::setup();
+			WooCheckout\AdminFilter::setup();
+		}
 	}
 
 	/**

@@ -15,6 +15,7 @@ return array(
     'Scanfully\\API\\Request' => $baseDir . '/src/API/Request.php',
     'Scanfully\\API\\SiteDataRequest' => $baseDir . '/src/API/SiteDataRequest.php',
     'Scanfully\\API\\SiteDirectoriesRequest' => $baseDir . '/src/API/SiteDirectoriesRequest.php',
+    'Scanfully\\API\\WooCheckoutConfigRequest' => $baseDir . '/src/API/WooCheckoutConfigRequest.php',
     'Scanfully\\Connect\\AdminNotice' => $baseDir . '/src/Connect/AdminNotice.php',
     'Scanfully\\Connect\\Buttons' => $baseDir . '/src/Connect/Buttons.php',
     'Scanfully\\Connect\\Controller' => $baseDir . '/src/Connect/Controller.php',
@@ -38,4 +39,9 @@ return array(
     'Scanfully\\Options\\Options' => $baseDir . '/src/Options/Options.php',
     'Scanfully\\PageEdit\\Controller' => $baseDir . '/src/PageEdit/Controller.php',
     'Scanfully\\Util\\Date' => $baseDir . '/src/Util/Date.php',
+    'Scanfully\\WooCheckout\\AdminFilter' => $baseDir . '/src/WooCheckout/AdminFilter.php',
+    'Scanfully\\WooCheckout\\Controller' => $baseDir . '/src/WooCheckout/Controller.php',
+    'Scanfully\\WooCheckout\\LoginBridge' => $baseDir . '/src/WooCheckout/LoginBridge.php',
+    'Scanfully\\WooCheckout\\ProbeGateway' => $baseDir . '/src/WooCheckout/ProbeGateway.php',
+    'Scanfully\\WooCheckout\\StubPSP' => $baseDir . '/src/WooCheckout/StubPSP.php',
 );
