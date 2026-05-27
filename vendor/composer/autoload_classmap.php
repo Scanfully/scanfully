@@ -40,6 +40,7 @@ return array(
     'Scanfully\\PageEdit\\Controller' => $baseDir . '/src/PageEdit/Controller.php',
     'Scanfully\\Util\\Date' => $baseDir . '/src/Util/Date.php',
     'Scanfully\\WooCheckout\\AdminFilter' => $baseDir . '/src/WooCheckout/AdminFilter.php',
+    'Scanfully\\WooCheckout\\BlocksIntegration' => $baseDir . '/src/WooCheckout/BlocksIntegration.php',
     'Scanfully\\WooCheckout\\Controller' => $baseDir . '/src/WooCheckout/Controller.php',
     'Scanfully\\WooCheckout\\LoginBridge' => $baseDir . '/src/WooCheckout/LoginBridge.php',
     'Scanfully\\WooCheckout\\ProbeGateway' => $baseDir . '/src/WooCheckout/ProbeGateway.php',

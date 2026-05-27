@@ -55,6 +55,7 @@ class ComposerStaticInit218d9ad2e41312fabffbca9c73fa0291
         'Scanfully\\PageEdit\\Controller' => __DIR__ . '/../..' . '/src/PageEdit/Controller.php',
         'Scanfully\\Util\\Date' => __DIR__ . '/../..' . '/src/Util/Date.php',
         'Scanfully\\WooCheckout\\AdminFilter' => __DIR__ . '/../..' . '/src/WooCheckout/AdminFilter.php',
+        'Scanfully\\WooCheckout\\BlocksIntegration' => __DIR__ . '/../..' . '/src/WooCheckout/BlocksIntegration.php',
         'Scanfully\\WooCheckout\\Controller' => __DIR__ . '/../..' . '/src/WooCheckout/Controller.php',
         'Scanfully\\WooCheckout\\LoginBridge' => __DIR__ . '/../..' . '/src/WooCheckout/LoginBridge.php',
         'Scanfully\\WooCheckout\\ProbeGateway' => __DIR__ . '/../..' . '/src/WooCheckout/ProbeGateway.php',

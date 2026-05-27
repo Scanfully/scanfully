@@ -51,13 +51,21 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Register the gateway with WooCommerce.
+	 * Register the gateway with WooCommerce. During a validated probe
+	 * request we replace the entire gateway list with just our probe
+	 * gateway, so foreign gateways (Stripe, PayPal, etc.) never load their
+	 * scripts/iframes — they would otherwise leave the block checkout's
+	 * Express Checkout and Payment Options blocks stuck in their skeleton
+	 * loading state and prevent our radio from appearing.
 	 *
 	 * @param array $gateways Existing gateway classes.
 	 *
 	 * @return array
 	 */
 	public static function register_gateway( array $gateways ): array {
+		if ( Controller::is_probe_request() ) {
+			return [ self::class ];
+		}
 		$gateways[] = self::class;
 		return $gateways;
 	}

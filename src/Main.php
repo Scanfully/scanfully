@@ -72,6 +72,7 @@ class Main {
 		if ( class_exists( 'WooCommerce' ) ) {
 			WooCheckout\Controller::setup();
 			WooCheckout\ProbeGateway::setup();
+			WooCheckout\BlocksIntegration::setup();
 			WooCheckout\StubPSP::setup();
 			WooCheckout\LoginBridge::setup();
 			WooCheckout\AdminFilter::setup();
