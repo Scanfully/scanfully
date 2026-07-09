@@ -232,10 +232,26 @@ class Controller {
 		$sent = wp_mail( $to, $subject, $body, $headers );
 		remove_action( 'wp_mail_failed', $capture );
 
-		// (8) On failure, POST result + bump backoff.
+		// (8) Reconcile the local send result with the adaptive cadence.
 		if ( false === $sent || '' !== $captured_error ) {
+			// wp_mail() reported a failure. Always tell the server so its state
+			// machine has the data. But some transports return false (or fire
+			// wp_mail_failed) even when the message is actually delivered; the
+			// server is authoritative because it confirms inbound arrival. If it
+			// already reports "healthy", treat this as a false positive and clear
+			// the backoff instead of pinning the site to the 30-minute cadence
+			// indefinitely (every failing cycle would otherwise re-stamp the
+			// marker so the 24h window never expires).
 			self::post_attempt_failure( $nonce, $captured_error );
-			self::record_failure();
+			if ( self::server_reports_healthy() ) {
+				self::clear_failure();
+			} else {
+				self::record_failure();
+			}
+		} else {
+			// Local send succeeded: clear any stale backoff so the cadence
+			// reverts to the default interval on the next reschedule.
+			self::clear_failure();
 		}
 
 		// (9) Recompute schedule (applies adaptive cadence).
@@ -318,6 +334,32 @@ class Controller {
 	 */
 	private static function record_failure(): void {
 		OptionController::set_option( 'email_deliverability_last_failure_at', self::utc_now_iso(), false );
+	}
+
+	/**
+	 * Clear the adaptive-cadence failure marker so the schedule reverts to the
+	 * default interval on the next reschedule.
+	 *
+	 * @return void
+	 */
+	private static function clear_failure(): void {
+		if ( '' !== OptionController::get_option( 'email_deliverability_last_failure_at' ) ) {
+			OptionController::set_option( 'email_deliverability_last_failure_at', '', false );
+		}
+	}
+
+	/**
+	 * Whether the server currently reports the site as healthy. Used to detect
+	 * false-positive wp_mail() failures where the transport returns false (or
+	 * fires wp_mail_failed) even though the message is actually delivered.
+	 * Best-effort: on a transport error fetch_state() returns null, so we fall
+	 * back to the conservative behaviour of honouring the local failure signal.
+	 *
+	 * @return bool
+	 */
+	private static function server_reports_healthy(): bool {
+		$state = self::fetch_state();
+		return is_array( $state ) && isset( $state['state'] ) && 'healthy' === (string) $state['state'];
 	}
 
 	/**
