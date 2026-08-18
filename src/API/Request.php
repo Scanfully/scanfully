@@ -56,6 +56,10 @@ abstract class Request {
 		if ( ! is_wp_error( $response ) ) {
 			$status = wp_remote_retrieve_response_code( $response );
 			if ( $status >= 200 && $status < 300 ) {
+				// A successful request proves the connection works, so clear any
+				// stale refresh-failure state that would otherwise keep the
+				// broken-connection notice showing while data is flowing.
+				\Scanfully\Cron\Controller::clear_refresh_failures();
 				try {
 					$now = new \DateTime();
 					$now->setTimezone( new \DateTimeZone( 'UTC' ) );
@@ -158,6 +162,14 @@ abstract class Request {
 		}
 		$status   = (int) wp_remote_retrieve_response_code( $response );
 		$raw_body = wp_remote_retrieve_body( $response );
+
+		// A successful request proves the connection works, so clear any stale
+		// refresh-failure state that would otherwise keep the broken-connection
+		// notice showing while the plugin is communicating fine.
+		if ( $status >= 200 && $status < 300 ) {
+			\Scanfully\Cron\Controller::clear_refresh_failures();
+		}
+
 		$decoded  = null;
 		if ( '' !== $raw_body ) {
 			$decoded = json_decode( $raw_body, true );
