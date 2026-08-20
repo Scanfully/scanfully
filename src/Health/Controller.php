@@ -70,6 +70,85 @@ class Controller {
 	}
 
 	/**
+	 * Parse /etc/os-release into an associative array of its key/value pairs.
+	 *
+	 * Values are unquoted. Returns an empty array when the file cannot be read
+	 * (e.g. non-Linux hosts, restrictive open_basedir, or disabled functions).
+	 *
+	 * @return array<string, string>
+	 */
+	private static function get_os_release(): array {
+		static $os_release = null;
+		if ( null !== $os_release ) {
+			return $os_release;
+		}
+
+		$os_release = [];
+
+		// The spec reads /etc/os-release first, then falls back to /usr/lib/os-release.
+		$path = null;
+		foreach ( [ '/etc/os-release', '/usr/lib/os-release' ] as $candidate ) {
+			if ( is_readable( $candidate ) ) {
+				$path = $candidate;
+				break;
+			}
+		}
+		if ( null === $path ) {
+			return $os_release;
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$contents = file_get_contents( $path );
+		if ( false === $contents ) {
+			return $os_release;
+		}
+
+		foreach ( preg_split( '/\R/', $contents ) as $line ) {
+			$line = trim( $line );
+			if ( '' === $line || '#' === $line[0] || false === strpos( $line, '=' ) ) {
+				continue;
+			}
+			list( $key, $value ) = explode( '=', $line, 2 );
+			$os_release[ strtolower( trim( $key ) ) ] = trim( $value, " \t\"'" );
+		}
+
+		return $os_release;
+	}
+
+	/**
+	 * Get the operating system distribution ID (e.g. "ubuntu", "debian").
+	 *
+	 * @return string|null
+	 */
+	private static function get_os_id(): ?string {
+		$os_release = self::get_os_release();
+
+		return $os_release['id'] ?? null;
+	}
+
+	/**
+	 * Get the operating system distribution family list (os-release ID_LIKE).
+	 *
+	 * @return string|null
+	 */
+	private static function get_os_id_like(): ?string {
+		$os_release = self::get_os_release();
+
+		return $os_release['id_like'] ?? null;
+	}
+
+	/**
+	 * Get the operating system distribution version (os-release VERSION_ID).
+	 *
+	 * @return string|null
+	 */
+	private static function get_os_version(): ?string {
+		$os_release = self::get_os_release();
+
+		return $os_release['version_id'] ?? null;
+	}
+
+	/**
 	 * Get the PHP version
 	 *
 	 * @return string
@@ -344,6 +423,9 @@ class Controller {
 				'site_url' => home_url(),
 
 				'server_arch' => self::get_server_arch(),
+				'os_id' => self::get_os_id(),
+				'os_id_like' => self::get_os_id_like(),
+				'os_version' => self::get_os_version(),
 				'web_server' => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
 				'curl_version' => self::get_curl_version(),
 				'imagick_available' => extension_loaded( 'imagick' ),
