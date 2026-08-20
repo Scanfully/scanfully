@@ -206,6 +206,14 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 
 == Changelog ==
 
+= 1.6.0: August 20, 2026 =
+* Added: report OS distribution (os_id, os_id_like, os_version) in health data
+* Added: on-demand REST endpoint to trigger site health and directory sync
+* Fixed: validate token response before constructing Options to prevent fatal TypeError
+* Fixed: email deliverability cadence stuck on 30-minute interval due to false-positive wp_mail() failures
+* Fixed: prevent duplicate email deliverability ping actions by using a self-scheduling single action
+* Fixed: clear refresh-failure state on successful API requests to prevent false broken-connection notice
+
 = 1.5.1: April 28, 2026 =
 * Added: configurable From address override for email deliverability pings
 
