@@ -67,6 +67,9 @@ class Main {
 
 		/** Register Page Edit */
 		PageEdit\Controller::setup();
+
+		/** Register on-demand sync endpoint */
+		Sync\Controller::setup();
 	}
 
 	/**
