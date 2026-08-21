@@ -593,12 +593,24 @@ class Controller {
 	/**
 	 * Report current config to the Scanfully API.
 	 *
+	 * The API is the source of truth for the probe secret: it generates one
+	 * on first report and echoes it back on every push. Store it so
+	 * is_probe_request() validates against the same HMAC key the API signs
+	 * with.
+	 *
 	 * @return void
 	 */
 	public static function report(): void {
 		$payload = self::build_payload();
 		update_option( self::OPTION_LAST_CONFIG, $payload, false );
-		( new WooCheckoutConfigRequest() )->send( $payload );
+		$response = ( new WooCheckoutConfigRequest() )->send( $payload );
+
+		if ( is_array( $response ) && 200 === (int) ( $response['status'] ?? 0 ) && is_array( $response['body'] ?? null ) ) {
+			$secret = (string) ( $response['body']['probe_secret'] ?? '' );
+			if ( '' !== $secret && get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret ) {
+				update_option( self::OPTION_PROBE_SECRET, $secret, false );
+			}
+		}
 	}
 
 	/**

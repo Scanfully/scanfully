@@ -17,14 +17,14 @@ use Scanfully\Options\Controller as OptionsController;
 class WooCheckoutConfigRequest extends Request {
 
 	/**
-	 * Send the request to the API.
+	 * Send the request to the API and return the parsed response.
 	 *
 	 * @param array $data The payload to send.
 	 *
-	 * @return void
+	 * @return array|null ['status' => int, 'body' => mixed] or null on transport error.
 	 */
-	public function send( array $data ): void {
-		parent::do_request( '', $data );
+	public function send( array $data ): ?array {
+		return parent::do_request_with_response( '', $data );
 	}
 
 	/**
