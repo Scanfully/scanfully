@@ -119,7 +119,8 @@ class Controller {
 
 	/**
 	 * Sync WooCommerce checkout probe config. Runs on the recurring daily
-	 * schedule; skipped silently when WooCommerce is inactive.
+	 * schedule, also when WooCommerce is inactive: the report then carries
+	 * the `wc_inactive` disabled reason so the API knows scanning is off.
 	 *
 	 * @return void
 	 */
