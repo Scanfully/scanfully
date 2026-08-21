@@ -77,6 +77,9 @@ class Main {
 			WooCheckout\LoginBridge::setup();
 			WooCheckout\AdminFilter::setup();
 		}
+
+		/** Register on-demand sync endpoint */
+		Sync\Controller::setup();
 	}
 
 	/**

@@ -104,6 +104,26 @@ class Controller {
 		// short-circuit below.
 		OptionController::set_option( 'email_deliverability_last_as_run_at', self::utc_now_iso(), false );
 
+		try {
+			self::run_ping_cycle( $source );
+		} finally {
+			// Self-schedule the next cycle. Manual "run now" runs are one-shots
+			// and must not fork the scheduled chain.
+			if ( 'manual' !== $source ) {
+				self::schedule_next_ping();
+			}
+		}
+	}
+
+	/**
+	 * Execute a single deliverability ping cycle. Guarded by pre-flight checks;
+	 * every early return leaves run_ping()'s finally block to re-arm the chain.
+	 *
+	 * @param string $source Attempt source: 'scheduled' or 'manual'.
+	 *
+	 * @return void
+	 */
+	private static function run_ping_cycle( string $source ): void {
 		// (2) Pre-flight guards.
 		if ( 'yes' !== OptionController::get_option( 'is_connected' ) ) {
 			return;
@@ -163,14 +183,12 @@ class Controller {
 			if ( 401 === $status || 409 === $status ) {
 				if ( ! self::provision_credentials() ) {
 					self::record_failure();
-					self::reschedule_if_changed();
 					return;
 				}
 				$secret = OptionController::get_option( 'email_deliverability_secret' );
 				$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
 				if ( '' === $secret || '' === $inbound_address ) {
 					self::record_failure();
-					self::reschedule_if_changed();
 					return;
 				}
 				$nonce = wp_generate_uuid4();
@@ -187,12 +205,10 @@ class Controller {
 				);
 				if ( null === $attempt_resp || $attempt_resp['status'] < 200 || $attempt_resp['status'] >= 300 ) {
 					self::record_failure();
-					self::reschedule_if_changed();
 					return;
 				}
 			} else {
 				self::record_failure();
-				self::reschedule_if_changed();
 				return;
 			}
 		}
@@ -201,7 +217,6 @@ class Controller {
 		$to = self::expand_inbound_address( $inbound_address, $nonce );
 		if ( '' === $to ) {
 			self::record_failure();
-			self::reschedule_if_changed();
 			return;
 		}
 		$subject = sprintf( 'Scanfully deliverability ping %s', $nonce );
@@ -253,9 +268,6 @@ class Controller {
 			// reverts to the default interval on the next reschedule.
 			self::clear_failure();
 		}
-
-		// (9) Recompute schedule (applies adaptive cadence).
-		self::reschedule_if_changed();
 	}
 
 	/**
@@ -363,24 +375,22 @@ class Controller {
 	}
 
 	/**
-	 * Reschedule the recurring AS action when the desired cadence changes.
+	 * Arm the next deliverability ping as a single action at the adaptive
+	 * cadence. Single actions do not auto-repeat, so this is the sole re-arm
+	 * point for the scheduled chain, guaranteeing exactly one pending action.
 	 *
 	 * @return void
 	 */
-	private static function reschedule_if_changed(): void {
-		if ( ! function_exists( 'as_next_scheduled_action' ) ) {
+	private static function schedule_next_ping(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
 			return;
 		}
-		$desired = self::current_interval_seconds();
+		$interval = self::current_interval_seconds();
 
-		// Refresh option cache so the admin UI shows the up-to-date interval.
-		OptionController::set_option( 'email_deliverability_interval_seconds', (string) $desired, false );
-
-		// Compare against currently scheduled by inspecting the next action's
-		// schedule. AS does not expose interval directly; re-scheduling on
-		// every cycle is cheap and idempotent when the interval matches.
+		// Drop any stray pending ping first so the chain can never fork, then
+		// arm the next cycle.
 		as_unschedule_all_actions( CronController::ACTION_EMAIL_DELIVERABILITY_PING, [], 'scanfully' );
-		as_schedule_recurring_action( time() + $desired, $desired, CronController::ACTION_EMAIL_DELIVERABILITY_PING, [], 'scanfully' );
+		as_schedule_single_action( time() + $interval, CronController::ACTION_EMAIL_DELIVERABILITY_PING, [], 'scanfully' );
 	}
 
 	/**

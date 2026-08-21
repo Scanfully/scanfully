@@ -48,7 +48,7 @@ class Controller {
 	/**
 	 * Option flag marking that legacy WP-Cron hooks have been cleaned up.
 	 */
-	private const OPTION_HOOKS_MIGRATED = 'scanfully_as_hooks_migrated_v2';
+	private const OPTION_HOOKS_MIGRATED = 'scanfully_as_hooks_migrated_v3';
 
 	/**
 	 * Action Scheduler group for all Scanfully jobs.
@@ -154,9 +154,13 @@ class Controller {
 			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
 		}
 
+		// Email deliverability runs as a self-scheduling single action (each run
+		// arms the next via EmailHealth\Controller::schedule_next_ping) so the
+		// cadence can adapt without the duplicate pending actions a recurring
+		// action produced. This only bootstraps the chain, or heals it if it stalls.
 		if ( ! as_has_scheduled_action( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP ) ) {
 			$interval = \Scanfully\EmailHealth\Controller::current_interval_seconds();
-			as_schedule_recurring_action( time() + $interval, $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+			as_schedule_single_action( time() + $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
 		}
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP ) ) {
@@ -190,6 +194,14 @@ class Controller {
 		// Clear WP-Cron hooks scheduled by prior plugin versions.
 		wp_clear_scheduled_hook( 'scanfully_twice_daily' );
 		wp_clear_scheduled_hook( 'scanfully_daily' );
+
+		// The deliverability ping moved from a recurring action to a
+		// self-scheduling single action. Older versions paired a recurring action
+		// with a per-cycle reschedule, which left duplicate pending actions. Clear
+		// any legacy instances so schedule_events() rebuilds a single clean chain.
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+		}
 
 		update_option( self::OPTION_HOOKS_MIGRATED, 1, false );
 	}
