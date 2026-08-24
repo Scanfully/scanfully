@@ -230,8 +230,8 @@ class Controller {
 
 	/**
 	 * Pick the default product URL the orchestrator should start the scan
-	 * at: simple, in stock, paid (`price > 0`), published. Allows overrides
-	 * via option and filter.
+	 * at: in stock, paid (`price > 0`), published; simple products first,
+	 * variable products as fallback. Allows overrides via option and filter.
 	 *
 	 * @return string Empty string when no eligible product exists.
 	 */
@@ -244,9 +244,10 @@ class Controller {
 	}
 
 	/**
-	 * Pick the eligible product object (simple, in stock, paid, published).
-	 * When the option/filter override yields a URL, that URL is resolved back
-	 * to a product so callers can inspect virtuality / shipping needs.
+	 * Pick the eligible product object: simple products first, falling back
+	 * to variable products when no eligible simple product exists. When the
+	 * option/filter override yields a URL, that URL is resolved back to a
+	 * product so callers can inspect virtuality / shipping needs.
 	 *
 	 * @return \WC_Product|null
 	 */
@@ -267,12 +268,32 @@ class Controller {
 			}
 		}
 
-		// Query simple, in-stock, paid, published products. Ordered by ID
-		// ascending so the same product is picked deterministically across
-		// repeated scans on the same shop.
+		// Simple products first; variable products only when no eligible
+		// simple product exists (their variation resolution adds moving
+		// parts to the scan).
+		foreach ( [ 'simple', 'variable' ] as $type ) {
+			$product = self::pick_product_of_type( $type );
+			if ( null !== $product ) {
+				return $product;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Pick the first eligible product of the given type: in stock, paid
+	 * (`price > 0`), published, purchasable. Ordered by ID ascending so the
+	 * same product is picked deterministically across repeated scans on the
+	 * same shop.
+	 *
+	 * @param string $type Product type ('simple' or 'variable').
+	 * @return \WC_Product|null
+	 */
+	private static function pick_product_of_type( string $type ): ?\WC_Product {
 		$query_args = [
 			'status'       => 'publish',
-			'type'         => 'simple',
+			'type'         => $type,
 			'limit'        => 50,
 			'orderby'      => 'ID',
 			'order'        => 'ASC',
@@ -289,11 +310,16 @@ class Controller {
 			if ( ! ( $product instanceof \WC_Product ) ) {
 				continue;
 			}
+			// For variable products get_price() is the minimum variation
+			// price, so this also guards against free-only variations.
 			$price = (float) $product->get_price();
 			if ( $price <= 0 ) {
 				continue;
 			}
 			if ( '' === (string) $product->get_permalink() ) {
+				continue;
+			}
+			if ( 'variable' === $type && ( ! $product->is_purchasable() || ! $product->is_in_stock() ) ) {
 				continue;
 			}
 			return $product;
