@@ -40,6 +40,11 @@ class Controller {
 	public const ACTION_SYNC_WOOCHECKOUT_CONFIG = 'scanfully_sync_woocheckout_config';
 
 	/**
+	 * Hook: delete old WooCommerce probe orders (recurring daily).
+	 */
+	public const ACTION_CLEANUP_PROBE_ORDERS = 'scanfully_woocheckout_cleanup_probe_orders';
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -71,6 +76,7 @@ class Controller {
 		add_action( self::ACTION_SYNC_SITE_HEALTH, [ self::class, 'sync_site_health' ] );
 		add_action( self::ACTION_SYNC_DIRECTORIES, [ self::class, 'sync_directories' ] );
 		add_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [ self::class, 'sync_woocheckout_config' ] );
+		add_action( self::ACTION_CLEANUP_PROBE_ORDERS, [ self::class, 'cleanup_woocheckout_probe_orders' ] );
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
@@ -138,6 +144,19 @@ class Controller {
 	}
 
 	/**
+	 * Delete old WooCommerce probe orders. Runs on the recurring daily
+	 * schedule; a no-op when WooCommerce is inactive.
+	 *
+	 * @return void
+	 */
+	public static function cleanup_woocheckout_probe_orders(): void {
+		if ( ! class_exists( 'WooCommerce' ) ) {
+			return;
+		}
+		\Scanfully\WooCheckout\Cleanup::run();
+	}
+
+	/**
 	 * Schedule recurring events if not already scheduled, and run one-time
 	 * cleanup of legacy hook names from older plugin versions.
 	 * Must run after Action Scheduler is initialised (action_scheduler_init or later).
@@ -166,6 +185,10 @@ class Controller {
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP ) ) {
 			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
+		}
+
+		if ( ! as_has_scheduled_action( self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP );
 		}
 	}
 
@@ -219,6 +242,7 @@ class Controller {
 		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [ 'source' => 'manual' ], self::AS_GROUP );
 		as_unschedule_all_actions( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
+		as_unschedule_all_actions( self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP );
 		as_unschedule_all_actions( Events\Controller::ACTION_SEND_EVENT, [], self::AS_GROUP );
 	}
 
