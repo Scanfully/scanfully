@@ -75,6 +75,7 @@ class Main {
 			WooCheckout\BlocksIntegration::setup();
 			WooCheckout\StubPSP::setup();
 			WooCheckout\ProbePing::setup();
+			WooCheckout\ProductSearch::setup();
 			WooCheckout\LoginBridge::setup();
 			WooCheckout\AdminFilter::setup();
 		}

@@ -1,9 +1,8 @@
 <?php
 /**
- * Probe ping — pre-flight challenge-response endpoint the API calls before
- * launching a checkout scan. Proves the plugin is active on this shop with
- * the probe secret the API holds, so scans can never target a shop that is
- * not connected to the account.
+ * Product search — HMAC-secured endpoint the API calls to list probe-eligible
+ * products for the dashboard product select. Follows the ProbePing pattern:
+ * template_redirect at priority 0, 404 on anything but a valid probe request.
  *
  * @package Scanfully
  */
@@ -11,9 +10,14 @@
 namespace Scanfully\WooCheckout;
 
 /**
- * Probe ping responder.
+ * Product search responder.
  */
-class ProbePing {
+class ProductSearch {
+
+	/**
+	 * Maximum number of products returned per search.
+	 */
+	public const MAX_RESULTS = 20;
 
 	/**
 	 * Boot hooks.
@@ -26,17 +30,17 @@ class ProbePing {
 	}
 
 	/**
-	 * Answer the ping when requested with a valid probe header.
+	 * Answer the product search when requested with a valid probe header.
 	 *
-	 * Response pong = HMAC-SHA256( scan_id . ':' . nonce, probe_secret ).
-	 * The ':' separator keeps ping signatures distinct from probe header
-	 * signatures. Invalid or missing headers get a 404 so the endpoint is
-	 * not advertised.
+	 * Response pong = HMAC-SHA256( scan_id . ':' . nonce . ':products',
+	 * probe_secret ). The ':products' suffix keeps these signatures distinct
+	 * from ping signatures. Invalid or missing headers get a 404 so the
+	 * endpoint is not advertised.
 	 *
 	 * @return void
 	 */
 	public static function maybe_render(): void {
-		if ( ! isset( $_GET['scanfully_probe_ping'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		if ( ! isset( $_GET['scanfully_probe_products'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			return;
 		}
 
@@ -52,6 +56,7 @@ class ProbePing {
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- authenticated via the HMAC probe header.
 		$scan_id = isset( $_GET['scanfully_scan_id'] ) ? sanitize_text_field( wp_unslash( $_GET['scanfully_scan_id'] ) ) : '';
 		$nonce   = isset( $_GET['scanfully_nonce'] ) ? sanitize_text_field( wp_unslash( $_GET['scanfully_nonce'] ) ) : '';
+		$term    = isset( $_GET['scanfully_search'] ) ? sanitize_text_field( wp_unslash( $_GET['scanfully_search'] ) ) : '';
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
 		$secret = (string) get_option( Controller::OPTION_PROBE_SECRET, '' );
@@ -60,14 +65,12 @@ class ProbePing {
 			exit;
 		}
 
+		$term = substr( $term, 0, 100 );
+
 		wp_send_json(
 			[
-				'pong'           => hash_hmac( 'sha256', $scan_id . ':' . $nonce, $secret ),
-				'plugin_version' => defined( 'SCANFULLY_VERSION' ) ? SCANFULLY_VERSION : '',
-				'wc_version'     => Controller::wc_version(),
-				// Fresh shop facts (fetch-at-scan-time): the API runs the
-				// scan on these instead of the last daily push.
-				'config'         => Controller::build_payload(),
+				'pong'     => hash_hmac( 'sha256', $scan_id . ':' . $nonce . ':products', $secret ),
+				'products' => Controller::search_products( $term, self::MAX_RESULTS ),
 			]
 		);
 	}

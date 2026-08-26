@@ -26,7 +26,6 @@ class Controller {
 
 	public const OPTION_PROBE_SECRET    = 'scanfully_woocheckout_probe_secret';
 	public const OPTION_LAST_CONFIG     = 'scanfully_woocheckout_last_config';
-	public const OPTION_PRODUCT_URL     = 'scanfully_woocheckout_product_url';
 	public const OPTION_SHIPPING_METHOD = 'scanfully_woocheckout_shipping_method';
 	public const PROBE_GATEWAY_ID       = 'scanfully_probe';
 	public const PROBE_HEADER           = 'X-Scanfully-Probe';
@@ -38,6 +37,12 @@ class Controller {
 	public const REASON_WC_INACTIVE         = 'wc_inactive';
 	public const REASON_WC_TOO_OLD          = 'wc_version_too_old';
 	public const REASON_NO_ELIGIBLE_PRODUCT = 'no_eligible_product';
+
+	/**
+	 * Reasons the store-address based billing default is unavailable.
+	 */
+	public const BILLING_REASON_NO_SELLABLE_LOCATION = 'no_sellable_default_location';
+	public const BILLING_REASON_LOCATION_MISMATCH    = 'default_location_mismatch';
 
 	/**
 	 * Memoised result of is_probe_request() — request-scoped.
@@ -64,6 +69,34 @@ class Controller {
 		add_action( 'woocommerce_shipping_zone_method_deleted', [ self::class, 'on_config_change' ] );
 		add_action( 'woocommerce_shipping_zone_method_status_toggled', [ self::class, 'on_config_change' ] );
 		add_action( 'save_post_page', [ self::class, 'on_page_save' ], 10, 1 );
+
+		// Warn shop admins when the default customer location is not
+		// sellable: probe scans then have no billing default.
+		add_action( 'admin_notices', [ self::class, 'maybe_render_location_notice' ] );
+	}
+
+	/**
+	 * Render a warning on the WooCommerce settings screen when the default
+	 * customer location is not in the allowed selling countries.
+	 *
+	 * @return void
+	 */
+	public static function maybe_render_location_notice(): void {
+		if ( ! function_exists( 'get_current_screen' ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+		$screen = get_current_screen();
+		if ( ! $screen || 'woocommerce_page_wc-settings' !== $screen->id ) {
+			return;
+		}
+		$store_address = self::probe_store_address();
+		if ( self::BILLING_REASON_NO_SELLABLE_LOCATION !== $store_address['reason'] || ! self::is_woocommerce_supported() ) {
+			return;
+		}
+		printf(
+			'<div class="notice notice-warning"><p>%s</p></div>',
+			esc_html__( 'Scanfully: the shop\'s default customer location is not one of the countries you sell to, so WooCommerce checkout tests have no billing address to use. Review "Selling location(s)" under WooCommerce > Settings > General, or configure custom billing details in the Scanfully dashboard.', 'scanfully' )
+		);
 	}
 
 	/**
@@ -231,7 +264,8 @@ class Controller {
 	/**
 	 * Pick the default product URL the orchestrator should start the scan
 	 * at: in stock, paid (`price > 0`), published; simple products first,
-	 * variable products as fallback. Allows overrides via option and filter.
+	 * variable products as fallback. Used when the user has not chosen a
+	 * product in the Scanfully dashboard.
 	 *
 	 * @return string Empty string when no eligible product exists.
 	 */
@@ -245,27 +279,13 @@ class Controller {
 
 	/**
 	 * Pick the eligible product object: simple products first, falling back
-	 * to variable products when no eligible simple product exists. When the
-	 * option/filter override yields a URL, that URL is resolved back to a
-	 * product so callers can inspect virtuality / shipping needs.
+	 * to variable products when no eligible simple product exists.
 	 *
 	 * @return \WC_Product|null
 	 */
 	private static function pick_product(): ?\WC_Product {
 		if ( ! self::is_woocommerce_active() || ! function_exists( 'wc_get_products' ) ) {
 			return null;
-		}
-
-		$override = (string) get_option( self::OPTION_PRODUCT_URL, '' );
-		$override = (string) apply_filters( 'scanfully_woocheckout_product_url', $override );
-		if ( '' !== $override && function_exists( 'url_to_postid' ) ) {
-			$post_id = (int) url_to_postid( $override );
-			if ( $post_id > 0 && function_exists( 'wc_get_product' ) ) {
-				$product = wc_get_product( $post_id );
-				if ( $product instanceof \WC_Product ) {
-					return $product;
-				}
-			}
 		}
 
 		// Simple products first; variable products only when no eligible
@@ -282,10 +302,9 @@ class Controller {
 	}
 
 	/**
-	 * Pick the first eligible product of the given type: in stock, paid
-	 * (`price > 0`), published, purchasable. Ordered by ID ascending so the
-	 * same product is picked deterministically across repeated scans on the
-	 * same shop.
+	 * Pick the first eligible product of the given type. Ordered by ID
+	 * ascending so the same product is picked deterministically across
+	 * repeated scans on the same shop.
 	 *
 	 * @param string $type Product type ('simple' or 'variable').
 	 * @return \WC_Product|null
@@ -310,22 +329,137 @@ class Controller {
 			if ( ! ( $product instanceof \WC_Product ) ) {
 				continue;
 			}
-			// For variable products get_price() is the minimum variation
-			// price, so this also guards against free-only variations.
-			$price = (float) $product->get_price();
-			if ( $price <= 0 ) {
-				continue;
+			if ( self::is_eligible_product( $product, $type ) ) {
+				return $product;
 			}
-			if ( '' === (string) $product->get_permalink() ) {
-				continue;
-			}
-			if ( 'variable' === $type && ( ! $product->is_purchasable() || ! $product->is_in_stock() ) ) {
-				continue;
-			}
-			return $product;
 		}
 
 		return null;
+	}
+
+	/**
+	 * Whether the product is probe-eligible: in stock, paid (`price > 0`),
+	 * has a permalink, purchasable (variable).
+	 *
+	 * @param \WC_Product $product Product to check.
+	 * @param string      $type    Product type ('simple' or 'variable').
+	 * @return bool
+	 */
+	private static function is_eligible_product( \WC_Product $product, string $type ): bool {
+		// For variable products get_price() is the minimum variation
+		// price, so this also guards against free-only variations.
+		$price = (float) $product->get_price();
+		if ( $price <= 0 ) {
+			return false;
+		}
+		if ( '' === (string) $product->get_permalink() ) {
+			return false;
+		}
+		if ( 'variable' === $type && ( ! $product->is_purchasable() || ! $product->is_in_stock() ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Search probe-eligible products for the dashboard product select.
+	 * Empty term returns the first eligible products (simple before
+	 * variable). Uses WooCommerce's own product search for term matching.
+	 *
+	 * @param string $term  Search term (may be empty).
+	 * @param int    $limit Maximum number of results.
+	 * @return array<int,array<string,mixed>> Rows of id/name/price/url/type.
+	 */
+	public static function search_products( string $term, int $limit = 20 ): array {
+		if ( ! self::is_woocommerce_active() || ! function_exists( 'wc_get_products' ) ) {
+			return [];
+		}
+
+		$results = [];
+
+		if ( '' !== $term && class_exists( '\WC_Data_Store' ) ) {
+			try {
+				$data_store = \WC_Data_Store::load( 'product' );
+			} catch ( \Exception $e ) {
+				return [];
+			}
+			// Over-fetch: search results still need eligibility filtering.
+			$ids = $data_store->search_products( $term, '', false, false, $limit * 5 );
+			foreach ( $ids as $id ) {
+				if ( count( $results ) >= $limit ) {
+					break;
+				}
+				$id = (int) $id;
+				if ( $id <= 0 ) {
+					continue;
+				}
+				$product = wc_get_product( $id );
+				if ( ! ( $product instanceof \WC_Product ) || 'publish' !== $product->get_status() ) {
+					continue;
+				}
+				$type = $product->get_type();
+				if ( ! in_array( $type, [ 'simple', 'variable' ], true ) ) {
+					continue;
+				}
+				if ( ! $product->is_in_stock() || ! self::is_eligible_product( $product, $type ) ) {
+					continue;
+				}
+				$results[] = self::product_row( $product, $type );
+			}
+			return $results;
+		}
+
+		foreach ( [ 'simple', 'variable' ] as $type ) {
+			if ( count( $results ) >= $limit ) {
+				break;
+			}
+			$products = wc_get_products(
+				[
+					'status'       => 'publish',
+					'type'         => $type,
+					'limit'        => 50,
+					'orderby'      => 'ID',
+					'order'        => 'ASC',
+					'return'       => 'objects',
+					'stock_status' => 'instock',
+				]
+			);
+			if ( ! is_array( $products ) ) {
+				continue;
+			}
+			foreach ( $products as $product ) {
+				if ( count( $results ) >= $limit ) {
+					break;
+				}
+				if ( ! ( $product instanceof \WC_Product ) || ! self::is_eligible_product( $product, $type ) ) {
+					continue;
+				}
+				$results[] = self::product_row( $product, $type );
+			}
+		}
+
+		return $results;
+	}
+
+	/**
+	 * Map a product to the row shape the product search endpoint returns.
+	 *
+	 * @param \WC_Product $product Product.
+	 * @param string      $type    Product type.
+	 * @return array<string,mixed>
+	 */
+	private static function product_row( \WC_Product $product, string $type ): array {
+		$price = '';
+		if ( function_exists( 'wc_price' ) ) {
+			$price = html_entity_decode( wp_strip_all_tags( wc_price( (float) $product->get_price() ) ), ENT_QUOTES );
+		}
+		return [
+			'id'    => (int) $product->get_id(),
+			'name'  => (string) $product->get_name(),
+			'price' => $price,
+			'url'   => (string) $product->get_permalink(),
+			'type'  => $type,
+		];
 	}
 
 	/**
@@ -541,6 +675,76 @@ class Controller {
 	}
 
 	/**
+	 * The shop's own store address for use as probe billing default, or the
+	 * reason it is unavailable.
+	 *
+	 * Uses wc_get_customer_default_location() (not the raw base country: the
+	 * base is not validated against the selling locations) and re-validates
+	 * the result against the allowed countries, because the
+	 * `woocommerce_customer_default_location_array` filter runs after WC's
+	 * own validity check and can reintroduce a non-sellable country. Street
+	 * parts are only attached when the default location matches the base
+	 * country (they belong to the base address); geolocated or filtered
+	 * mismatches yield no address rather than a wrong-country one.
+	 *
+	 * @return array{address: ?array<string,string>, reason: string}
+	 */
+	public static function probe_store_address(): array {
+		if ( ! self::is_woocommerce_active() || ! function_exists( 'wc_get_customer_default_location' ) ) {
+			return [
+				'address' => null,
+				'reason'  => self::BILLING_REASON_NO_SELLABLE_LOCATION,
+			];
+		}
+
+		$location = wc_get_customer_default_location();
+		$country  = isset( $location['country'] ) ? strtoupper( (string) $location['country'] ) : '';
+		$state    = isset( $location['state'] ) ? (string) $location['state'] : '';
+
+		if ( '' === $country ) {
+			return [
+				'address' => null,
+				'reason'  => self::BILLING_REASON_NO_SELLABLE_LOCATION,
+			];
+		}
+
+		$allowed = WC()->countries->get_allowed_countries();
+		if ( ! isset( $allowed[ $country ] ) ) {
+			if ( function_exists( 'wc_get_logger' ) ) {
+				wc_get_logger()->warning(
+					sprintf( 'Scanfully: default customer location %s is not in the allowed selling countries; probe billing default unavailable. Check WooCommerce > Settings > General > Selling location(s).', $country ),
+					[ 'source' => 'scanfully' ]
+				);
+			}
+			return [
+				'address' => null,
+				'reason'  => self::BILLING_REASON_NO_SELLABLE_LOCATION,
+			];
+		}
+
+		if ( $country !== self::base_country() ) {
+			return [
+				'address' => null,
+				'reason'  => self::BILLING_REASON_LOCATION_MISMATCH,
+			];
+		}
+
+		$countries = WC()->countries;
+		return [
+			'address' => [
+				'address_1'    => (string) $countries->get_base_address(),
+				'address_2'    => (string) $countries->get_base_address_2(),
+				'city'         => (string) $countries->get_base_city(),
+				'postcode'     => (string) $countries->get_base_postcode(),
+				'country'      => $country,
+				'state'        => $state,
+				'calling_code' => (string) $countries->get_country_calling_code( $country ),
+			],
+			'reason'  => '',
+		];
+	}
+
+	/**
 	 * Build the full config payload sent to the Scanfully API.
 	 *
 	 * @return array<string,mixed>
@@ -550,20 +754,22 @@ class Controller {
 		$wc_supported = self::is_woocommerce_supported();
 
 		$payload = [
-			'enabled'               => false,
-			'disabled_reason'       => '',
-			'product_url'           => '',
-			'cart_url'              => '',
-			'checkout_url'          => '',
-			'base_country'          => self::base_country(),
-			'cart_type'             => 'unknown',
-			'checkout_type'         => 'unknown',
-			'shipping_zone_id'      => null,
-			'shipping_method_id'    => '',
-			'shipping_method_title' => '',
-			'login_required'        => false,
-			'wc_version'            => '',
-			'gateway_id'            => self::PROBE_GATEWAY_ID,
+			'enabled'                => false,
+			'disabled_reason'        => '',
+			'product_url'            => '',
+			'cart_url'               => '',
+			'checkout_url'           => '',
+			'base_country'           => self::base_country(),
+			'cart_type'              => 'unknown',
+			'checkout_type'          => 'unknown',
+			'shipping_zone_id'       => null,
+			'shipping_method_id'     => '',
+			'shipping_method_title'  => '',
+			'login_required'         => false,
+			'wc_version'             => '',
+			'gateway_id'             => self::PROBE_GATEWAY_ID,
+			'store_address'          => null,
+			'billing_default_reason' => '',
 		];
 
 		if ( ! $wc_active ) {
@@ -578,6 +784,10 @@ class Controller {
 			$payload['disabled_reason'] = self::REASON_WC_TOO_OLD;
 			return $payload;
 		}
+
+		$store_address                     = self::probe_store_address();
+		$payload['store_address']          = $store_address['address'];
+		$payload['billing_default_reason'] = $store_address['reason'];
 
 		if ( function_exists( 'wc_get_cart_url' ) ) {
 			$payload['cart_url'] = (string) wc_get_cart_url();
