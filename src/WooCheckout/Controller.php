@@ -770,6 +770,7 @@ class Controller {
 			'gateway_id'             => self::PROBE_GATEWAY_ID,
 			'store_address'          => null,
 			'billing_default_reason' => '',
+			'flow_hints'             => null,
 		];
 
 		if ( ! $wc_active ) {
@@ -799,11 +800,11 @@ class Controller {
 		$payload['checkout_type'] = self::detect_page_variant( 'checkout' );
 
 		$product = self::pick_product();
-		if ( null === $product ) {
-			$payload['disabled_reason'] = self::REASON_NO_ELIGIBLE_PRODUCT;
-			return $payload;
+		if ( null !== $product ) {
+			$payload['product_url'] = (string) $product->get_permalink();
 		}
-		$payload['product_url'] = (string) $product->get_permalink();
+
+		$payload['flow_hints'] = self::flow_hints( $product );
 
 		// Shipping is best-effort: if a method can be picked we report it so
 		// the orchestrator selects it explicitly; otherwise we leave it
@@ -821,9 +822,78 @@ class Controller {
 		// first push and reuses it on subsequent ones).
 		self::get_or_create_probe_secret();
 
+		// A missing product is reported but the payload stays complete: the
+		// API decides per configured flow whether one is needed at all, and
+		// a shop that adds the product on its checkout never opens a product
+		// page.
+		if ( null === $product ) {
+			$payload['disabled_reason'] = self::REASON_NO_ELIGIBLE_PRODUCT;
+			return $payload;
+		}
+
 		$payload['enabled'] = true;
 
 		return $payload;
+	}
+
+	/**
+	 * Signals about the shop's purchase flow, used to pre-fill the flow
+	 * configuration wizard in the dashboard. All cheap option and page
+	 * reads; the shop is never probed over HTTP from here.
+	 *
+	 * @param \WC_Product|null $product The picked probe product, if any.
+	 * @return array<string,mixed>
+	 */
+	private static function flow_hints( ?\WC_Product $product ): array {
+		return [
+			'has_published_product_page' => null !== $product,
+			'has_published_cart_page'    => self::has_published_wc_page( 'cart' ),
+			'cart_redirect_after_add'    => 'yes' === (string) get_option( 'woocommerce_cart_redirect_after_add', 'no' ),
+			'checkout_is_front_page'     => self::is_checkout_front_page(),
+			'product_count'              => self::published_product_count(),
+		];
+	}
+
+	/**
+	 * Whether the given WooCommerce page exists and is published.
+	 *
+	 * @param string $page WC page identifier ('cart' or 'checkout').
+	 * @return bool
+	 */
+	private static function has_published_wc_page( string $page ): bool {
+		if ( ! function_exists( 'wc_get_page_id' ) ) {
+			return false;
+		}
+		$page_id = (int) wc_get_page_id( $page );
+		if ( $page_id <= 0 ) {
+			return false;
+		}
+		$post = get_post( $page_id );
+		return $post instanceof \WP_Post && 'publish' === $post->post_status;
+	}
+
+	/**
+	 * Whether the checkout page is also the site's front page, as one-page
+	 * shops configure it.
+	 *
+	 * @return bool
+	 */
+	private static function is_checkout_front_page(): bool {
+		if ( ! function_exists( 'wc_get_page_id' ) || 'page' !== (string) get_option( 'show_on_front' ) ) {
+			return false;
+		}
+		$checkout_id = (int) wc_get_page_id( 'checkout' );
+		return $checkout_id > 0 && (int) get_option( 'page_on_front' ) === $checkout_id;
+	}
+
+	/**
+	 * Number of published products, used to recognise single-product shops.
+	 *
+	 * @return int
+	 */
+	private static function published_product_count(): int {
+		$counts = wp_count_posts( 'product' );
+		return isset( $counts->publish ) ? (int) $counts->publish : 0;
 	}
 
 	/**
