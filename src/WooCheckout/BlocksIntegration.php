@@ -94,7 +94,7 @@ class BlocksIntegration extends AbstractPaymentMethodType {
 		return [
 			'title'       => __( 'Scanfully Probe (test order)', 'scanfully' ),
 			'description' => __( 'Internal gateway used by Scanfully to verify checkout health.', 'scanfully' ),
-			'supports'    => [ 'products' ],
+			'supports'    => [ 'products', 'subscriptions', 'multiple_subscriptions' ],
 		];
 	}
 }

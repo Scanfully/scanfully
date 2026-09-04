@@ -27,7 +27,11 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		$this->title              = $this->method_title;
 		$this->description        = '';
 		$this->has_fields         = false;
-		$this->supports           = [ 'products' ];
+		// subscriptions / multiple_subscriptions: WooCommerce Subscriptions
+		// drops any gateway that does not declare them when the cart has a
+		// subscription and manual renewals are disabled. The probe never
+		// charges a real PSP; it only needs to stay visible on checkout.
+		$this->supports = [ 'products', 'subscriptions', 'multiple_subscriptions' ];
 
 		// Always enabled at the gateway settings level; availability is
 		// gated dynamically by ProbeGateway::filter_available_gateways().
@@ -71,7 +75,9 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Hide the probe gateway from any non-probe context.
+	 * Hide the probe gateway from any non-probe context. On a probe request,
+	 * put it back as the only available gateway: WooCommerce Subscriptions
+	 * (and similar plugins) may have emptied the list after we registered.
 	 *
 	 * @param array $gateways Gateways indexed by id.
 	 *
@@ -79,10 +85,31 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	 */
 	public static function filter_available_gateways( array $gateways ): array {
 		if ( Controller::is_probe_request() ) {
-			return $gateways;
+			return self::probe_only_gateways( $gateways );
 		}
 		if ( isset( $gateways[ Controller::PROBE_GATEWAY_ID ] ) ) {
 			unset( $gateways[ Controller::PROBE_GATEWAY_ID ] );
+		}
+		return $gateways;
+	}
+
+	/**
+	 * Restrict the available list to the probe gateway instance.
+	 *
+	 * @param array $gateways Gateways indexed by id.
+	 *
+	 * @return array
+	 */
+	private static function probe_only_gateways( array $gateways ): array {
+		$id = Controller::PROBE_GATEWAY_ID;
+		if ( isset( $gateways[ $id ] ) ) {
+			return [ $id => $gateways[ $id ] ];
+		}
+		if ( function_exists( 'WC' ) && WC()->payment_gateways() ) {
+			$all = WC()->payment_gateways()->payment_gateways();
+			if ( isset( $all[ $id ] ) ) {
+				return [ $id => $all[ $id ] ];
+			}
 		}
 		return $gateways;
 	}
