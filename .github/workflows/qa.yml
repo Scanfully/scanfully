@@ -29,8 +29,9 @@ jobs:
           git fetch origin "${{ github.base_ref }}" --depth=1
 
           # Count lines added to the baseline that look like a new ignore entry.
+          # Commented lines (such as the example in the file header) are skipped.
           ADDED=$(git diff "$BASE"...HEAD -- phpstan-baseline.neon \
-            | grep -E '^\+[^+].*message:' \
+            | grep -E '^\+[[:space:]]*message:' \
             | wc -l \
             | tr -d ' ')
 
