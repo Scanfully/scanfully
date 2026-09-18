@@ -147,7 +147,9 @@ class Controller {
 		// (3) Lazy provision.
 		$secret = OptionController::get_option( 'email_deliverability_secret' );
 		$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
-		if ( '' === $secret || '' === $inbound_address ) {
+		// A stored address that doesn't pass validation (for example saved by
+		// an older version) is treated as missing and provisioned again.
+		if ( '' === $secret || ! self::is_valid_inbound_template( $inbound_address ) ) {
 			if ( ! self::provision_credentials() ) {
 				return;
 			}
@@ -292,6 +294,12 @@ class Controller {
 		if ( empty( $body['secret'] ) || empty( $body['inbound_address'] ) ) {
 			return false;
 		}
+		// The API decides where the site sends its test email, so only accept
+		// the exact format it builds, on a Scanfully domain.
+		if ( ! self::is_valid_inbound_template( (string) $body['inbound_address'] ) ) {
+			self::log_warn( 'Provision returned an inbound address that is not a Scanfully ping address; ignoring it.' );
+			return false;
+		}
 		OptionController::set_option( 'email_deliverability_secret', (string) $body['secret'], false );
 		OptionController::set_option( 'email_deliverability_inbound_address', (string) $body['inbound_address'], false );
 		if ( ! empty( $body['interval_seconds'] ) ) {
@@ -336,7 +344,68 @@ class Controller {
 			self::log_warn( 'AddressCodec encode failed: ' . $e->getMessage() );
 			return '';
 		}
-		return apply_filters( 'scanfully_email_expand_inbound_address', str_replace( '{nonce}', $encoded, $template ) );
+
+		$address = str_replace( '{nonce}', $encoded, $template );
+		if ( ! self::is_valid_inbound_address( $address ) ) {
+			self::log_warn( 'Inbound address is not a Scanfully ping address; not sending.' );
+			return '';
+		}
+
+		return apply_filters( 'scanfully_email_expand_inbound_address', $address );
+	}
+
+	/**
+	 * Whether an inbound address template from the API has the exact format
+	 * the API builds: `ping+{26 base32 chars}.{nonce}@{domain}`, on an
+	 * allowed Scanfully domain.
+	 *
+	 * @param string $template The address template.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_inbound_template( string $template ): bool {
+		return 1 === preg_match( '/^ping\+[a-z2-7]{26}\.\{nonce\}@([a-z0-9.-]+)\z/', $template, $matches )
+			&& self::is_allowed_inbound_domain( $matches[1] );
+	}
+
+	/**
+	 * Whether a final inbound address is a single Scanfully ping address:
+	 * `ping+{26 base32 chars}.{26 base32 chars}@{domain}`, on an allowed
+	 * Scanfully domain. wp_mail() splits recipients on commas, so anything
+	 * looser could send the test email to other addresses.
+	 *
+	 * @param string $address The address.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_inbound_address( string $address ): bool {
+		return 1 === preg_match( '/^ping\+[a-z2-7]{26}\.[a-z2-7]{26}@([a-z0-9.-]+)\z/', $address, $matches )
+			&& self::is_allowed_inbound_domain( $matches[1] )
+			&& false !== is_email( $address );
+	}
+
+	/**
+	 * Whether a domain is a Scanfully domain (or a subdomain of one) that
+	 * may receive the test email. Filter
+	 * `scanfully_email_deliverability_inbound_domains` to add a domain, for
+	 * example a local mail catcher during development.
+	 *
+	 * @param string $domain The domain.
+	 *
+	 * @return bool
+	 */
+	private static function is_allowed_inbound_domain( string $domain ): bool {
+		$domain  = strtolower( $domain );
+		$allowed = (array) apply_filters( 'scanfully_email_deliverability_inbound_domains', [ 'scanfully.com', 'scanfully.dev' ] );
+
+		foreach ( $allowed as $allowed_domain ) {
+			$allowed_domain = strtolower( (string) $allowed_domain );
+			if ( '' !== $allowed_domain && ( $domain === $allowed_domain || self::str_ends_with( $domain, '.' . $allowed_domain ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
