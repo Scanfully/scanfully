@@ -30,8 +30,8 @@ function scanfully_uninstall_site(): void {
 
 /**
  * Delete the WooCheckout probe user, but only when it is still the account the
- * plugin created: the expected login, an @scanfully.invalid email and only
- * the customer role. Any other account is left alone.
+ * plugin created: a `scanfully_probe` login, an @scanfully.invalid email and
+ * only the customer role. Any other account is left alone.
  *
  * @return void
  */
@@ -46,7 +46,7 @@ function scanfully_uninstall_probe_user(): void {
 		return;
 	}
 
-	$is_probe_user = 'scanfully_probe' === $user->user_login
+	$is_probe_user = ( 'scanfully_probe' === $user->user_login || 0 === strpos( $user->user_login, 'scanfully_probe_' ) )
 		&& '@scanfully.invalid' === substr( $user->user_email, -strlen( '@scanfully.invalid' ) )
 		&& [ 'customer' ] === array_values( $user->roles );
 	if ( ! $is_probe_user ) {
