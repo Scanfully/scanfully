@@ -175,7 +175,10 @@ class Controller {
 	 * Whether the current request is a valid Scanfully probe.
 	 *
 	 * Reads the X-Scanfully-Probe header, parses `scan_id:hex(hmac)` and
-	 * constant-time compares against HMAC-SHA256(secret, scan_id).
+	 * constant-time compares against HMAC-SHA256(secret, scan_id). A valid
+	 * signature is only accepted while the scan ID is fresh, so a header
+	 * that leaks (for example from a proxy log) stops working after the
+	 * probe max age.
 	 *
 	 * @return bool
 	 */
@@ -208,10 +211,32 @@ class Controller {
 		}
 
 		$expected = hash_hmac( 'sha256', $scan_id, $secret );
-		$ok       = hash_equals( $expected, $signature );
+		$ok       = hash_equals( $expected, $signature ) && self::is_fresh_scan_id( $scan_id );
 
 		self::$probe_request_cache = $ok;
 		return $ok;
+	}
+
+	/**
+	 * Whether a scan ID was issued recently enough to be accepted.
+	 *
+	 * Scan IDs have the form `sf-{unix seconds}-{hex}`. The timestamp must be
+	 * within the probe max age of the current time, in either direction to
+	 * allow for clock drift between the Scanfully API and this site. Filter
+	 * `scanfully_woocheckout_probe_max_age` to change the window (seconds).
+	 *
+	 * @param string $scan_id The scan ID from the probe header.
+	 *
+	 * @return bool
+	 */
+	private static function is_fresh_scan_id( string $scan_id ): bool {
+		if ( 1 !== preg_match( '/^sf-(\d{9,11})-[0-9a-f]{4,}\z/', $scan_id, $matches ) ) {
+			return false;
+		}
+
+		$max_age = (int) apply_filters( 'scanfully_woocheckout_probe_max_age', 2 * HOUR_IN_SECONDS );
+
+		return abs( time() - (int) $matches[1] ) <= $max_age;
 	}
 
 	/**

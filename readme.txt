@@ -216,6 +216,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: API requests now verify TLS certificates
 * Security: WooCheckout probe secret is cleared on disconnect and only accepted in the expected format while connected
 * Security: stricter site ID validation in the connect flow
+* Security: WooCheckout probe headers now expire two hours after the scan was prepared
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
