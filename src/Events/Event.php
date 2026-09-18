@@ -45,8 +45,8 @@ abstract class Event {
 	 *
 	 * @param  string $event The type of event.
 	 * @param  string $action The action to listen to.
-	 * @param  int $priority The priority of the action.
-	 * @param  int $accepted_args The accepted arguments.
+	 * @param  int    $priority The priority of the action.
+	 * @param  int    $accepted_args The accepted arguments.
 	 */
 	public function __construct(
 		string $event,
@@ -125,7 +125,7 @@ abstract class Event {
 	/**
 	 * A check if a event should fire
 	 *
-	 * @param  array $data
+	 * @param  array $data The event data.
 	 *
 	 * @return bool
 	 */

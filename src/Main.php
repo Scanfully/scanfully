@@ -36,14 +36,29 @@ class Main {
 	const DASHBOARD_URL = 'https://app.scanfully.com';
 	const CONNECT_URL = 'https://app.scanfully.com/connect';
 
+	/**
+	 * Get the Scanfully API URL.
+	 *
+	 * @return string
+	 */
 	public static function get_api_url(): string {
 		return apply_filters( 'scanfully_api_url', self::API_URL );
 	}
 
+	/**
+	 * Get the Scanfully dashboard URL.
+	 *
+	 * @return string
+	 */
 	public static function get_dashboard_url(): string {
 		return apply_filters( 'scanfully_dashboard_url', self::DASHBOARD_URL );
 	}
 
+	/**
+	 * Get the Scanfully connect page URL.
+	 *
+	 * @return string
+	 */
 	public static function get_connect_url(): string {
 		return apply_filters( 'scanfully_connect_url', self::CONNECT_URL );
 	}
@@ -99,8 +114,7 @@ class Main {
 		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
 
-		// custom events
+		// custom events.
 		Events\Controller::setup_custom_events();
 	}
-
 }

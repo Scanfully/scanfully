@@ -43,8 +43,8 @@ class StubPSP {
 		// Minimal HTML so the orchestrator's scenario can match on the URL,
 		// not the content; we keep a stable marker for human debugging.
 		echo "<!doctype html><html><head><meta charset='utf-8'><title>Scanfully Probe PSP</title></head><body>";
-		echo "<h1>Scanfully Probe PSP</h1>";
-		echo '<p data-scanfully-probe-psp="1" data-order="' . esc_attr( (string) $order ) . '">Probe order ' . esc_html( (string) $order ) . " accepted.</p>";
+		echo '<h1>Scanfully Probe PSP</h1>';
+		echo '<p data-scanfully-probe-psp="1" data-order="' . esc_attr( (string) $order ) . '">Probe order ' . esc_html( (string) $order ) . ' accepted.</p>';
 		echo '</body></html>';
 		exit;
 	}

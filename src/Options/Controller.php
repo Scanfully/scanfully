@@ -53,7 +53,7 @@ class Controller {
 	/**
 	 * Save options to WP options table
 	 *
-	 * @param  Options $options
+	 * @param  Options $options The options to save.
 	 *
 	 * @return void
 	 */

@@ -1,0 +1,42 @@
+# Scanfully PHPStan configuration.
+#
+# Starts at level 5 so the existing code base can be brought to green first;
+# raise the level step by step towards 8 as the reported errors are fixed.
+#
+# Baseline additions require a `# BASELINE:` comment block per entry in
+# phpstan-baseline.neon explaining the WP stub gap or WP runtime quirk.
+
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    phpVersion: 70400
+    paths:
+        - src
+        - tests/Unit
+        - scanfully.php
+    excludePaths:
+        analyse:
+            - tests/Fixtures/*
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
+    tmpDir: .phpstan.cache
+    bootstrapFiles:
+        - vendor/autoload.php
+        - tests/phpstan-bootstrap.php
+    # Action Scheduler (bundled in vendor/) and WooCommerce (optional runtime
+    # dependency of the WooCheckout module) are not autoloadable; scan them
+    # so their functions and classes resolve.
+    scanFiles:
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
+    scanDirectories:
+        - vendor/woocommerce/action-scheduler
+    dynamicConstantNames:
+        # yoast/wp-test-utils defines ABSPATH as `true`; pin the real type.
+        ABSPATH: string
+        SCANFULLY_VERSION: string
+        SCANFULLY_PLUGIN_FILE: string
+        WP_CACHE: bool
+        WP_MEMORY_LIMIT: string
+        WP_MAX_MEMORY_LIMIT: string

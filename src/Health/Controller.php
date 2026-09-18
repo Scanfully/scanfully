@@ -192,7 +192,7 @@ class Controller {
 	/**
 	 * Get various php settings
 	 *
-	 * @return null[]
+	 * @return array<string, string|null>
 	 */
 	private static function get_php_settings(): array {
 		$ini_values = [
@@ -346,23 +346,6 @@ class Controller {
 	}
 
 	/**
-	 * Checks what WordPress directories are writable
-	 *
-	 * @return array
-	 */
-	private static function get_writable_directories(): array {
-		$upload_dir = wp_upload_dir();
-
-		return [
-			'abspath' => wp_is_writable( ABSPATH ),
-			'wp_content' => wp_is_writable( WP_CONTENT_DIR ),
-			'uploads' => wp_is_writable( $upload_dir['basedir'] ),
-			'plugins' => wp_is_writable( WP_PLUGIN_DIR ),
-			'theme' => wp_is_writable( get_theme_root( get_template() ) ),
-		];
-	}
-
-	/**
 	 * Get the list of plugins
 	 *
 	 * @return array
@@ -388,13 +371,18 @@ class Controller {
 		return $map;
 	}
 
+	/**
+	 * Get the site data sent to Scanfully.
+	 *
+	 * @return array
+	 */
 	public static function get_site_data(): array {
 		// load wp_site_health class if not loaded, this is not loaded by default.
 		if ( ! class_exists( 'WP_Site_Health' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
-		if ( ! function_exists( "get_plugins" ) ) {
+		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
@@ -450,7 +438,7 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		// filter data
+		// filter data.
 		$data = apply_filters( 'scanfully_health_data', $data );
 
 		return $data;
@@ -482,7 +470,7 @@ class Controller {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
-		if ( ! function_exists( "get_plugins" ) ) {
+		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
@@ -494,10 +482,10 @@ class Controller {
 			'uploads' => wp_upload_dir()['basedir'],
 		];
 
-		// dir requests
+		// dir requests.
 		$request = new SiteDirectoriesRequest();
 
-		// data array
+		// data array.
 		$data = [
 			'data' => [
 				'db_size' => round( self::get_db_size() / 1000000, 2 ),
@@ -514,5 +502,4 @@ class Controller {
 		// send event.
 		$request->send( $data );
 	}
-
 }

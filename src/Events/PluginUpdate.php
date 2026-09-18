@@ -18,7 +18,7 @@ class PluginUpdate extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PluginUpdate', 'scanfully_plugin_updated');
+		parent::__construct( 'PluginUpdate', 'scanfully_plugin_updated' );
 	}
 
 	/**
@@ -29,14 +29,14 @@ class PluginUpdate extends Event {
 	 * @return array
 	 */
 	public function get_post_body( array $data ): array {
-		// custom event so already formatted to perfection
+		// custom event so already formatted to perfection.
 		return $data[0];
 	}
 
 	/**
 	 * A check if a event should fire
 	 *
-	 * @param  array $data
+	 * @param  array $data The event data.
 	 *
 	 * @return bool
 	 */

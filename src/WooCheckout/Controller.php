@@ -186,38 +186,29 @@ class Controller {
 
 		$header = self::read_probe_header();
 		if ( '' === $header ) {
-			error_log( '[scanfully] is_probe_request: empty header' );
 			self::$probe_request_cache = false;
 			return false;
 		}
-		error_log( '[scanfully] is_probe_request: raw_header_len=' . strlen( $header ) . ' raw=' . $header );
 
 		$parts = explode( ':', $header, 2 );
 		if ( 2 !== count( $parts ) ) {
-			error_log( '[scanfully] is_probe_request: malformed header=' . substr( $header, 0, 80 ) );
 			self::$probe_request_cache = false;
 			return false;
 		}
 		list( $scan_id, $signature ) = $parts;
 		if ( '' === $scan_id || '' === $signature ) {
-			error_log( '[scanfully] is_probe_request: empty scan_id or signature' );
 			self::$probe_request_cache = false;
 			return false;
 		}
 
 		$secret = (string) get_option( self::OPTION_PROBE_SECRET, '' );
 		if ( '' === $secret ) {
-			error_log( '[scanfully] is_probe_request: secret option missing' );
 			self::$probe_request_cache = false;
 			return false;
 		}
 
 		$expected = hash_hmac( 'sha256', $scan_id, $secret );
 		$ok       = hash_equals( $expected, $signature );
-
-		if ( ! $ok ) {
-			error_log( '[scanfully] is_probe_request: hmac mismatch scan_id=' . $scan_id . ' secret_len=' . strlen( $secret ) . ' secret_sha256_8=' . substr( hash( 'sha256', $secret ), 0, 8 ) . ' got_sig=' . substr( $signature, 0, 12 ) . ' expected=' . substr( $expected, 0, 12 ) );
-		}
 
 		self::$probe_request_cache = $ok;
 		return $ok;
@@ -233,7 +224,7 @@ class Controller {
 		// REST requests: use the helper if available.
 		if ( function_exists( 'rest_get_server' ) ) {
 			$server = rest_get_server();
-			if ( method_exists( $server, 'get_headers' ) && isset( $_SERVER ) ) {
+			if ( method_exists( $server, 'get_headers' ) ) {
 				$headers = $server->get_headers( $_SERVER );
 				if ( isset( $headers['X_SCANFULLY_PROBE'] ) ) {
 					return (string) $headers['X_SCANFULLY_PROBE'];
@@ -241,7 +232,7 @@ class Controller {
 			}
 		}
 		if ( isset( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) ) {
-			return (string) wp_unslash( $_SERVER['HTTP_X_SCANFULLY_PROBE'] );
+			return sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) );
 		}
 		return '';
 	}

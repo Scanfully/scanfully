@@ -1,0 +1,138 @@
+name: QA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline-drift:
+    name: PHPStan baseline drift
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check phpstan-baseline.neon additions are justified
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          # Count lines added to the baseline that look like a new ignore entry.
+          # Commented lines (such as the example in the file header) are skipped.
+          ADDED=$(git diff "$BASE"...HEAD -- phpstan-baseline.neon \
+            | grep -E '^\+[[:space:]]*message:' \
+            | wc -l \
+            | tr -d ' ')
+
+          if [ "$ADDED" = "0" ]; then
+            echo "No new baseline entries. OK."
+            exit 0
+          fi
+
+          echo "Detected $ADDED new baseline entries; checking for matching BASELINE: blocks..."
+
+          JUSTIFIED=$(git diff "$BASE"...HEAD -- phpstan-baseline.neon \
+            | grep -E '^\+\s*#\s*BASELINE:' \
+            | wc -l \
+            | tr -d ' ')
+
+          if [ "$JUSTIFIED" -lt "$ADDED" ]; then
+            echo "::error::phpstan-baseline.neon grew by $ADDED entries but only $JUSTIFIED BASELINE: justifications were added."
+            echo "Add a '# BASELINE: <reason>' comment block per new entry, optionally followed by '# Upstream: <link>'."
+            exit 1
+          fi
+
+          echo "Baseline additions are justified. OK."
+
+  php:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: xdebug
+          tools: composer:v2
+
+      - name: Get composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      - name: Install composer dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: PHPCS (errors only)
+        run: composer lint
+
+      - name: PHPCS (warnings) - informational
+        continue-on-error: true
+        run: composer lint:strict
+
+      - name: PHPStan
+        run: composer stan
+
+      - name: PHPUnit - Unit
+        run: composer test
+
+      - name: Upload coverage
+        if: matrix.php == '8.3'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/
+            coverage.xml
+          if-no-files-found: ignore
+
+  integration:
+    name: PHPUnit - Integration (wp-env)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 7.4
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          tools: composer:v2
+
+      - name: Install composer dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install npm dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Start wp-env
+        run: npm run env:start
+
+      - name: Run integration suite
+        run: npm run test:integration
