@@ -149,7 +149,64 @@ namespace {
 		/**
 		 * Stub of WooCommerce's payment gateway base class.
 		 */
-		abstract class WC_Payment_Gateway {}
+		abstract class WC_Payment_Gateway {
+
+			/**
+			 * Gateway ID.
+			 *
+			 * @var string
+			 */
+			public $id = '';
+
+			/**
+			 * Whether the gateway is enabled ('yes' or 'no').
+			 *
+			 * @var string
+			 */
+			public $enabled = 'no';
+
+			/**
+			 * Title shown at checkout.
+			 *
+			 * @var string
+			 */
+			public $title = '';
+
+			/**
+			 * Description shown at checkout.
+			 *
+			 * @var string
+			 */
+			public $description = '';
+
+			/**
+			 * Title shown in the admin.
+			 *
+			 * @var string
+			 */
+			public $method_title = '';
+
+			/**
+			 * Description shown in the admin.
+			 *
+			 * @var string
+			 */
+			public $method_description = '';
+
+			/**
+			 * Whether the gateway has payment fields.
+			 *
+			 * @var bool
+			 */
+			public $has_fields = false;
+
+			/**
+			 * Supported features.
+			 *
+			 * @var array<int, string>
+			 */
+			public $supports = [ 'products' ];
+		}
 	}
 }
 

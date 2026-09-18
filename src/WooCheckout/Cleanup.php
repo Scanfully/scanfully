@@ -10,6 +10,11 @@ namespace Scanfully\WooCheckout;
 
 /**
  * Delete old probe orders (orders tagged with the probe meta key).
+ *
+ * Probe orders are cancelled by the probe gateway as soon as the checkout
+ * check ends, so the cleanup only ever deletes cancelled orders. A probe
+ * order left pending (for example because the scan broke before payment) is
+ * cancelled first, after a grace period, and deleted on a later run.
  */
 class Cleanup {
 
@@ -20,18 +25,23 @@ class Cleanup {
 	public const RETENTION_DAYS = 7;
 
 	/**
-	 * Orders deleted per query batch.
+	 * Seconds a probe order may stay pending before the cleanup cancels it.
+	 */
+	private const PENDING_GRACE_PERIOD = DAY_IN_SECONDS;
+
+	/**
+	 * Orders handled per query batch.
 	 */
 	private const BATCH_SIZE = 50;
 
 	/**
-	 * Max batches per run, to keep a single cron run bounded.
+	 * Max batches per run and phase, to keep a single cron run bounded.
 	 */
 	private const MAX_BATCHES = 10;
 
 	/**
-	 * Delete probe orders older than the retention period.
-	 * Runs on the recurring daily schedule.
+	 * Cancel stale pending probe orders, then delete cancelled probe orders
+	 * older than the retention period. Runs on the recurring daily schedule.
 	 *
 	 * @return void
 	 */
@@ -40,6 +50,39 @@ class Cleanup {
 			return;
 		}
 
+		self::cancel_stale_pending_orders();
+		self::delete_old_cancelled_orders();
+	}
+
+	/**
+	 * Cancel probe orders that are still pending after the grace period.
+	 * This only changes their status; deleting happens on a later run.
+	 *
+	 * @return void
+	 */
+	private static function cancel_stale_pending_orders(): void {
+		$cutoff = time() - self::PENDING_GRACE_PERIOD;
+
+		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
+			$orders = self::find_probe_orders( 'pending', $cutoff );
+
+			foreach ( $orders as $order ) {
+				$order->update_status( 'cancelled', __( 'Scanfully probe order. Cancelled by the probe order cleanup.', 'scanfully' ) );
+			}
+
+			if ( count( $orders ) < self::BATCH_SIZE ) {
+				break;
+			}
+		}
+	}
+
+	/**
+	 * Permanently delete cancelled probe orders older than the retention
+	 * period.
+	 *
+	 * @return void
+	 */
+	private static function delete_old_cancelled_orders(): void {
 		$retention_days = (int) apply_filters( 'scanfully_woocheckout_probe_order_retention_days', self::RETENTION_DAYS );
 		if ( $retention_days < 1 ) {
 			$retention_days = 1;
@@ -47,38 +90,65 @@ class Cleanup {
 		$cutoff = time() - ( $retention_days * DAY_IN_SECONDS );
 
 		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
-			$orders = wc_get_orders(
-				[
-					'limit'        => self::BATCH_SIZE,
-					'date_created' => '<' . $cutoff,
-					// Probe orders are created pending and never paid; WC may
-					// auto-cancel them. Restricting to these statuses is a
-					// safety net should the meta query ever misbehave.
-					'status'       => [ 'pending', 'cancelled' ],
-					'return'       => 'objects',
-					// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-					'meta_query'   => [
-						[
-							'key'   => AdminFilter::META_KEY,
-							'value' => 'true',
-						],
-					],
-				]
-			);
-
-			if ( ! is_array( $orders ) || 0 === count( $orders ) ) {
-				break;
-			}
+			$orders = self::find_probe_orders( 'cancelled', $cutoff );
 
 			foreach ( $orders as $order ) {
-				if ( $order instanceof \WC_Order ) {
-					$order->delete( true );
-				}
+				$order->delete( true );
 			}
 
 			if ( count( $orders ) < self::BATCH_SIZE ) {
 				break;
 			}
 		}
+	}
+
+	/**
+	 * Find probe orders with a status, created before a cutoff.
+	 *
+	 * Every result is checked again in PHP (see is_probe_order()), so a meta
+	 * query that is ignored, for example by a custom order data store, can
+	 * never hand a real order to the caller.
+	 *
+	 * @param string $status Order status without the `wc-` prefix.
+	 * @param int    $cutoff Only orders created before this Unix timestamp.
+	 *
+	 * @return \WC_Order[]
+	 */
+	private static function find_probe_orders( string $status, int $cutoff ): array {
+		$orders = wc_get_orders(
+			[
+				'limit'        => self::BATCH_SIZE,
+				'date_created' => '<' . $cutoff,
+				'status'       => [ $status ],
+				'return'       => 'objects',
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+				'meta_query'   => [
+					[
+						'key'   => AdminFilter::META_KEY,
+						'value' => 'true',
+					],
+				],
+			]
+		);
+
+		if ( ! is_array( $orders ) ) {
+			return [];
+		}
+
+		return array_values( array_filter( $orders, [ self::class, 'is_probe_order' ] ) );
+	}
+
+	/**
+	 * Whether an order is really a probe order: tagged by the plugin and paid
+	 * with the probe gateway.
+	 *
+	 * @param mixed $order The order.
+	 *
+	 * @return bool
+	 */
+	private static function is_probe_order( $order ): bool {
+		return $order instanceof \WC_Order
+			&& 'true' === (string) $order->get_meta( AdminFilter::META_KEY )
+			&& Controller::PROBE_GATEWAY_ID === $order->get_payment_method();
 	}
 }

@@ -52,6 +52,43 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		add_filter( 'woocommerce_email_recipient_customer_processing_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_email_recipient_customer_on_hold_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_can_reduce_order_stock', [ self::class, 'skip_stock_reduction_for_probe' ], 10, 2 );
+
+		// Tag probe orders as soon as they are created (classic and block
+		// checkout), so they can be found even if payment never runs.
+		add_action( 'woocommerce_checkout_create_order', [ self::class, 'tag_new_probe_order' ] );
+		add_action( 'woocommerce_store_api_checkout_update_order_meta', [ self::class, 'tag_new_probe_order' ] );
+	}
+
+	/**
+	 * Tag an order created during a validated probe request.
+	 *
+	 * @param \WC_Order $order The order being created.
+	 *
+	 * @return void
+	 */
+	public static function tag_new_probe_order( $order ): void {
+		if ( ! $order instanceof \WC_Order || ! Controller::is_probe_request() ) {
+			return;
+		}
+		self::tag_probe_order( $order );
+		if ( $order->get_id() > 0 ) {
+			$order->save_meta_data();
+		}
+	}
+
+	/**
+	 * Mark an order as a probe order and record the scan it belongs to.
+	 *
+	 * @param \WC_Order $order The order.
+	 *
+	 * @return void
+	 */
+	private static function tag_probe_order( \WC_Order $order ): void {
+		$order->update_meta_data( AdminFilter::META_KEY, 'true' );
+		$scan_id = Controller::current_scan_id();
+		if ( '' !== $scan_id ) {
+			$order->update_meta_data( '_scanfully_scan_id', $scan_id );
+		}
 	}
 
 	/**
@@ -115,8 +152,12 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Process the probe payment: tag the order, mark it pending, redirect
-	 * to the plugin-owned stub PSP URL.
+	 * Process the probe payment: tag the order, cancel it, redirect to the
+	 * plugin-owned stub PSP URL.
+	 *
+	 * The scan ends at the stub PSP, so the order is cancelled right away.
+	 * Cancelling releases the stock WooCommerce reserved at checkout, and
+	 * pending -> cancelled sends no email.
 	 *
 	 * @param int $order_id Order id.
 	 *
@@ -131,12 +172,8 @@ class ProbeGateway extends \WC_Payment_Gateway {
 			];
 		}
 
-		$order->update_meta_data( '_scanfully_probe_order', 'true' );
-		$scan_id = Controller::current_scan_id();
-		if ( '' !== $scan_id ) {
-			$order->update_meta_data( '_scanfully_scan_id', $scan_id );
-		}
-		$order->set_status( 'pending', __( 'Scanfully probe order created.', 'scanfully' ) );
+		self::tag_probe_order( $order );
+		$order->set_status( 'cancelled', __( 'Scanfully probe order. Cancelled automatically at the end of the checkout check.', 'scanfully' ) );
 		$order->save();
 
 		$redirect = add_query_arg(

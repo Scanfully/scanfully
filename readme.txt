@@ -223,6 +223,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Added: uninstall cleanup that removes all plugin options, scheduled jobs and the WooCheckout probe user
 * Security: edit shortcut no longer redirects visitors who can't edit, and its responses are never cached
 * Security: WooCheckout probe account is only used while it is a plain customer, and is reset on every login
+* Fixed: WooCheckout probe orders holding stock; they are now cancelled when the check ends and cleaned up safely
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
