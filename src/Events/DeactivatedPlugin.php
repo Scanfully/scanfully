@@ -49,6 +49,8 @@ class DeactivatedPlugin extends Event {
 	 * @return bool
 	 */
 	public function should_fire( array $data ): bool {
-		return true;
+		// Scanfully's own deactivation can't be reported: the job that sends
+		// the event would only run after the plugin is already inactive.
+		return ! \Scanfully\Main::is_own_plugin( (string) ( $data[0] ?? '' ) );
 	}
 }

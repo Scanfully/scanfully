@@ -8,7 +8,6 @@
 namespace Scanfully\Cron;
 
 use Scanfully\Connect;
-use Scanfully\Events;
 use Scanfully\Health;
 use Scanfully\Options;
 
@@ -236,14 +235,10 @@ class Controller {
 	 * @return void
 	 */
 	public static function clear_scheduled_events(): void {
-		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, self::DEBOUNCED_ARGS, self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_EMAIL_DELIVERABILITY_PING, [ 'source' => 'manual' ], self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
-		as_unschedule_all_actions( self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP );
-		as_unschedule_all_actions( Events\Controller::ACTION_SEND_EVENT, [], self::AS_GROUP );
+		// Cancel every pending job in the Scanfully group in one go. Cancelling
+		// per hook only matches jobs with exactly the given arguments, which
+		// missed the event jobs: each one carries its own event data.
+		as_unschedule_all_actions( '', [], self::AS_GROUP );
 	}
 
 	/**
@@ -265,9 +260,18 @@ class Controller {
 	 * grace period so rapid or bulk plugin actions collapse into a single sync.
 	 * The recurring schedule is untouched because it uses different args.
 	 *
+	 * Nothing is scheduled when the plugin being changed is Scanfully itself:
+	 * after Scanfully is deactivated or deleted, the job could never run.
+	 *
+	 * @param string $plugin Optional. Basename of the plugin that changed.
+	 *
 	 * @return void
 	 */
-	public static function schedule_health_sync(): void {
+	public static function schedule_health_sync( $plugin = '' ): void {
+		if ( is_string( $plugin ) && '' !== $plugin && \Scanfully\Main::is_own_plugin( $plugin ) ) {
+			return;
+		}
+
 		as_unschedule_all_actions( self::ACTION_SYNC_SITE_HEALTH, self::DEBOUNCED_ARGS, self::AS_GROUP );
 		as_schedule_single_action(
 			time() + self::HEALTH_SYNC_DELAY,

@@ -46,6 +46,18 @@ class Main {
 	}
 
 	/**
+	 * Whether a plugin basename (as passed by WordPress plugin hooks) is
+	 * Scanfully itself.
+	 *
+	 * @param string $plugin Plugin basename, e.g. `scanfully/scanfully.php`.
+	 *
+	 * @return bool
+	 */
+	public static function is_own_plugin( string $plugin ): bool {
+		return defined( 'SCANFULLY_PLUGIN_FILE' ) && plugin_basename( SCANFULLY_PLUGIN_FILE ) === $plugin;
+	}
+
+	/**
 	 * Whether requests to the Scanfully API verify the TLS certificate.
 	 *
 	 * Always on by default. Local development against an API with a
