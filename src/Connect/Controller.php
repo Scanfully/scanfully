@@ -176,8 +176,12 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// check if state matches.
-		if ( ! isset( $_GET['state'] ) || self::get_state() !== sanitize_text_field( wp_unslash( $_GET['state'] ) ) ) {
+		// check if state matches. The stored state is single use, so it is
+		// deleted before comparing, and an empty value never matches.
+		$expected_state = self::get_state();
+		$given_state    = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		self::delete_state();
+		if ( '' === $expected_state || '' === $given_state || ! hash_equals( $expected_state, $given_state ) ) {
 			wp_die( 'Invalid Scanfully connect state' );
 		}
 
@@ -186,12 +190,14 @@ class Controller {
 			wp_die( 'Invalid Scanfully connect parameters' );
 		}
 
-		// delete state.
-		self::delete_state();
-
 		// get variables.
 		$code = sanitize_text_field( wp_unslash( $_GET['code'] ) );
 		$site = sanitize_text_field( wp_unslash( $_GET['site'] ) );
+
+		// the site ID ends up in API URL paths, so only allow plain ID characters.
+		if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}$/', $site ) ) {
+			wp_die( 'Invalid Scanfully connect parameters' );
+		}
 
 		// exchange authorization code for access token.
 		$tokens = self::exchange_authorization_code( $code, $site );
@@ -388,12 +394,13 @@ class Controller {
 	/**
 	 * Generate a state variable for the connect request.
 	 * This also saves it in a transient, so we can validate it when the authorization is returned.
+	 * The state is stored per user, so it can only be completed by the user who started the flow.
 	 *
 	 * @return string
 	 */
 	public static function generate_state(): string {
-		$state = wp_generate_password( 12, false, false );
-		set_transient( 'scanfully_connect_state', $state, HOUR_IN_SECONDS );
+		$state = wp_generate_password( 32, false, false );
+		set_transient( self::get_state_key(), $state, 15 * MINUTE_IN_SECONDS );
 
 		return $state;
 	}
@@ -401,10 +408,12 @@ class Controller {
 	/**
 	 * Get the state variable for the connect request.
 	 *
-	 * @return string
+	 * @return string The stored state, or an empty string when there is none.
 	 */
 	public static function get_state(): string {
-		return get_transient( 'scanfully_connect_state' );
+		$state = get_transient( self::get_state_key() );
+
+		return is_string( $state ) ? $state : '';
 	}
 
 	/**
@@ -413,6 +422,18 @@ class Controller {
 	 * @return void
 	 */
 	public static function delete_state(): void {
+		delete_transient( self::get_state_key() );
+
+		// state stored by earlier versions, shared by all users.
 		delete_transient( 'scanfully_connect_state' );
+	}
+
+	/**
+	 * Get the transient key holding the connect state for the current user.
+	 *
+	 * @return string
+	 */
+	private static function get_state_key(): string {
+		return 'scanfully_connect_state_' . get_current_user_id();
 	}
 }

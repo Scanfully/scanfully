@@ -109,6 +109,14 @@
 	</rule>
 
 	<!--
+		Test doubles throw exceptions (for example from a stubbed wp_die()) whose
+		messages are never rendered as HTML.
+	-->
+	<rule ref="WordPress.Security.EscapeOutput.ExceptionNotEscaped">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+
+	<!--
 		Test bootstraps define WordPress constants (ABSPATH) and stub
 		third-party classes under their own namespaces, so the prefix rule
 		does not apply there.
