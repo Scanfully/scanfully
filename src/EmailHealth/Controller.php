@@ -100,13 +100,25 @@ class Controller {
 	/**
 	 * Per-cycle Pinger entry point. Wired to the AS recurring action.
 	 *
-	 * @param array $args Optional args: {source: 'scheduled'|'manual'}.
+	 * Action Scheduler passes an action's args as separate arguments, so the
+	 * manual run (queued with `[ 'source' => 'manual' ]`) arrives here as the
+	 * string 'manual'. An array with a `source` key is accepted too.
+	 *
+	 * @param string|array $args Optional: 'scheduled' or 'manual', or {source: 'scheduled'|'manual'}.
 	 *
 	 * @return void
 	 */
 	public static function run_ping( $args = [] ): void {
-		$args = is_array( $args ) ? $args : [];
-		$source = isset( $args['source'] ) ? (string) $args['source'] : 'scheduled';
+		if ( is_string( $args ) ) {
+			$source = $args;
+		} elseif ( is_array( $args ) && isset( $args['source'] ) ) {
+			$source = (string) $args['source'];
+		} else {
+			$source = 'scheduled';
+		}
+		if ( ! in_array( $source, [ 'scheduled', 'manual' ], true ) ) {
+			$source = 'scheduled';
+		}
 
 		// (1) Heartbeat first so admin UI can detect AS staleness even when we
 		// short-circuit below.
