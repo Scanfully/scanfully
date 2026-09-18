@@ -1,5 +1,30 @@
+# Dependencies (installed by Composer; the release workflow runs a no-dev install)
+/vendor/
 /node_modules/
+
+# PHPUnit
+/.phpunit.cache/
+/.phpunit.result.cache
+/.phpunit-integration.result.cache
+/coverage/
+/coverage.xml
+/clover.xml
+
+# PHPStan
+/.phpstan.cache/
+
+# Local
 /tmp/
 /dev/
-/.idea/
 phpcs.txt
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Logs
+*.log

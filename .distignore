@@ -1,26 +1,51 @@
+# Files and folders NOT shipped to WordPress.org.
+
+# VCS / CI / editor
 /.git
 /.github
+/.gitignore
+/.gitattributes
+/.distignore
+/.editorconfig
 /.vscode
 /.idea
-/xdebug
+/.wp-env.json
+
+# Tooling and tests
+/tests
 /scripts
 /docs
+/xdebug
+/phpcs.xml.dist
+/phpstan.neon.dist
+/phpstan-baseline.neon
+/phpunit.xml.dist
+/phpunit-integration.xml.dist
+/composer.json
+/composer.lock
+/package.json
+/package-lock.json
+/node_modules
 
+# Caches and reports
+/.phpstan.cache
+/.phpunit.cache
+/.phpunit.result.cache
+/.phpunit-integration.result.cache
+/coverage
+/coverage.xml
+/clover.xml
+
+# Local / Docker
 DOCKER_ENV
 Dockerfile-php-build
-output.log
-
-.distignore
-.gitignore
-.gitattributes
-.editorconfig
-CONTRIBUTING.md
-docker-compose.yaml
-composer.json
-composer.lock
 Dockerfile.wordpress
+docker-compose.yaml
 docker_tag
-phpcs.xml
+output.log
 phpcs.txt
-phpunit.xml
-ruleset.xml
+CONTRIBUTING.md
+
+# OS
+.DS_Store
+Thumbs.db

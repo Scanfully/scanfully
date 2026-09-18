@@ -34,11 +34,21 @@
 
 ## Coding Standards & Security
 
-- WordPress Coding Standards via `ruleset.xml` (WordPress standard, but short array syntax `[]` is allowed and the `WordPress.Files.FileName` rule is disabled)
+- WordPress Coding Standards (WPCS 3.x) via `phpcs.xml.dist`: short array syntax `[]` is allowed, Yoda conditions are not required, and the `WordPress.Files.FileName` rule is disabled
+- Classes, folders and file names are PascalCase and follow PSR-4 (class `AddressCodec` lives in `src/EmailHealth/AddressCodec.php`); functions, methods and variables are `lower_snake_case`
 - Escape all output (`esc_html`, `esc_attr`, `esc_url`), sanitize all input, use nonces and capability checks for admin actions, use `$wpdb->prepare()` for queries
 
 ## Releases & Tooling
 
 - `scripts/bump-version.sh <version>` updates the version in `readme.txt`, the `scanfully.php` header, and the `SCANFULLY_VERSION` constant
 - Releasing is done via the GitHub release workflow (`.github/workflows/release.yml`), which deploys to WordPress.org SVN
-- There are no PHPUnit tests in this repo; verify changes manually in the local WP install
+- `vendor/` is not committed; run `composer install` after cloning (the release workflow runs a no-dev install)
+
+## Quality gates
+
+- `composer lint` / `composer lint:fix` / `composer lint:strict`: PHPCS (errors only / auto-fix / including warnings)
+- `composer stan`: PHPStan (config in `phpstan.neon.dist`, WordPress, WooCommerce and Action Scheduler symbols resolved). New baseline entries need a `# BASELINE:` justification
+- `composer test`: PHPUnit unit suite under `tests/Unit` (Brain Monkey via `yoast/wp-test-utils`, no WordPress runtime). Test files are PascalCase and end in `Test.php`, e.g. `tests/Unit/EmailHealth/AddressCodecTest.php`
+- `npm run env:start` then `npm run test:integration`: PHPUnit integration suite under `tests/Integration`, run inside wp-env (PHP 7.4, needs Docker)
+- `composer qa`: lint, stan and unit tests in one go
+- CI (`.github/workflows/qa.yml`) runs these on PHP 7.4 to 8.4
