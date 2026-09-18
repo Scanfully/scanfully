@@ -72,7 +72,6 @@ class PostSaved extends Event {
 			'post_name',
 			'post_type',
 			'post_parent',
-			'post_password',
 			'comment_status',
 			'ping_status',
 			'menu_order',
@@ -87,6 +86,10 @@ class PostSaved extends Event {
 				$summary[ $field ] = $post[ $field ];
 			}
 		}
+
+		// Never send the password itself, only whether the post has one.
+		$password                 = is_object( $post ) ? ( $post->post_password ?? '' ) : ( $post['post_password'] ?? '' );
+		$summary['has_password'] = '' !== (string) $password;
 
 		return $summary;
 	}
