@@ -14,8 +14,12 @@ use Scanfully\Options;
  * Registers an inbound REST endpoint the Scanfully API can call to request an
  * on-demand refresh of this site. The endpoint never returns site data: it only
  * schedules the site's existing outbound syncs, which push data over the
- * authenticated website -> API channel. A rate limiter prevents the endpoint
- * from being abused to flood the Scanfully API.
+ * authenticated website -> API channel.
+ *
+ * Callers must send the site's current access token, either as
+ * `Authorization: Bearer <token>` or as `X-Scanfully-Token: <token>` for hosts
+ * that strip the Authorization header. A rate limiter bounds how often even an
+ * authenticated caller can trigger a sync.
  */
 class Controller {
 
@@ -65,11 +69,46 @@ class Controller {
 			[
 				'methods'             => 'POST',
 				'callback'            => [ self::class, 'handle_sync' ],
-				// Unauthenticated by design: the endpoint returns no data and only
-				// triggers a self-push. Abuse is bounded by the rate limiter below.
-				'permission_callback' => '__return_true',
+				'permission_callback' => [ self::class, 'check_permission' ],
 			]
 		);
+	}
+
+	/**
+	 * Only the Scanfully API may trigger a sync: the request must carry the
+	 * site's current access token. Unauthenticated requests are rejected
+	 * before they can consume the rate-limit budget.
+	 *
+	 * @param \WP_REST_Request $request The request.
+	 *
+	 * @return bool
+	 */
+	public static function check_permission( \WP_REST_Request $request ): bool {
+		$options = Options\Controller::get_options();
+		if ( ! $options->is_connected || '' === $options->access_token ) {
+			return false;
+		}
+
+		$token = self::get_request_token( $request );
+
+		return '' !== $token && hash_equals( $options->access_token, $token );
+	}
+
+	/**
+	 * Read the token from the Authorization bearer header, falling back to
+	 * the X-Scanfully-Token header.
+	 *
+	 * @param \WP_REST_Request $request The request.
+	 *
+	 * @return string The token, or an empty string when none was sent.
+	 */
+	private static function get_request_token( \WP_REST_Request $request ): string {
+		$authorization = (string) $request->get_header( 'authorization' );
+		if ( 1 === preg_match( '/^Bearer\s+(\S+)\s*\z/i', $authorization, $matches ) ) {
+			return $matches[1];
+		}
+
+		return trim( (string) $request->get_header( 'x_scanfully_token' ) );
 	}
 
 	/**
@@ -79,8 +118,8 @@ class Controller {
 	 * @return \WP_REST_Response
 	 */
 	public static function handle_sync(): \WP_REST_Response {
-		// Nothing to sync (and no token) when the site isn't connected. Reject
-		// before consuming the rate-limit budget.
+		// Nothing to sync when the site isn't connected. check_permission()
+		// already rejects these requests; this guards direct calls.
 		if ( ! Options\Controller::get_options()->is_connected ) {
 			return new \WP_REST_Response( [ 'status' => 'not_connected' ], 409 );
 		}
@@ -114,7 +153,8 @@ class Controller {
 			return;
 		}
 
-		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
-		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
+		// Unique: parallel requests can't queue duplicate syncs.
+		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP, true );
+		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP, true );
 	}
 }
