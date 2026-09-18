@@ -13,4 +13,24 @@
 # Keep this file empty whenever possible.
 
 parameters:
-    ignoreErrors: []
+    ignoreErrors:
+        # BASELINE: WC_Data_Store forwards method calls to the loaded data store via __call(), which the WooCommerce stubs do not declare.
+        -
+            message: '#^Call to an undefined method WC_Data_Store\:\:search_products\(\)\.$#'
+            identifier: method.notFound
+            count: 1
+            path: src/WooCheckout/Controller.php
+
+        # BASELINE: Defensive fallback to WC()->version for when WC_VERSION is not defined; the WooCommerce stubs type the property as a non-null string.
+        -
+            message: '#^Property WooCommerce\:\:\$version \(string\) on left side of \?\? is not nullable\.$#'
+            identifier: nullCoalesce.property
+            count: 1
+            path: src/WooCheckout/Controller.php
+
+        # BASELINE: Defensive fallback to WC()->version for when WC_VERSION is not defined; the WooCommerce stubs type the property as a non-null string.
+        -
+            message: '#^Property WooCommerce\:\:\$version \(string\) in isset\(\) is not nullable\.$#'
+            identifier: isset.property
+            count: 1
+            path: src/WooCheckout/Controller.php

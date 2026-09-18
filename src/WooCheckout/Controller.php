@@ -233,7 +233,7 @@ class Controller {
 		// REST requests: use the helper if available.
 		if ( function_exists( 'rest_get_server' ) ) {
 			$server = rest_get_server();
-			if ( method_exists( $server, 'get_headers' ) && isset( $_SERVER ) ) {
+			if ( method_exists( $server, 'get_headers' ) ) {
 				$headers = $server->get_headers( $_SERVER );
 				if ( isset( $headers['X_SCANFULLY_PROBE'] ) ) {
 					return (string) $headers['X_SCANFULLY_PROBE'];

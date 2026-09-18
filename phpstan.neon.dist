@@ -33,13 +33,10 @@ parameters:
     scanDirectories:
         - vendor/woocommerce/action-scheduler
     dynamicConstantNames:
-        - SCANFULLY_VERSION
-        - SCANFULLY_PLUGIN_FILE
-        - WP_CACHE
-        - WP_MEMORY_LIMIT
-        - WP_MAX_MEMORY_LIMIT
-    ignoreErrors:
-        # Files are required relative to ABSPATH, which only resolves inside a
-        # real WordPress install.
-        -
-            identifier: requireOnce.fileNotFound
+        # yoast/wp-test-utils defines ABSPATH as `true`; pin the real type.
+        ABSPATH: string
+        SCANFULLY_VERSION: string
+        SCANFULLY_PLUGIN_FILE: string
+        WP_CACHE: bool
+        WP_MEMORY_LIMIT: string
+        WP_MAX_MEMORY_LIMIT: string

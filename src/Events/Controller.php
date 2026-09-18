@@ -25,7 +25,7 @@ class Controller {
 	/**
 	 * The events
 	 *
-	 * @var array
+	 * @var Event[]
 	 */
 	private static array $events = [];
 
@@ -38,6 +38,15 @@ class Controller {
 	 */
 	public static function register( Event $event ): void {
 		self::$events[] = $event;
+	}
+
+	/**
+	 * Get the registered events
+	 *
+	 * @return Event[]
+	 */
+	public static function get_events(): array {
+		return self::$events;
 	}
 
 	/**

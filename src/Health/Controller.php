@@ -192,7 +192,7 @@ class Controller {
 	/**
 	 * Get various php settings
 	 *
-	 * @return null[]
+	 * @return array<string, string|null>
 	 */
 	private static function get_php_settings(): array {
 		$ini_values = [
@@ -343,23 +343,6 @@ class Controller {
 		}
 
 		return (int) $size;
-	}
-
-	/**
-	 * Checks what WordPress directories are writable
-	 *
-	 * @return array
-	 */
-	private static function get_writable_directories(): array {
-		$upload_dir = wp_upload_dir();
-
-		return [
-			'abspath' => wp_is_writable( ABSPATH ),
-			'wp_content' => wp_is_writable( WP_CONTENT_DIR ),
-			'uploads' => wp_is_writable( $upload_dir['basedir'] ),
-			'plugins' => wp_is_writable( WP_PLUGIN_DIR ),
-			'theme' => wp_is_writable( get_theme_root( get_template() ) ),
-		];
 	}
 
 	/**

@@ -185,8 +185,7 @@ class Controller {
 		$tokens = self::exchange_authorization_code( $code, $site );
 
 		// validate token response so we fail gracefully if the API is unreachable or returned an error
-		if ( ! is_array( $tokens )
-			|| empty( $tokens['access_token'] )
+		if ( empty( $tokens['access_token'] )
 			|| empty( $tokens['refresh_token'] )
 			|| empty( $tokens['expires'] )
 		) {
@@ -281,7 +280,7 @@ class Controller {
 	 * @param  string $code
 	 * @param  string $site
 	 *
-	 * @return array('access_token' => '...', 'refresh_token' => '...', 'expires_in' => '...')
+	 * @return array<string, mixed> The token response (access_token, refresh_token, expires), or an empty array on failure.
 	 */
 	private static function exchange_authorization_code( string $code, string $site ): array {
 
@@ -315,8 +314,10 @@ class Controller {
 			return [];
 		}
 
-		// return the response
-		return json_decode( $body, true );
+		// return the response, or an empty array when the body is not a JSON object
+		$tokens = json_decode( $body, true );
+
+		return is_array( $tokens ) ? $tokens : [];
 	}
 
 	/**
@@ -359,8 +360,10 @@ class Controller {
 			return [];
 		}
 
-		// return the response
-		return json_decode( $body, true );
+		// return the response, or an empty array when the body is not a JSON object
+		$tokens = json_decode( $body, true );
+
+		return is_array( $tokens ) ? $tokens : [];
 	}
 
 
