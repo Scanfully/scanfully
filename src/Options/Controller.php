@@ -105,6 +105,11 @@ class Controller {
 		delete_option( self::$db_prefix . 'email_deliverability_last_as_run_at' );
 		delete_option( self::$db_prefix . 'email_deliverability_from_address' );
 
+		// WooCheckout probe secret: without this, whoever held the old secret
+		// could still sign probe requests after a disconnect. The literal name
+		// keeps this working when WooCommerce (and its controller) is absent.
+		delete_option( 'scanfully_woocheckout_probe_secret' );
+
 		\Scanfully\Cron\Controller::clear_refresh_failures();
 
 		do_action( 'scanfully_options_cleared' );

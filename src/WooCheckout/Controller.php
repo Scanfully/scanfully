@@ -901,10 +901,25 @@ class Controller {
 
 		if ( is_array( $response ) && 200 === (int) ( $response['status'] ?? 0 ) && is_array( $response['body'] ?? null ) ) {
 			$secret = (string) ( $response['body']['probe_secret'] ?? '' );
-			if ( '' !== $secret && get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret ) {
+			if ( self::is_valid_probe_secret( $secret )
+				&& \Scanfully\Options\Controller::get_options()->is_connected
+				&& get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret
+			) {
 				update_option( self::OPTION_PROBE_SECRET, $secret, false );
 			}
 		}
+	}
+
+	/**
+	 * Whether a probe secret from the API has the expected format: 32 random
+	 * bytes, hex encoded.
+	 *
+	 * @param string $secret The secret to check.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_probe_secret( string $secret ): bool {
+		return 1 === preg_match( '/^[0-9a-f]{64}\z/', $secret );
 	}
 
 	/**

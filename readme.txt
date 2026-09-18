@@ -214,6 +214,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: connect flow accepting an empty state, which let a forged link connect the site to another Scanfully account
 * Fixed: connect success handler continuing to render the page after redirecting
 * Security: API requests now verify TLS certificates
+* Security: WooCheckout probe secret is cleared on disconnect and only accepted in the expected format while connected
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
