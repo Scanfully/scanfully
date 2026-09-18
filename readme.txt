@@ -225,6 +225,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: WooCheckout probe account is only used while it is a plain customer, and is reset on every login
 * Fixed: WooCheckout probe orders holding stock; they are now cancelled when the check ends and cleaned up safely
 * Added: WooCommerce integration tests for probe orders, run with both legacy and HPOS order storage
+* Added: WooCommerce compatibility declaration for HPOS order storage and the Cart/Checkout blocks
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

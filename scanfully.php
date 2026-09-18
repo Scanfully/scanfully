@@ -40,6 +40,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
 require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
+// Declare compatibility with WooCommerce's HPOS order storage and the
+// Cart/Checkout blocks. WooCommerce only accepts this inside
+// before_woocommerce_init.
+add_action(
+	'before_woocommerce_init',
+	function () {
+		if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'cart_checkout_blocks', __FILE__, true );
+		}
+	}
+);
+
 /**
  * Get the main plugin instance.
  *
