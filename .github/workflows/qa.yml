@@ -134,5 +134,10 @@ jobs:
       - name: Start wp-env
         run: npm run env:start
 
-      - name: Run integration suite
-        run: npm run test:integration
+      # WooCommerce stores orders either in posts (legacy) or in its own
+      # tables (HPOS); the WooCheckout code has separate paths for both.
+      - name: Run integration suite (legacy order storage)
+        run: npm run test:integration:legacy
+
+      - name: Run integration suite (HPOS order storage)
+        run: npm run test:integration:hpos
