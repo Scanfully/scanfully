@@ -23,6 +23,9 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 if ( ! defined( 'WEEK_IN_SECONDS' ) ) {
 	define( 'WEEK_IN_SECONDS', 7 * DAY_IN_SECONDS );
 }
+if ( ! defined( 'YEAR_IN_SECONDS' ) ) {
+	define( 'YEAR_IN_SECONDS', 365 * DAY_IN_SECONDS );
+}
 if ( ! defined( 'SCANFULLY_VERSION' ) ) {
 	define( 'SCANFULLY_VERSION', '0.0.0-test' );
 }

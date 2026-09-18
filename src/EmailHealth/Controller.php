@@ -45,6 +45,14 @@ class Controller {
 	private const FAILURE_BACKOFF_SECONDS = 86400; // 24h
 
 	/**
+	 * Bounds for the interval the API configures. Anything outside is clamped,
+	 * so a bad value can neither flood the site with test emails nor stop the
+	 * checks for weeks.
+	 */
+	private const MIN_INTERVAL_SECONDS = 15 * MINUTE_IN_SECONDS;
+	private const MAX_INTERVAL_SECONDS = 7 * DAY_IN_SECONDS;
+
+	/**
 	 * Server-side rate limit for the "Run check now" admin button.
 	 */
 	private const RUN_NOW_LOCK_SECONDS = 60;
@@ -303,7 +311,7 @@ class Controller {
 		OptionController::set_option( 'email_deliverability_secret', (string) $body['secret'], false );
 		OptionController::set_option( 'email_deliverability_inbound_address', (string) $body['inbound_address'], false );
 		if ( ! empty( $body['interval_seconds'] ) ) {
-			OptionController::set_option( 'email_deliverability_interval_seconds', (string) (int) $body['interval_seconds'], false );
+			OptionController::set_option( 'email_deliverability_interval_seconds', (string) self::clamp_interval( (int) $body['interval_seconds'] ), false );
 		}
 		return true;
 	}
@@ -478,9 +486,21 @@ class Controller {
 		}
 		$cached = (int) OptionController::get_option( 'email_deliverability_interval_seconds' );
 		if ( $cached > 0 ) {
-			return $cached;
+			// Clamped on read too, for values stored by earlier versions.
+			return self::clamp_interval( $cached );
 		}
 		return self::FALLBACK_INTERVAL_SECONDS;
+	}
+
+	/**
+	 * Keep an interval from the API between 15 minutes and 7 days.
+	 *
+	 * @param int $seconds Interval in seconds.
+	 *
+	 * @return int
+	 */
+	private static function clamp_interval( int $seconds ): int {
+		return max( self::MIN_INTERVAL_SECONDS, min( self::MAX_INTERVAL_SECONDS, $seconds ) );
 	}
 
 	// --- Helpers -------------------------------------------------------------
