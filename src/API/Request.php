@@ -7,6 +7,7 @@
 
 namespace Scanfully\API;
 
+use Scanfully\Main;
 use Scanfully\Options\Controller as OptionController;
 
 /**
@@ -41,7 +42,7 @@ abstract class Request {
 			'timeout'     => 60,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 		];
 
 		// add body to request if there's any.
@@ -98,7 +99,7 @@ abstract class Request {
 			'timeout'     => 30,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 		];
 		$request_body = $this->get_body( $data );
 		if ( ! empty( $request_body ) ) {
@@ -142,7 +143,7 @@ abstract class Request {
 				'timeout'     => 30,
 				'blocking'    => true,
 				'httpversion' => '1.0',
-				'sslverify'   => false,
+				'sslverify'   => Main::get_sslverify(),
 			]
 		);
 

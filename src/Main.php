@@ -46,6 +46,19 @@ class Main {
 	}
 
 	/**
+	 * Whether requests to the Scanfully API verify the TLS certificate.
+	 *
+	 * Always on by default. Local development against an API with a
+	 * self-signed certificate can turn it off with the `scanfully_sslverify`
+	 * filter; never do that in production.
+	 *
+	 * @return bool
+	 */
+	public static function get_sslverify(): bool {
+		return (bool) apply_filters( 'scanfully_sslverify', true );
+	}
+
+	/**
 	 * Get the Scanfully dashboard URL.
 	 *
 	 * @return string

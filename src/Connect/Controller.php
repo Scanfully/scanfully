@@ -311,7 +311,7 @@ class Controller {
 			'timeout'     => 60,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 			'body'        => wp_json_encode(
 				[
 					'grant_type' => 'authorization_code',
@@ -359,7 +359,7 @@ class Controller {
 			'timeout'     => 60,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 			'body'        => wp_json_encode(
 				[
 					'grant_type'    => 'refresh_token',
