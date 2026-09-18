@@ -195,7 +195,7 @@ class Controller {
 		$site = sanitize_text_field( wp_unslash( $_GET['site'] ) );
 
 		// the site ID ends up in API URL paths, so only allow plain ID characters.
-		if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}$/', $site ) ) {
+		if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}\z/', $site ) ) {
 			wp_die( 'Invalid Scanfully connect parameters' );
 		}
 
