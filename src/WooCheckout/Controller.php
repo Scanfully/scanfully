@@ -215,24 +215,21 @@ class Controller {
 	}
 
 	/**
-	 * Read the probe header from the current request, in all the casings
-	 * PHP/WP might present.
+	 * Read the probe header from the current request.
+	 *
+	 * Reads `$_SERVER` directly. Do not use rest_get_server() here: this runs
+	 * on `init` priority 1, and the first rest_get_server() call fires
+	 * `rest_api_init`, which would register REST routes before most post
+	 * types and taxonomies exist.
 	 *
 	 * @return string
 	 */
 	private static function read_probe_header(): string {
-		// REST requests: use the helper if available.
-		if ( function_exists( 'rest_get_server' ) ) {
-			$server = rest_get_server();
-			if ( method_exists( $server, 'get_headers' ) ) {
-				$headers = $server->get_headers( $_SERVER );
-				if ( isset( $headers['X_SCANFULLY_PROBE'] ) ) {
-					return (string) $headers['X_SCANFULLY_PROBE'];
-				}
+		// Some CGI/FastCGI setups only expose the header with a REDIRECT_ prefix.
+		foreach ( [ 'HTTP_X_SCANFULLY_PROBE', 'REDIRECT_HTTP_X_SCANFULLY_PROBE' ] as $key ) {
+			if ( isset( $_SERVER[ $key ] ) ) {
+				return sanitize_text_field( wp_unslash( $_SERVER[ $key ] ) );
 			}
-		}
-		if ( isset( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) ) {
-			return sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) );
 		}
 		return '';
 	}
