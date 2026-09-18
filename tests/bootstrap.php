@@ -20,6 +20,9 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 24 * HOUR_IN_SECONDS );
 }
+if ( ! defined( 'WEEK_IN_SECONDS' ) ) {
+	define( 'WEEK_IN_SECONDS', 7 * DAY_IN_SECONDS );
+}
 if ( ! defined( 'SCANFULLY_VERSION' ) ) {
 	define( 'SCANFULLY_VERSION', '0.0.0-test' );
 }

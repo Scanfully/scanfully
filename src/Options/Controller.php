@@ -40,6 +40,24 @@ class Controller {
 	}
 
 	/**
+	 * Get the options, re-read from the database instead of the options cache.
+	 *
+	 * Use this when another process may have changed the options during the
+	 * current request, for example a token refresh in a parallel cron run.
+	 *
+	 * @return Options
+	 */
+	public static function get_fresh_options(): Options {
+		wp_cache_delete( 'alloptions', 'options' );
+		wp_cache_delete( 'notoptions', 'options' );
+		foreach ( [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected' ] as $name ) {
+			wp_cache_delete( self::$db_prefix . $name, 'options' );
+		}
+
+		return self::get_options();
+	}
+
+	/**
 	 * WordPress get_option wrapper
 	 *
 	 * @param  string $name The name of the option.

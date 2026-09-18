@@ -313,47 +313,87 @@ class Controller {
 	private const MAX_REFRESH_FAILURES = 3;
 
 	/**
+	 * Option used as a lock so only one process refreshes the tokens at a time.
+	 */
+	private const REFRESH_LOCK_OPTION = 'scanfully_refresh_lock';
+
+	/**
+	 * Seconds after which a refresh lock is considered abandoned.
+	 */
+	private const REFRESH_LOCK_TIMEOUT = 2 * MINUTE_IN_SECONDS;
+
+	/**
 	 * Refresh the access token when it is about to expire.
+	 *
+	 * The API invalidates the old refresh token on every refresh, so two
+	 * processes refreshing at once would leave one of them storing tokens
+	 * that no longer work. A lock makes sure only one process refreshes, and
+	 * the options are re-read once the lock is held, so a process that waited
+	 * does not refresh again with a refresh token that was just used.
 	 *
 	 * @return void
 	 */
 	private static function refresh_access_token_if_needed(): void {
-
-		// get options.
 		$options = Options\Controller::get_options();
+		if ( ! $options->is_connected || ! self::token_needs_refresh( $options ) ) {
+			return;
+		}
 
-		// check if we're connected, if not return.
-		if ( ! $options->is_connected ) {
+		if ( ! self::acquire_refresh_lock() ) {
+			// another process is refreshing; the current token stays valid until
+			// it expires, which is at least two days away.
 			return;
 		}
 
 		try {
-			$now = new \DateTime();
-			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+			$options = Options\Controller::get_fresh_options();
+			if ( ! $options->is_connected || ! self::token_needs_refresh( $options ) ) {
+				return;
+			}
 
-			$expires = new \DateTime( $options->expires );
-			$expires->setTimezone( new \DateTimeZone( 'UTC' ) );
-			$expires->modify( '-2 days' );
+			self::refresh_access_token( $options );
+		} finally {
+			self::release_refresh_lock();
+		}
+	}
+
+	/**
+	 * Whether the access token expires within two days. An expiry date that
+	 * cannot be parsed also needs a refresh, which stores a fresh one.
+	 *
+	 * @param Options\Options $options The current options.
+	 *
+	 * @return bool
+	 */
+	private static function token_needs_refresh( Options\Options $options ): bool {
+		try {
+			$refresh_after = new \DateTime( $options->expires, new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
-			self::record_refresh_failure( 'Failed to parse token expiry date: ' . $e->getMessage() );
-			return;
+			return true;
 		}
+		$refresh_after->modify( '-2 days' );
 
-		// check if the access token needs refreshing.
-		if ( $now <= $expires ) {
-			return;
-		}
+		return new \DateTime( 'now', new \DateTimeZone( 'UTC' ) ) > $refresh_after;
+	}
 
-		// refresh the access token.
+	/**
+	 * Request new tokens and store them.
+	 *
+	 * @param Options\Options $options The current options.
+	 *
+	 * @return void
+	 */
+	private static function refresh_access_token( Options\Options $options ): void {
 		$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id );
 
-		// check if we got tokens.
-		if ( empty( $tokens ) ) {
+		if ( ! self::is_valid_token_response( $tokens ) ) {
 			self::record_refresh_failure( 'Token refresh request failed. The Scanfully API may be unreachable or the refresh token may be invalid.' );
 			return;
 		}
 
 		try {
+			$now = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
+
 			$new_expires = new \DateTime( $tokens['expires'] );
 			$new_expires->setTimezone( new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
@@ -361,22 +401,100 @@ class Controller {
 			return;
 		}
 
-		// update the options.
-		$options = new Options\Options(
-			true,
-			$tokens['site_id'],
-			$tokens['access_token'],
-			$tokens['refresh_token'],
-			$new_expires->format( Connect\Controller::DATE_FORMAT ),
-			'',
-			$now->format( Connect\Controller::DATE_FORMAT )
-		);
+		$site_id = isset( $tokens['site_id'] ) && is_string( $tokens['site_id'] ) && '' !== $tokens['site_id']
+			? $tokens['site_id']
+			: $options->site_id;
 
-		// save options.
-		Options\Controller::set_options( $options );
+		Options\Controller::set_options(
+			new Options\Options(
+				true,
+				$site_id,
+				$tokens['access_token'],
+				$tokens['refresh_token'],
+				$new_expires->format( Connect\Controller::DATE_FORMAT ),
+				'',
+				$now->format( Connect\Controller::DATE_FORMAT )
+			)
+		);
 
 		// refresh succeeded, clear any previous failure state.
 		self::clear_refresh_failures();
+	}
+
+	/**
+	 * Whether a token response has everything needed to store new tokens.
+	 *
+	 * @param array $tokens The decoded token response.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_token_response( array $tokens ): bool {
+		foreach ( [ 'access_token', 'refresh_token', 'expires' ] as $key ) {
+			if ( ! isset( $tokens[ $key ] ) || ! is_string( $tokens[ $key ] ) || '' === $tokens[ $key ] ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Take the refresh lock.
+	 *
+	 * Uses INSERT IGNORE on the options table, like WordPress core's upgrader
+	 * lock: the unique option name makes the insert atomic, which add_option()
+	 * is not. A lock older than the timeout is taken over, with an UPDATE that
+	 * only succeeds for one process.
+	 *
+	 * @return bool Whether this process holds the lock.
+	 */
+	private static function acquire_refresh_lock(): bool {
+		global $wpdb;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery -- The lock must bypass the options cache to be atomic.
+		$inserted = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )",
+				self::REFRESH_LOCK_OPTION,
+				(string) time()
+			)
+		);
+		if ( 1 === (int) $inserted ) {
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery
+			return true;
+		}
+
+		$locked_at = (string) $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::REFRESH_LOCK_OPTION )
+		);
+		if ( (int) $locked_at > time() - self::REFRESH_LOCK_TIMEOUT ) {
+			// phpcs:enable WordPress.DB.DirectDatabaseQuery
+			return false;
+		}
+
+		$taken = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				(string) time(),
+				self::REFRESH_LOCK_OPTION,
+				$locked_at
+			)
+		);
+		// phpcs:enable WordPress.DB.DirectDatabaseQuery
+
+		return 1 === (int) $taken;
+	}
+
+	/**
+	 * Release the refresh lock.
+	 *
+	 * @return void
+	 */
+	private static function release_refresh_lock(): void {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Counterpart of the atomic lock in acquire_refresh_lock().
+		$wpdb->delete( $wpdb->options, [ 'option_name' => self::REFRESH_LOCK_OPTION ] );
 	}
 
 	/**

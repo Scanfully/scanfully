@@ -333,7 +333,11 @@ class Controller {
 			return [];
 		}
 
-		// todo check if request failed based on http status code.
+		// only a 200 response carries tokens; anything else (including an error
+		// page from a proxy in front of the API) is a failure.
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return [];
+		}
 
 		$body = wp_remote_retrieve_body( $resp );
 
@@ -360,7 +364,7 @@ class Controller {
 		// request arguments for the requests.
 		$request_args = [
 			'headers'     => [ 'Content-Type' => 'application/json' ],
-			'timeout'     => 60,
+			'timeout'     => 15,
 			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => Main::get_sslverify(),
@@ -381,7 +385,11 @@ class Controller {
 			return [];
 		}
 
-		// todo check if request failed based on http status code.
+		// only a 200 response carries tokens; anything else (including an error
+		// page from a proxy in front of the API) is a failure.
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return [];
+		}
 
 		$body = wp_remote_retrieve_body( $resp );
 
