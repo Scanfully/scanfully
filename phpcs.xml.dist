@@ -35,6 +35,11 @@
 		<exclude name="WordPress.Files.FileName"/>
 		<!-- Yoda conditions are not required; normal order is more readable. -->
 		<exclude name="WordPress.PHP.YodaConditions"/>
+		<!--
+			Empty catch blocks are allowed when they explain why; that is
+			enforced by Squiz.Commenting.EmptyCatchComment.
+		-->
+		<exclude name="Generic.CodeAnalysis.EmptyStatement.DetectedCatch"/>
 	</rule>
 
 	<rule ref="WordPress.WP.I18n">

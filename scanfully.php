@@ -1,5 +1,5 @@
 <?php
-/*
+/**
  * Scanfully WordPress plugin
  *
  * @package   Scanfully\Main
@@ -40,22 +40,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
 require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
-function Scanfully(): \Scanfully\Main {
+/**
+ * Get the main plugin instance.
+ *
+ * @return \Scanfully\Main
+ */
+function Scanfully(): \Scanfully\Main { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid -- Public API; renaming would break backwards compatibility.
 	return \Scanfully\Main::get();
 }
 
-// boot
-add_action( 'plugins_loaded', function () {
-	// meta
-	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
-	define( 'SCANFULLY_VERSION', '1.7.0-alpha1' );
+// boot.
+add_action(
+	'plugins_loaded',
+	function () {
+		// meta.
+		define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
+		define( 'SCANFULLY_VERSION', '1.7.0-alpha1' );
 
-	// boot
-	require __DIR__ . '/vendor/autoload.php';
-	Scanfully()->setup();
-}, 20 );
+		// boot.
+		require __DIR__ . '/vendor/autoload.php';
+		Scanfully()->setup();
+	},
+	20
+);
 
-// register deactivation hook
-register_deactivation_hook( __FILE__, function () {
-	\Scanfully\Cron\Controller::clear_scheduled_events();
-} );
+// register deactivation hook.
+register_deactivation_hook(
+	__FILE__,
+	function () {
+		\Scanfully\Cron\Controller::clear_scheduled_events();
+	}
+);

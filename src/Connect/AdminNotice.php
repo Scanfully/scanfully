@@ -1,9 +1,17 @@
 <?php
+/**
+ * The connect admin notice class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Connect;
 
 use Scanfully\Options\Controller as OptionsController;
 
+/**
+ * Shows admin notices about the Scanfully connection state.
+ */
 class AdminNotice {
 
 	/**
@@ -22,10 +30,13 @@ class AdminNotice {
 		$options = OptionsController::get_options();
 
 		if ( $options->is_connected && self::is_connection_stale( $options ) ) {
-			add_action( 'admin_notices', [ AdminNotice::class, 'print_stale_notice' ] );
-			add_action( 'admin_enqueue_scripts', function () {
-				wp_enqueue_style( 'scanfully-not-connected-notice', plugins_url( '/assets/css/not-connected-notice.css', SCANFULLY_PLUGIN_FILE ), [], SCANFULLY_VERSION );
-			} );
+			add_action( 'admin_notices', [ self::class, 'print_stale_notice' ] );
+			add_action(
+				'admin_enqueue_scripts',
+				function () {
+					wp_enqueue_style( 'scanfully-not-connected-notice', plugins_url( '/assets/css/not-connected-notice.css', SCANFULLY_PLUGIN_FILE ), [], SCANFULLY_VERSION );
+				}
+			);
 			return;
 		}
 
@@ -35,17 +46,20 @@ class AdminNotice {
 		}
 
 		if ( ! $options->is_connected ) {
-			add_action( 'admin_notices', [ AdminNotice::class, 'print_notice' ] );
-			add_action( 'admin_enqueue_scripts', function () {
-				wp_enqueue_style( 'scanfully-not-connected-notice', plugins_url( '/assets/css/not-connected-notice.css', SCANFULLY_PLUGIN_FILE ), [], SCANFULLY_VERSION );
-			} );
+			add_action( 'admin_notices', [ self::class, 'print_notice' ] );
+			add_action(
+				'admin_enqueue_scripts',
+				function () {
+					wp_enqueue_style( 'scanfully-not-connected-notice', plugins_url( '/assets/css/not-connected-notice.css', SCANFULLY_PLUGIN_FILE ), [], SCANFULLY_VERSION );
+				}
+			);
 		}
 	}
 
 	/**
 	 * Check if the connection is stale based on the last_used timestamp.
 	 *
-	 * @param \Scanfully\Options\Options $options
+	 * @param \Scanfully\Options\Options $options The current connection options.
 	 *
 	 * @return bool
 	 */
@@ -87,11 +101,14 @@ class AdminNotice {
 	 * @return void
 	 */
 	public static function print_stale_notice(): void {
-		$reconnect_url = add_query_arg( [
-			'page'                       => 'scanfully',
-			'scanfully-reconnect'        => 1,
-			'scanfully-reconnect-nonce'  => wp_create_nonce( 'scanfully-reconnect' ),
-		], admin_url( 'options-general.php' ) );
+		$reconnect_url = add_query_arg(
+			[
+				'page'                       => 'scanfully',
+				'scanfully-reconnect'        => 1,
+				'scanfully-reconnect-nonce'  => wp_create_nonce( 'scanfully-reconnect' ),
+			],
+			admin_url( 'options-general.php' )
+		);
 		?>
 		<div class="notice notice-error scanfully-not-connected-notice">
 			<div class="scanfully-notice-header">

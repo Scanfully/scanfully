@@ -312,12 +312,17 @@ class Controller {
 	 */
 	private const MAX_REFRESH_FAILURES = 3;
 
+	/**
+	 * Refresh the access token when it is about to expire.
+	 *
+	 * @return void
+	 */
 	private static function refresh_access_token_if_needed(): void {
 
-		// get options
+		// get options.
 		$options = Options\Controller::get_options();
 
-		// check if we're connected, if not return
+		// check if we're connected, if not return.
 		if ( ! $options->is_connected ) {
 			return;
 		}
@@ -334,15 +339,15 @@ class Controller {
 			return;
 		}
 
-		// check if the access token needs refreshing
+		// check if the access token needs refreshing.
 		if ( $now <= $expires ) {
 			return;
 		}
 
-		// refresh the access token
+		// refresh the access token.
 		$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id );
 
-		// check if we got tokens
+		// check if we got tokens.
 		if ( empty( $tokens ) ) {
 			self::record_refresh_failure( 'Token refresh request failed. The Scanfully API may be unreachable or the refresh token may be invalid.' );
 			return;
@@ -356,7 +361,7 @@ class Controller {
 			return;
 		}
 
-		// update the options
+		// update the options.
 		$options = new Options\Options(
 			true,
 			$tokens['site_id'],
@@ -367,10 +372,10 @@ class Controller {
 			$now->format( Connect\Controller::DATE_FORMAT )
 		);
 
-		// save options
+		// save options.
 		Options\Controller::set_options( $options );
 
-		// refresh succeeded, clear any previous failure state
+		// refresh succeeded, clear any previous failure state.
 		self::clear_refresh_failures();
 	}
 
@@ -378,7 +383,7 @@ class Controller {
 	 * Record a refresh failure. Increments the consecutive failure counter
 	 * and stores the error message for display in admin notices.
 	 *
-	 * @param string $error_message
+	 * @param string $error_message The error to record.
 	 *
 	 * @return void
 	 */

@@ -31,7 +31,7 @@ class PostSaved extends Event {
 	public function get_post_body( array $data ): array {
 		$post_id = $data[0];
 		$post    = $data[1];
-//		$update      = $data[2];
+		// $update      = $data[2];
 		$post_before = $data[3];
 
 		return [
@@ -108,7 +108,7 @@ class PostSaved extends Event {
 	/**
 	 * A check if a event should fire
 	 *
-	 * @param  array $data
+	 * @param  array $data The event data.
 	 *
 	 * @return bool
 	 */

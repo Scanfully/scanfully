@@ -104,7 +104,7 @@ class LoginBridge {
 		if ( ! isset( $_GET['next'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			return $default;
 		}
-		$candidate = (string) wp_unslash( $_GET['next'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$candidate = (string) wp_unslash( $_GET['next'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Validated against the home host below and passed to wp_safe_redirect(); sanitize_url() would rewrite relative targets.
 		if ( '' === $candidate ) {
 			return $default;
 		}

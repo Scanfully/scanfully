@@ -371,13 +371,18 @@ class Controller {
 		return $map;
 	}
 
+	/**
+	 * Get the site data sent to Scanfully.
+	 *
+	 * @return array
+	 */
 	public static function get_site_data(): array {
 		// load wp_site_health class if not loaded, this is not loaded by default.
 		if ( ! class_exists( 'WP_Site_Health' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
-		if ( ! function_exists( "get_plugins" ) ) {
+		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
@@ -433,7 +438,7 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		// filter data
+		// filter data.
 		$data = apply_filters( 'scanfully_health_data', $data );
 
 		return $data;
@@ -465,7 +470,7 @@ class Controller {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
-		if ( ! function_exists( "get_plugins" ) ) {
+		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
@@ -477,10 +482,10 @@ class Controller {
 			'uploads' => wp_upload_dir()['basedir'],
 		];
 
-		// dir requests
+		// dir requests.
 		$request = new SiteDirectoriesRequest();
 
-		// data array
+		// data array.
 		$data = [
 			'data' => [
 				'db_size' => round( self::get_db_size() / 1000000, 2 ),
@@ -497,5 +502,4 @@ class Controller {
 		// send event.
 		$request->send( $data );
 	}
-
 }

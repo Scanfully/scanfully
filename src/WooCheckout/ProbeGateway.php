@@ -156,8 +156,8 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	/**
 	 * Suppress WC email recipients for probe orders.
 	 *
-	 * @param string                  $recipient The current recipient list.
-	 * @param \WC_Order|false|null    $order     The order being processed.
+	 * @param string               $recipient The current recipient list.
+	 * @param \WC_Order|false|null $order     The order being processed.
 	 *
 	 * @return string
 	 */

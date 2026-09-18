@@ -37,7 +37,7 @@ class RewriteRules extends Event {
 	/**
 	 * A check if a event should fire
 	 *
-	 * @param  array $data
+	 * @param  array $data The event data.
 	 *
 	 * @return bool
 	 */

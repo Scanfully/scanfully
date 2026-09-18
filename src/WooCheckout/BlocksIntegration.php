@@ -30,11 +30,9 @@ class BlocksIntegration extends AbstractPaymentMethodType {
 	 * @return void
 	 */
 	public static function setup(): void {
-		error_log( '[scanfully] BlocksIntegration::setup() uri=' . ( isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '?' ) . ' has_header=' . ( isset( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) ? '1' : '0' ) );
 		add_action(
 			'woocommerce_blocks_payment_method_type_registration',
 			static function ( $registry ) {
-				error_log( '[scanfully] registration hook uri=' . ( isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '?' ) . ' has_header=' . ( isset( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) ? '1' : '0' ) . ' is_probe=' . ( Controller::is_probe_request() ? '1' : '0' ) );
 				if ( method_exists( $registry, 'register' ) ) {
 					$registry->register( new self() );
 				}
@@ -57,9 +55,7 @@ class BlocksIntegration extends AbstractPaymentMethodType {
 	 * @return bool
 	 */
 	public function is_active(): bool {
-		$active = Controller::is_probe_request();
-		error_log( '[scanfully] BlocksIntegration::is_active() uri=' . ( isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '?' ) . ' has_header=' . ( isset( $_SERVER['HTTP_X_SCANFULLY_PROBE'] ) ? '1' : '0' ) . ' active=' . ( $active ? '1' : '0' ) );
-		return $active;
+		return Controller::is_probe_request();
 	}
 
 	/**

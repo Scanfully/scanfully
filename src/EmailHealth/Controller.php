@@ -60,7 +60,7 @@ class Controller {
 	private const AJAX_RUN_NOW = 'scanfully_email_deliverability_run_now';
 
 	/**
-	 * admin-post action name for saving the From address.
+	 * The admin-post action name for saving the From address.
 	 */
 	private const ADMIN_POST_SAVE_FROM = 'scanfully_email_deliverability_save_from';
 
@@ -332,7 +332,7 @@ class Controller {
 	private static function expand_inbound_address( string $template, string $nonce ): string {
 		try {
 			$encoded = AddressCodec::encode( $nonce );
-		} catch (\Throwable $e) {
+		} catch ( \Throwable $e ) {
 			self::log_warn( 'AddressCodec encode failed: ' . $e->getMessage() );
 			return '';
 		}
@@ -559,7 +559,7 @@ class Controller {
 		try {
 			$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
 			return $dt->format( 'Y-m-d\TH:i:s\Z' );
-		} catch (\Exception $e) {
+		} catch ( \Exception $e ) {
 			return gmdate( 'Y-m-d\TH:i:s\Z' );
 		}
 	}
@@ -620,12 +620,12 @@ class Controller {
 			}
 			try {
 				$dt->setTimezone( Util\Date::get_timezone() );
-			} catch (\Exception $e) {
+			} catch ( \Exception $e ) {
 				// Unrecognised timezone; leave the DateTime in UTC.
 				unset( $e );
 			}
 			return $dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
-		} catch (\Exception $e) {
+		} catch ( \Exception $e ) {
 			return '-';
 		}
 	}
@@ -653,6 +653,13 @@ class Controller {
 		return $seconds . ' s';
 	}
 
+	/**
+	 * Format an interval in seconds as a human readable string.
+	 *
+	 * @param int $seconds The interval in seconds.
+	 *
+	 * @return string
+	 */
 	private static function format_interval( int $seconds ): string {
 		if ( $seconds >= 3600 && 0 === $seconds % 3600 ) {
 			$hours = $seconds / 3600;
@@ -903,7 +910,7 @@ class Controller {
 	}
 
 	/**
-	 * admin-post handler for saving the From-address override. Empty input
+	 * The admin-post handler for saving the From-address override. Empty input
 	 * clears the override, restoring the admin_email fallback.
 	 *
 	 * @return void
@@ -914,7 +921,7 @@ class Controller {
 		}
 		check_admin_referer( self::NONCE_SAVE_FROM );
 
-		$raw = isset( $_POST['scanfully_from_address'] ) ? wp_unslash( $_POST['scanfully_from_address'] ) : '';
+		$raw = isset( $_POST['scanfully_from_address'] ) ? wp_unslash( $_POST['scanfully_from_address'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized with sanitize_email() below; the raw value is only used to detect empty input.
 		$value = trim( sanitize_email( (string) $raw ) );
 
 		$status = 'ok';
