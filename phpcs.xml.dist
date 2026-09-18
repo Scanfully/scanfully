@@ -5,6 +5,7 @@
 	<file>src</file>
 	<file>tests</file>
 	<file>scanfully.php</file>
+	<file>uninstall.php</file>
 
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>

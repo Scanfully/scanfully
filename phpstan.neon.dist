@@ -16,6 +16,7 @@ parameters:
         - src
         - tests/Unit
         - scanfully.php
+        - uninstall.php
     excludePaths:
         analyse:
             - tests/Fixtures/*

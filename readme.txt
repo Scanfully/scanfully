@@ -220,6 +220,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: on-demand sync endpoint now requires the site access token
 * Fixed: token refresh locking sites out when refreshes overlap or the API returns an error response
 * Fixed: deactivation leaving queued event jobs behind and queueing new jobs for Scanfully itself
+* Added: uninstall cleanup that removes all plugin options, scheduled jobs and the WooCheckout probe user
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
