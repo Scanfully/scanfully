@@ -244,6 +244,7 @@ class Controller {
 
 		// redirect to base connect page with success message.
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
+		exit;
 	}
 
 	/**

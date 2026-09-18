@@ -206,6 +206,14 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 
 == Changelog ==
 
+= 1.7.0: September 18, 2026 =
+* Added: WooCommerce checkout monitoring support.
+* Added: PHPCS, PHPStan, PHPUnit and wp-env tooling with composer scripts and QA workflow
+* Fixed: probe header check firing rest_api_init too early and breaking REST routes for late-registered post types
+* Security: post passwords are no longer sent in timeline events
+* Security: connect flow accepting an empty state, which let a forged link connect the site to another Scanfully account
+* Fixed: connect success handler continuing to render the page after redirecting
+
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
 * Added: on-demand REST endpoint to trigger site health and directory sync
