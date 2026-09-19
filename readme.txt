@@ -230,6 +230,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: email deliverability check interval from the API is kept between 15 minutes and 7 days
 * Fixed: manual email deliverability check postponing the scheduled checks
 * Changed: QA workflow also runs on pushes to the dev branch
+* Changed: integration tests run in a separate wp-env test environment
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

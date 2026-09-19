@@ -8,9 +8,11 @@
     "env": "wp-env",
     "env:start": "wp-env start",
     "env:stop": "wp-env stop",
-    "test:integration": "wp-env run tests-cli --env-cwd=wp-content/plugins/$(basename \"$PWD\") php vendor/bin/phpunit -c phpunit-integration.xml.dist",
-    "test:integration:legacy": "wp-env run tests-cli wp wc hpos disable && npm run test:integration",
-    "test:integration:hpos": "wp-env run tests-cli wp wc hpos enable && npm run test:integration",
+    "env:test:start": "wp-env --config=.wp-env.test.json start",
+    "env:test:stop": "wp-env --config=.wp-env.test.json stop",
+    "test:integration": "wp-env --config=.wp-env.test.json run cli --env-cwd=wp-content/plugins/$(basename \"$PWD\") php vendor/bin/phpunit -c phpunit-integration.xml.dist",
+    "test:integration:legacy": "wp-env --config=.wp-env.test.json run cli wp wc hpos disable && npm run test:integration",
+    "test:integration:hpos": "wp-env --config=.wp-env.test.json run cli wp wc hpos enable && npm run test:integration",
     "test:integration:all": "npm run test:integration:legacy && npm run test:integration:hpos"
   },
   "devDependencies": {

@@ -131,8 +131,8 @@ jobs:
       - name: Install npm dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Start wp-env
-        run: npm run env:start
+      - name: Start wp-env (test environment)
+        run: npm run env:test:start
 
       # WooCommerce stores orders either in posts (legacy) or in its own
       # tables (HPOS); the WooCheckout code has separate paths for both.

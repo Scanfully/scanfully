@@ -13,5 +13,6 @@
     "SCRIPT_DEBUG": true
   },
   "mappings": {},
-  "testsEnvironment": false
+  "testsEnvironment": false,
+  "port": 8889
 }

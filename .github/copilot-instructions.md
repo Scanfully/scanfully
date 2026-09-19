@@ -49,6 +49,6 @@
 - `composer lint` / `composer lint:fix` / `composer lint:strict`: PHPCS (errors only / auto-fix / including warnings)
 - `composer stan`: PHPStan (config in `phpstan.neon.dist`, WordPress, WooCommerce and Action Scheduler symbols resolved). New baseline entries need a `# BASELINE:` justification
 - `composer test`: PHPUnit unit suite under `tests/Unit` (Brain Monkey via `yoast/wp-test-utils`, no WordPress runtime). Test files are PascalCase and end in `Test.php`, e.g. `tests/Unit/EmailHealth/AddressCodecTest.php`
-- `npm run env:start` then `npm run test:integration`: PHPUnit integration suite under `tests/Integration`, run inside wp-env (latest WordPress and WooCommerce on PHP 7.4, needs Docker). `npm run test:integration:all` runs it with both WooCommerce order storages (legacy posts and HPOS); CI does the same
+- `npm run env:test:start` then `npm run test:integration`: PHPUnit integration suite under `tests/Integration`, run in a separate wp-env test environment (`.wp-env.test.json`, port 8889; latest WordPress and WooCommerce on PHP 7.4, needs Docker). `npm run env:start` starts the development site (`.wp-env.json`, port 8888), which the tests never touch. `npm run test:integration:all` runs it with both WooCommerce order storages (legacy posts and HPOS); CI does the same
 - `composer qa`: lint, stan and unit tests in one go
 - CI (`.github/workflows/qa.yml`) runs these on PHP 7.4 to 8.4
