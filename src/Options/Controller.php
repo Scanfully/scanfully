@@ -78,8 +78,10 @@ class Controller {
 	public static function set_options( Options $options ): void {
 		self::set_option( 'is_connected', $options->is_connected ? 'yes' : 'no' );
 		self::set_option( 'site_id', $options->site_id );
-		self::set_option( 'access_token', $options->access_token );
-		self::set_option( 'refresh_token', $options->refresh_token );
+		// The tokens are only needed for API calls, so they aren't loaded on
+		// every request (and don't end up in the autoloaded options cache).
+		self::set_option( 'access_token', $options->access_token, false );
+		self::set_option( 'refresh_token', $options->refresh_token, false );
 		self::set_option( 'expires', $options->expires );
 		self::set_option( 'last_used', $options->last_used );
 		self::set_option( 'date_connected', $options->date_connected );
@@ -98,6 +100,34 @@ class Controller {
 	 */
 	public static function set_option( string $name, string $value, bool $autoload = true ): void {
 		update_option( self::$db_prefix . $name, $value, $autoload );
+	}
+
+	/**
+	 * Stop autoloading the tokens stored by earlier versions. Runs once;
+	 * set_options() stores new tokens without autoload.
+	 *
+	 * @return void
+	 */
+	public static function maybe_stop_autoloading_tokens(): void {
+		if ( get_option( 'scanfully_tokens_autoload_off' ) ) {
+			return;
+		}
+
+		foreach ( [ 'access_token', 'refresh_token' ] as $name ) {
+			$option = self::$db_prefix . $name;
+			if ( function_exists( 'wp_set_option_autoload' ) ) {
+				wp_set_option_autoload( $option, false );
+			} else {
+				// WordPress before 6.4 has no API to change autoload without
+				// rewriting the value.
+				global $wpdb;
+				$wpdb->update( $wpdb->options, [ 'autoload' => 'no' ], [ 'option_name' => $option ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- One-off change of the autoload flag only.
+			}
+		}
+		wp_cache_delete( 'alloptions', 'options' );
+
+		// Autoloaded, so this check costs nothing on later requests.
+		update_option( 'scanfully_tokens_autoload_off', 1, true );
 	}
 
 	/**

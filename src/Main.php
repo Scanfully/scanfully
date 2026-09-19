@@ -94,6 +94,9 @@ class Main {
 	 * @return void
 	 */
 	public function setup(): void {
+		/** Stop autoloading tokens stored by earlier versions (runs once). */
+		Options\Controller::maybe_stop_autoloading_tokens();
+
 		/** Register all events */
 		$this->register_events();
 
