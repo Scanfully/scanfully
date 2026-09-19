@@ -396,8 +396,6 @@ class Controller {
 		}
 
 		try {
-			$now = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
-
 			$new_expires = new \DateTime( $tokens['expires'] );
 			$new_expires->setTimezone( new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
@@ -416,8 +414,10 @@ class Controller {
 				$tokens['access_token'],
 				$tokens['refresh_token'],
 				$new_expires->format( Connect\Controller::DATE_FORMAT ),
-				'',
-				$now->format( Connect\Controller::DATE_FORMAT )
+				// A refresh isn't a new connection: keep when the site was
+				// connected and when the connection was last used.
+				$options->last_used,
+				$options->date_connected
 			)
 		);
 

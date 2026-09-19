@@ -239,6 +239,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: Scanfully settings page and WooCommerce admin saves waiting on slow Scanfully API calls
 * Fixed: Scanfully settings page breaking on an unreadable stored date
 * Security: API tokens are no longer loaded on every request
+* Fixed: token refresh resetting the connection date and last-used date
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

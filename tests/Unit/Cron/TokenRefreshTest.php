@@ -168,6 +168,17 @@ final class TokenRefreshTest extends TestCase {
 		$this->assertArrayNotHasKey( self::LOCK, $this->wpdb->rows );
 	}
 
+	public function test_a_refresh_keeps_the_connection_dates(): void {
+		$this->options['scanfully_connect_last_used']      = '2026-09-18 08:00:00';
+		$this->options['scanfully_connect_date_connected'] = '2026-01-02 03:04:05';
+
+		$this->refresh();
+
+		$this->assertSame( 'new-access', $this->options['scanfully_connect_access_token'] );
+		$this->assertSame( '2026-09-18 08:00:00', $this->options['scanfully_connect_last_used'] );
+		$this->assertSame( '2026-01-02 03:04:05', $this->options['scanfully_connect_date_connected'] );
+	}
+
 	public function test_no_refresh_while_another_process_holds_the_lock(): void {
 		$this->wpdb->rows[ self::LOCK ] = (string) time();
 
