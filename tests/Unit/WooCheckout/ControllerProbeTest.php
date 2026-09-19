@@ -103,6 +103,8 @@ final class ControllerProbeTest extends TestCase {
 
 	public function test_priming_on_init_does_not_touch_the_rest_server(): void {
 		$_SERVER['HTTP_X_SCANFULLY_PROBE'] = $this->header_for( $this->fresh_scan_id() );
+		// A verified probe response is marked uncacheable.
+		Functions\expect( 'nocache_headers' )->once();
 
 		Controller::prime_probe_request_check();
 

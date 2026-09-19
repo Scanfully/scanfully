@@ -168,7 +168,28 @@ class Controller {
 	 * @return void
 	 */
 	public static function prime_probe_request_check(): void {
-		self::is_probe_request();
+		if ( self::is_probe_request() ) {
+			self::mark_response_uncacheable();
+		}
+	}
+
+	/**
+	 * Keep page caches from storing a probe response. A probe sees the probe
+	 * gateway and a logged-in probe customer; a cached copy served to a real
+	 * shopper would show them too. Cart and checkout already send no-cache
+	 * headers, but the product page and other pages a scan visits may not.
+	 *
+	 * @return void
+	 */
+	private static function mark_response_uncacheable(): void {
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- Shared constant page cache plugins read.
+		}
+
+		// LiteSpeed Cache uses its own control hook.
+		do_action( 'litespeed_control_set_nocache', 'Scanfully probe request' ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- LiteSpeed Cache's own hook.
+
+		nocache_headers();
 	}
 
 	/**
