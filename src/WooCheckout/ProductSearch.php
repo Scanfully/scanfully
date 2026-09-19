@@ -48,9 +48,23 @@ class ProductSearch {
 		header( 'Cache-Control: no-store, max-age=0' );
 		header( 'X-Robots-Tag: noindex' );
 
-		if ( ! Controller::is_probe_request() ) {
+		$response = self::build_response();
+		if ( null === $response ) {
 			status_header( 404 );
 			exit;
+		}
+
+		wp_send_json( $response );
+	}
+
+	/**
+	 * Build the signed product search response for the current request.
+	 *
+	 * @return array|null The response, or null when the request must get a 404.
+	 */
+	private static function build_response(): ?array {
+		if ( ! Controller::is_probe_request() ) {
+			return null;
 		}
 
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- authenticated via the HMAC probe header.
@@ -61,17 +75,20 @@ class ProductSearch {
 
 		$secret = (string) get_option( Controller::OPTION_PROBE_SECRET, '' );
 		if ( '' === $scan_id || '' === $nonce || '' === $secret ) {
-			status_header( 404 );
-			exit;
+			return null;
+		}
+
+		// Only sign for the scan the verified probe header belongs to, not for
+		// any scan ID the caller chooses.
+		if ( ! hash_equals( Controller::current_scan_id(), $scan_id ) ) {
+			return null;
 		}
 
 		$term = substr( $term, 0, 100 );
 
-		wp_send_json(
-			[
-				'pong'     => hash_hmac( 'sha256', $scan_id . ':' . $nonce . ':products', $secret ),
-				'products' => Controller::search_products( $term, self::MAX_RESULTS ),
-			]
-		);
+		return [
+			'pong'     => hash_hmac( 'sha256', $scan_id . ':' . $nonce . ':products', $secret ),
+			'products' => Controller::search_products( $term, self::MAX_RESULTS ),
+		];
 	}
 }

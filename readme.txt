@@ -253,6 +253,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: rewrite rule flushes creating repeated timeline events
 * Fixed: oversized timeline events being dropped, and update events crashing on invalid input
 * Fixed: timeline events silently lost when the API rejects them; temporary failures are now retried
+* Security: WooCheckout ping and product search only sign for the scan in the probe header
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
