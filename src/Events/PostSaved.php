@@ -95,10 +95,11 @@ class PostSaved extends Event {
 	}
 
 	/**
-	 * Track post IDs that have already had an event scheduled in this request
-	 * to prevent duplicate events when wp_after_insert_post fires multiple times.
+	 * Track post ID and status pairs that have already had an event scheduled
+	 * in this request, to prevent duplicate events when wp_after_insert_post
+	 * fires multiple times for the same save.
 	 *
-	 * @var array<int, bool>
+	 * @var array<string, bool>
 	 */
 	private static array $fired_ids = [];
 
@@ -145,7 +146,10 @@ class PostSaved extends Event {
 			return false;
 		}
 
-		if ( wp_doing_ajax() ) {
+		// The Heartbeat API runs every 15-60 seconds in wp-admin and never
+		// represents an edit. Other AJAX saves (Quick Edit, page builders) are
+		// real edits and are reported.
+		if ( wp_doing_ajax() && isset( $_POST['action'] ) && 'heartbeat' === $_POST['action'] ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Only compared, never used.
 			return false;
 		}
 
@@ -180,14 +184,19 @@ class PostSaved extends Event {
 
 		$post_id = (int) $data[0];
 
-		// Prevent duplicate events for the same post within a single request.
-		if ( isset( self::$fired_ids[ $post_id ] ) ) {
+		// Duplicates are tracked per post and status: a save that changes the
+		// status (draft, then publish) is always reported, while repeated
+		// saves with the same status collapse into one event.
+		$dedup_key = $post_id . '_' . $post->post_status;
+
+		// Prevent duplicate events for the same save within a single request.
+		if ( isset( self::$fired_ids[ $dedup_key ] ) ) {
 			return false;
 		}
 
 		// Prevent duplicate events across rapid successive requests (e.g. Gutenberg's
 		// publish flow can fire two REST saves within a second of each other).
-		$transient_key = 'scanfully_post_event_' . $post_id;
+		$transient_key = 'scanfully_post_event_' . $dedup_key;
 		if ( get_transient( $transient_key ) ) {
 			return false;
 		}
@@ -197,7 +206,7 @@ class PostSaved extends Event {
 		}
 
 		set_transient( $transient_key, 1, self::DEDUP_TTL );
-		self::$fired_ids[ $post_id ] = true;
+		self::$fired_ids[ $dedup_key ] = true;
 
 		return true;
 	}

@@ -104,6 +104,66 @@ final class PostSavedFilterTest extends TestCase {
 		];
 	}
 
+	/**
+	 * Forget saves made earlier in this "request" (the per-request list).
+	 */
+	private function new_request(): void {
+		$fired = new ReflectionProperty( PostSaved::class, 'fired_ids' );
+		$fired->setAccessible( true );
+		$fired->setValue( null, [] );
+	}
+
+	public function test_publishing_right_after_saving_a_draft_is_reported(): void {
+		$this->assertTrue( $this->fires( 'post', 'draft', 5 ) );
+		$this->new_request();
+
+		$this->assertTrue( $this->fires( 'post', 'publish', 5 ), 'The publish event must not be dropped as a duplicate of the draft save.' );
+	}
+
+	public function test_repeated_saves_with_the_same_status_are_reported_once(): void {
+		$this->assertTrue( $this->fires( 'post', 'publish', 6 ) );
+		$this->assertFalse( $this->fires( 'post', 'publish', 6 ), 'Same request.' );
+
+		$this->new_request();
+		$this->assertFalse( $this->fires( 'post', 'publish', 6 ), 'Next request within seconds (block editor double save).' );
+	}
+
+	/**
+	 * @dataProvider provide_ajax_edits
+	 *
+	 * @param string $action The admin-ajax action.
+	 */
+	public function test_ajax_edits_are_reported( string $action ): void {
+		Functions\when( 'wp_doing_ajax' )->justReturn( true );
+		$_POST['action'] = $action;
+
+		$fires = $this->fires( 'post', 'publish', 7 );
+		unset( $_POST['action'] );
+
+		$this->assertTrue( $fires );
+	}
+
+	/**
+	 * @return array<string, array{string}>
+	 */
+	public function provide_ajax_edits(): array {
+		return [
+			'Quick Edit'        => [ 'inline-save' ],
+			'Elementor'         => [ 'elementor_ajax' ],
+			'Beaver Builder'    => [ 'fl_builder_save' ],
+		];
+	}
+
+	public function test_heartbeat_requests_are_not_reported(): void {
+		Functions\when( 'wp_doing_ajax' )->justReturn( true );
+		$_POST['action'] = 'heartbeat';
+
+		$fires = $this->fires( 'post', 'publish', 8 );
+		unset( $_POST['action'] );
+
+		$this->assertFalse( $fires );
+	}
+
 	public function test_sites_can_exclude_saves_with_a_filter(): void {
 		Filters\expectApplied( 'scanfully_post_saved_should_fire' )->andReturn( false );
 
