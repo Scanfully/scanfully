@@ -143,6 +143,25 @@ final class WooCheckoutOrderTest extends TestCase {
 		$this->assertSame( '', $normal_order->get_meta( '_scanfully_probe_order' ) );
 	}
 
+	public function test_the_default_product_is_found_beyond_the_first_50_products(): void {
+		for ( $i = 0; $i < 60; $i++ ) {
+			$free = new \WC_Product_Simple();
+			$free->set_name( 'Free product ' . $i );
+			$free->set_regular_price( '0' );
+			$free->set_status( 'publish' );
+			$free->save();
+			$this->created['products'][] = $free->get_id();
+		}
+		$paid = new \WC_Product_Simple();
+		$paid->set_name( 'Paid product' );
+		$paid->set_regular_price( '10' );
+		$paid->set_status( 'publish' );
+		$paid->save();
+		$this->created['products'][] = $paid->get_id();
+
+		$this->assertSame( get_permalink( $paid->get_id() ), Controller::pick_product_url() );
+	}
+
 	/**
 	 * Ask WooCommerce whether a webhook would be delivered.
 	 *

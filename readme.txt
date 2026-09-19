@@ -256,6 +256,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: WooCheckout ping and product search only sign for the scan in the probe header
 * Fixed: WooCheckout probe orders being sent to WooCommerce webhooks
 * Security: WooCheckout probe responses are never stored by page caches
+* Fixed: WooCheckout loading on unsupported WooCommerce versions, product picking stopping after 50 products, and the stub payment page being public
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

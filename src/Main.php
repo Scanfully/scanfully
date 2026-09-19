@@ -115,10 +115,14 @@ class Main {
 		PageEdit\Controller::setup();
 
 		/** Register WooCheckout (probe scanning) when WooCommerce is present. */
-		if ( class_exists( 'WooCommerce' ) ) {
+		if ( WooCheckout\Controller::is_woocommerce_supported() ) {
 			WooCheckout\Controller::setup();
 			WooCheckout\ProbeGateway::setup();
-			WooCheckout\BlocksIntegration::setup();
+			// Loading BlocksIntegration requires WooCommerce Blocks' base class;
+			// without it the class declaration itself is a fatal error.
+			if ( class_exists( \Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType::class ) ) {
+				WooCheckout\BlocksIntegration::setup();
+			}
 			WooCheckout\StubPSP::setup();
 			WooCheckout\ProbePing::setup();
 			WooCheckout\ProductSearch::setup();

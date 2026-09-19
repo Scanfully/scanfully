@@ -38,6 +38,12 @@ class StubPSP {
 		header( 'Cache-Control: no-store, max-age=0' );
 		header( 'X-Robots-Tag: noindex' );
 
+		// Only probe checkouts end up here; to anyone else it doesn't exist.
+		if ( ! Controller::is_probe_request() ) {
+			status_header( 404 );
+			exit;
+		}
+
 		$order = isset( $_GET['order'] ) ? (int) $_GET['order'] : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		// Minimal HTML so the orchestrator's scenario can match on the URL,

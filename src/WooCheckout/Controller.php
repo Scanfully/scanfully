@@ -32,6 +32,13 @@ class Controller {
 	public const MIN_WC_VERSION         = '8.0';
 
 	/**
+	 * Products per page, and the maximum number of pages, looked at when
+	 * picking the default product for a scan.
+	 */
+	private const PICK_PAGE_SIZE = 50;
+	private const PICK_MAX_PAGES = 10;
+
+	/**
 	 * Disabled reasons reported when scanning cannot run.
 	 */
 	public const REASON_WC_INACTIVE         = 'wc_inactive';
@@ -344,27 +351,33 @@ class Controller {
 	 * @return \WC_Product|null
 	 */
 	private static function pick_product_of_type( string $type ): ?\WC_Product {
-		$query_args = [
-			'status'       => 'publish',
-			'type'         => $type,
-			'limit'        => 50,
-			'orderby'      => 'ID',
-			'order'        => 'ASC',
-			'return'       => 'objects',
-			'stock_status' => 'instock',
-		];
-
-		$products = wc_get_products( $query_args );
-		if ( ! is_array( $products ) ) {
-			return null;
-		}
-
-		foreach ( $products as $product ) {
-			if ( ! ( $product instanceof \WC_Product ) ) {
-				continue;
+		// Page through the catalogue: the first products may all be free or
+		// otherwise ineligible. Bounded to keep the lookup cheap on huge shops.
+		for ( $page = 1; $page <= self::PICK_MAX_PAGES; $page++ ) {
+			$products = wc_get_products(
+				[
+					'status'       => 'publish',
+					'type'         => $type,
+					'limit'        => self::PICK_PAGE_SIZE,
+					'page'         => $page,
+					'orderby'      => 'ID',
+					'order'        => 'ASC',
+					'return'       => 'objects',
+					'stock_status' => 'instock',
+				]
+			);
+			if ( ! is_array( $products ) || [] === $products ) {
+				return null;
 			}
-			if ( self::is_eligible_product( $product, $type ) ) {
-				return $product;
+
+			foreach ( $products as $product ) {
+				if ( $product instanceof \WC_Product && self::is_eligible_product( $product, $type ) ) {
+					return $product;
+				}
+			}
+
+			if ( count( $products ) < self::PICK_PAGE_SIZE ) {
+				return null;
 			}
 		}
 
