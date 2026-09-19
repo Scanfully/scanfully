@@ -20,10 +20,10 @@ class EventRequest extends Request {
 	 *
 	 * @param  array $data The data to send with the request.
 	 *
-	 * @return void
+	 * @return int|null The HTTP status, or null when the request itself failed.
 	 */
-	public function send( array $data ): void {
-		parent::do_request( '', $data );
+	public function send( array $data ): ?int {
+		return parent::do_request( '', $data );
 	}
 
 	/**

@@ -21,9 +21,9 @@ abstract class Request {
 	 * @param  string $endpoint The endpoint to send the request to.
 	 * @param  array  $data The data to send with the request.
 	 *
-	 * @return void
+	 * @return int|null The HTTP status, or null when the request itself failed.
 	 */
-	public function do_request( string $endpoint, array $data ): void {
+	public function do_request( string $endpoint, array $data ): ?int {
 
 		// headers for the requests.
 		$headers = [
@@ -52,24 +52,27 @@ abstract class Request {
 		}
 
 		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
 
 		// Only update last_used when we can confirm a successful response.
-		if ( ! is_wp_error( $response ) ) {
-			$status = wp_remote_retrieve_response_code( $response );
-			if ( $status >= 200 && $status < 300 ) {
-				// A successful request proves the connection works, so clear any
-				// stale refresh-failure state that would otherwise keep the
-				// broken-connection notice showing while data is flowing.
-				\Scanfully\Cron\Controller::clear_refresh_failures();
-				try {
-					$now = new \DateTime();
-					$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-					OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
-				} catch ( \Exception $e ) {
-					// do nothing for now, just don't break the plugin.
-				}
+		$status = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status >= 200 && $status < 300 ) {
+			// A successful request proves the connection works, so clear any
+			// stale refresh-failure state that would otherwise keep the
+			// broken-connection notice showing while data is flowing.
+			\Scanfully\Cron\Controller::clear_refresh_failures();
+			try {
+				$now = new \DateTime();
+				$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+				OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
+			} catch ( \Exception $e ) {
+				// do nothing for now, just don't break the plugin.
 			}
 		}
+
+		return $status;
 	}
 
 	/**

@@ -55,31 +55,65 @@ class Controller {
 	 * @return void
 	 */
 	public static function register_send_callback(): void {
-		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 3 );
+		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 4 );
 	}
+
+	/**
+	 * Number of times a temporarily failed event is retried.
+	 */
+	private const MAX_SEND_RETRIES = 3;
+
+	/**
+	 * Seconds between retries of a failed event.
+	 */
+	private const SEND_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Action Scheduler callback: send a scheduled event to the API.
 	 *
-	 * @param  string $type The event type.
-	 * @param  array  $user The user data.
-	 * @param  array  $data The event data.
+	 * A temporary failure (no response, 401 while the token is refreshed, 429
+	 * or a server error) is retried a few times. Every failure throws, so
+	 * Action Scheduler records the job as failed with the reason instead of
+	 * the event disappearing silently.
+	 *
+	 * @param  string $type    The event type.
+	 * @param  array  $user    The user data.
+	 * @param  array  $data    The event data.
+	 * @param  int    $attempt Retry number; 0 for the first attempt.
 	 *
 	 * @return void
+	 * @throws \RuntimeException When the API did not accept the event.
 	 */
-	public static function send_event( string $type, array $user, array $data ): void {
+	public static function send_event( string $type, array $user, array $data, int $attempt = 0 ): void {
 		$options = Options\Controller::get_options();
 		if ( ! $options->is_connected ) {
 			return;
 		}
 
 		$request = new EventRequest();
-		$request->send(
+		$status  = $request->send(
 			[
 				'type' => $type,
 				'user' => $user,
 				'data' => $data,
 			]
+		);
+
+		if ( null !== $status && $status >= 200 && $status < 300 ) {
+			return;
+		}
+
+		$temporary = null === $status || 401 === $status || 429 === $status || $status >= 500;
+		if ( $temporary && $attempt < self::MAX_SEND_RETRIES ) {
+			as_schedule_single_action( time() + self::SEND_RETRY_DELAY, self::ACTION_SEND_EVENT, [ $type, $user, $data, $attempt + 1 ], 'scanfully' );
+		}
+
+		throw new \RuntimeException(
+			sprintf(
+				'Scanfully API did not accept the %s event (%s).',
+				esc_html( $type ),
+				null === $status ? 'no response' : 'HTTP ' . (int) $status
+			)
 		);
 	}
 
