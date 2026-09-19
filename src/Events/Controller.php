@@ -111,7 +111,7 @@ class Controller {
 					$data = get_file_data( WP_PLUGIN_DIR . '/' . $options['hook_extra']['plugin'], array( 'Version' => 'Version' ) );
 
 					if ( ! empty( $data['Version'] ) ) {
-						$options['hook_extra']['old_version'] = $data['Version'];
+						$options['hook_extra']['scanfully_old_version'] = $data['Version'];
 					}
 				}
 
@@ -129,13 +129,19 @@ class Controller {
 			'upgrader_install_package_result',
 			function ( $result, $hook_extra ) {
 
+				// WordPress applies this filter to failed installs too; only a
+				// successful update is an update event.
+				if ( is_wp_error( $result ) || ! is_array( $hook_extra ) ) {
+					return $result;
+				}
+
 				// check if a plugin is being updated.
 				if ( isset( $hook_extra['plugin'] ) ) {
 
 					$plugin_slug = $hook_extra['plugin'];
 
 					// don't fire for our own plugin.
-					if ( $plugin_slug === 'scanfully/scanfully.php' ) {
+					if ( \Scanfully\Main::is_own_plugin( $plugin_slug ) ) {
 						return $result;
 					}
 
@@ -157,7 +163,7 @@ class Controller {
 						[
 							'name'         => $plugin_data['Name'] ?? '',
 							'version'      => $plugin_data['Version'] ?? '',
-							'old_version'  => $hook_extra['old_version'] ?? '', // this is the old version number.
+							'old_version'  => $hook_extra['scanfully_old_version'] ?? '', // this is the old version number.
 							'author'       => $plugin_data['Author'] ?? '',
 							'slug'         => $plugin_slug,
 							'requires_wp'  => $plugin_data['RequiresWP'] ?? '',
@@ -187,12 +193,12 @@ class Controller {
 			function ( $options ) {
 
 				// check if a plugin is being updated.
-				if ( isset( $options['hook_extra']['theme'] ) ) {
+				if ( isset( $options['hook_extra']['theme'], $options['destination'] ) ) {
 
 					$data = get_file_data( $options['destination'] . '/' . $options['hook_extra']['theme'] . '/style.css', [ 'Version' => 'Version' ] );
 
 					if ( ! empty( $data['Version'] ) ) {
-						$options['hook_extra']['old_version'] = $data['Version'];
+						$options['hook_extra']['scanfully_old_version'] = $data['Version'];
 					}
 				}
 
@@ -206,13 +212,20 @@ class Controller {
 			'upgrader_install_package_result',
 			function ( $result, $hook_extra ) {
 
-				// check if a plugin is being updated.
+				// WordPress applies this filter to failed installs too; only a
+				// successful update is an update event.
+				if ( is_wp_error( $result ) || ! is_array( $hook_extra ) ) {
+					return $result;
+				}
+
+				// check if a theme is being updated.
 				if ( isset( $hook_extra['theme'] ) ) {
 
 					$theme_slug = $hook_extra['theme'];
 
+					// the theme can live in any registered theme directory.
 					$theme_data = get_file_data(
-						get_theme_root() . '/' . $theme_slug . '/style.css',
+						get_theme_root( $theme_slug ) . '/' . $theme_slug . '/style.css',
 						[
 							'Name'        => 'Theme Name',
 							'Version'     => 'Version',
@@ -229,7 +242,7 @@ class Controller {
 						[
 							'name'         => $theme_data['Name'] ?? '',
 							'version'      => $theme_data['Version'] ?? '',
-							'old_version'  => $hook_extra['old_version'] ?? '', // this is the old version number.
+							'old_version'  => $hook_extra['scanfully_old_version'] ?? '', // this is the old version number.
 							'author'       => $theme_data['Author'] ?? '',
 							'slug'         => $theme_slug,
 							'requires_wp'  => $theme_data['RequiresWP'] ?? '',

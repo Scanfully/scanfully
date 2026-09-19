@@ -233,6 +233,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Changed: integration tests run in a separate wp-env test environment
 * Fixed: probe order cleanup query ignoring its probe filter on stores with legacy order storage
 * Fixed: WooCommerce orders, imports and bulk edits flooding the timeline with post events
+* Fixed: update events reported for failed installs, for Scanfully itself in other folders, and with the wrong version for themes outside the default theme folder
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
