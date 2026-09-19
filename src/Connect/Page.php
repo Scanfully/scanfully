@@ -128,13 +128,7 @@ class Page {
 						<?php
 						$last_used = '-';
 						if ( $options->last_used != '' ) :
-							$last_used_dt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->last_used, new \DateTimeZone( 'UTC' ) );
-							try {
-								$last_used_dt->setTimezone( Util\Date::get_timezone() );
-							} catch ( \Exception $e ) {
-								// Invalid site timezone: keep showing the date in UTC.
-							}
-							$last_used = $last_used_dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
+							$last_used = self::format_stored_date( $options->last_used );
 						endif;
 						?>
 						<li>
@@ -143,18 +137,7 @@ class Page {
 						</li>
 						<?php
 						if ( $options->date_connected != '' ) :
-							$connected = '-';
-							try {
-								$connected_dt = \DateTime::createFromFormat( Controller::DATE_FORMAT, $options->date_connected, new \DateTimeZone( 'UTC' ) );
-								try {
-									$connected_dt->setTimezone( Util\Date::get_timezone() );
-								} catch ( \Exception $e ) {
-									// Invalid site timezone: keep showing the date in UTC.
-								}
-								$connected = $connected_dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
-							} catch ( \Exception $e ) {
-								$connected_dt = null;
-							}
+							$connected = self::format_stored_date( $options->date_connected );
 							?>
 							<li>
 								<div class="scanfully-connect-details-label"><?php esc_html_e( 'Date connected', 'scanfully' ); ?></div>
@@ -186,5 +169,29 @@ class Page {
 			</div>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Format a stored UTC date (Controller::DATE_FORMAT) for display in the
+	 * site's timezone and date format.
+	 *
+	 * @param string $value The stored date.
+	 *
+	 * @return string The formatted date, or '-' when it can't be read.
+	 */
+	private static function format_stored_date( string $value ): string {
+		$date = \DateTime::createFromFormat( Controller::DATE_FORMAT, $value, new \DateTimeZone( 'UTC' ) );
+		if ( ! $date instanceof \DateTime ) {
+			return '-';
+		}
+
+		try {
+			$date->setTimezone( Util\Date::get_timezone() );
+		} catch ( \Exception $e ) {
+			// Invalid site timezone: keep showing the date in UTC.
+			unset( $e );
+		}
+
+		return $date->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
 	}
 }
