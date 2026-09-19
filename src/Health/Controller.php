@@ -333,8 +333,9 @@ class Controller {
 	private static function get_db_size(): int {
 		global $wpdb;
 		$size = 0;
+		// Only this install's tables: other installs can share the database.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( 'SHOW TABLE STATUS', ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( 'SHOW TABLE STATUS LIKE %s', $wpdb->esc_like( $wpdb->base_prefix ) . '%' ), ARRAY_A );
 
 		if ( $wpdb->num_rows > 0 ) {
 			foreach ( $rows as $row ) {
@@ -407,7 +408,10 @@ class Controller {
 				'wp_environment_type' => wp_get_environment_type(),
 				'permalink_structure' => get_option( 'permalink_structure' ),
 				'locale' => get_locale(),
-				'user_count' => (int) count_users()['total_users'],
+				// get_user_count() is cached; count_users() scans every user's
+				// capabilities. On multisite count_users() is kept, because it
+				// counts this site's users rather than the whole network's.
+				'user_count' => is_multisite() ? (int) count_users()['total_users'] : (int) get_user_count(),
 				'site_url' => home_url(),
 
 				'server_arch' => self::get_server_arch(),
