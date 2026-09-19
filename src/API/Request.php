@@ -155,7 +155,7 @@ abstract class Request {
 	 *
 	 * @param array|\WP_Error $response The raw response from wp_remote_*.
 	 *
-	 * @return array|null Null on transport error; otherwise ['status' => int, 'body' => mixed].
+	 * @return array|null Null on transport error; otherwise ['status' => int, 'body' => mixed, 'raw' => string].
 	 */
 	private function process_response( $response ): ?array {
 		if ( is_wp_error( $response ) ) {
@@ -181,6 +181,7 @@ abstract class Request {
 		return [
 			'status' => $status,
 			'body'   => $decoded,
+			'raw'    => (string) $raw_body,
 		];
 	}
 

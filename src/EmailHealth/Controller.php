@@ -171,6 +171,7 @@ class Controller {
 		// an older version) is treated as missing and provisioned again.
 		if ( '' === $secret || ! self::is_valid_inbound_template( $inbound_address ) ) {
 			if ( ! self::provision_credentials() ) {
+				self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 				return;
 			}
 			$secret = OptionController::get_option( 'email_deliverability_secret' );
@@ -204,13 +205,13 @@ class Controller {
 			$status = null === $attempt_resp ? 0 : (int) $attempt_resp['status'];
 			if ( 401 === $status || 409 === $status ) {
 				if ( ! self::provision_credentials() ) {
-					self::record_failure();
+					self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 					return;
 				}
 				$secret = OptionController::get_option( 'email_deliverability_secret' );
 				$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
 				if ( '' === $secret || '' === $inbound_address ) {
-					self::record_failure();
+					self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 					return;
 				}
 				$nonce = wp_generate_uuid4();
@@ -226,19 +227,22 @@ class Controller {
 					]
 				);
 				if ( null === $attempt_resp || $attempt_resp['status'] < 200 || $attempt_resp['status'] >= 300 ) {
-					self::record_failure();
+					self::record_api_error( self::describe_api_error( $attempt_resp ) );
 					return;
 				}
 			} else {
-				self::record_failure();
+				// No mail was sent, so this is not a delivery failure and must
+				// not switch the site to the faster failure cadence.
+				self::record_api_error( self::describe_api_error( $attempt_resp ) );
 				return;
 			}
 		}
+		self::clear_api_error();
 
 		// (6) Build mail.
 		$to = self::expand_inbound_address( $inbound_address, $nonce );
 		if ( '' === $to ) {
-			self::record_failure();
+			self::record_api_error( __( 'The email address from the Scanfully API is not a valid Scanfully address.', 'scanfully' ) );
 			return;
 		}
 		$subject = sprintf( 'Scanfully deliverability ping %s', $nonce );
@@ -271,20 +275,12 @@ class Controller {
 
 		// (8) Reconcile the local send result with the adaptive cadence.
 		if ( false === $sent || '' !== $captured_error ) {
-			// wp_mail() reported a failure. Always tell the server so its state
-			// machine has the data. But some transports return false (or fire
-			// wp_mail_failed) even when the message is actually delivered; the
-			// server is authoritative because it confirms inbound arrival. If it
-			// already reports "healthy", treat this as a false positive and clear
-			// the backoff instead of pinning the site to the 30-minute cadence
-			// indefinitely (every failing cycle would otherwise re-stamp the
-			// marker so the 24h window never expires).
+			// wp_mail() reported a failure: tell the server and switch to the
+			// faster cadence. The marker is only stamped once per failure
+			// window (see record_failure()), so repeated failures can't keep
+			// the site on the faster cadence forever.
 			self::post_attempt_failure( $nonce, $captured_error );
-			if ( self::server_reports_healthy() ) {
-				self::clear_failure();
-			} else {
-				self::record_failure();
-			}
+			self::record_failure();
 		} else {
 			// Local send succeeded: clear any stale backoff so the cadence
 			// reverts to the default interval on the next reschedule.
@@ -434,7 +430,61 @@ class Controller {
 	 * @return void
 	 */
 	private static function record_failure(): void {
+		// Only start a new window when there is no current one; re-stamping
+		// on every failing cycle would keep the window from ever expiring.
+		$last_failure = OptionController::get_option( 'email_deliverability_last_failure_at' );
+		$ts           = '' === $last_failure ? false : strtotime( $last_failure );
+		if ( false !== $ts && ( time() - $ts ) < self::FAILURE_BACKOFF_SECONDS ) {
+			return;
+		}
 		OptionController::set_option( 'email_deliverability_last_failure_at', self::utc_now_iso(), false );
+	}
+
+	/**
+	 * Record a problem talking to the Scanfully API. Kept apart from mail
+	 * failures: no mail was sent, so the delivery cadence doesn't change.
+	 * Shown in the admin panel until the next successful attempt.
+	 *
+	 * @param string $message Human readable description.
+	 *
+	 * @return void
+	 */
+	private static function record_api_error( string $message ): void {
+		OptionController::set_option( 'email_deliverability_last_api_error', $message, false );
+		OptionController::set_option( 'email_deliverability_last_api_error_at', self::utc_now_iso(), false );
+	}
+
+	/**
+	 * Clear the last API error after a successful attempt.
+	 *
+	 * @return void
+	 */
+	private static function clear_api_error(): void {
+		if ( '' !== OptionController::get_option( 'email_deliverability_last_api_error' ) ) {
+			OptionController::set_option( 'email_deliverability_last_api_error', '', false );
+			OptionController::set_option( 'email_deliverability_last_api_error_at', '', false );
+		}
+	}
+
+	/**
+	 * Describe a failed attempt request for the admin panel.
+	 *
+	 * @param array|null $response The response from Request::do_request_with_response(), or null.
+	 *
+	 * @return string
+	 */
+	private static function describe_api_error( ?array $response ): string {
+		if ( null === $response ) {
+			return __( 'The Scanfully API could not be reached.', 'scanfully' );
+		}
+
+		$status = (int) ( $response['status'] ?? 0 );
+		if ( 400 === $status && false !== strpos( (string) ( $response['raw'] ?? '' ), 'timestamp out of range' ) ) {
+			return __( "This server's clock is more than 5 minutes off. Correct the server time so email checks can run.", 'scanfully' );
+		}
+
+		/* translators: %d: HTTP status code. */
+		return sprintf( __( 'The Scanfully API returned HTTP status %d.', 'scanfully' ), $status );
 	}
 
 	/**
@@ -449,19 +499,6 @@ class Controller {
 		}
 	}
 
-	/**
-	 * Whether the server currently reports the site as healthy. Used to detect
-	 * false-positive wp_mail() failures where the transport returns false (or
-	 * fires wp_mail_failed) even though the message is actually delivered.
-	 * Best-effort: on a transport error fetch_state() returns null, so we fall
-	 * back to the conservative behaviour of honouring the local failure signal.
-	 *
-	 * @return bool
-	 */
-	private static function server_reports_healthy(): bool {
-		$state = self::fetch_state();
-		return is_array( $state ) && isset( $state['state'] ) && 'healthy' === (string) $state['state'];
-	}
 
 	/**
 	 * Arm the next deliverability ping as a single action at the adaptive
@@ -871,6 +908,16 @@ class Controller {
 					<div class="scanfully-connect-details-label"><?php esc_html_e( 'Mail transport', 'scanfully' ); ?></div>
 					<div class="scanfully-connect-details-value"><span
 							class="scanfully-connect-blob"><?php echo esc_html( (string) $state['transport_hint'] ); ?></span></div>
+				</li>
+			<?php endif; ?>
+			<?php $api_error = OptionController::get_option( 'email_deliverability_last_api_error' ); ?>
+			<?php if ( '' !== $api_error ) : ?>
+				<li>
+					<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last API error', 'scanfully' ); ?></div>
+					<div class="scanfully-connect-details-value"><span
+							class="scanfully-connect-blob scanfully-connect-blob-error"><?php echo esc_html( $api_error ); ?></span>
+						<?php echo esc_html( self::format_utc_date( OptionController::get_option( 'email_deliverability_last_api_error_at' ) ) ); ?>
+					</div>
 				</li>
 			<?php endif; ?>
 			<li>

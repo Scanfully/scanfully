@@ -122,6 +122,8 @@ class Controller {
 		delete_option( self::$db_prefix . 'email_deliverability_last_failure_at' );
 		delete_option( self::$db_prefix . 'email_deliverability_last_as_run_at' );
 		delete_option( self::$db_prefix . 'email_deliverability_from_address' );
+		delete_option( self::$db_prefix . 'email_deliverability_last_api_error' );
+		delete_option( self::$db_prefix . 'email_deliverability_last_api_error_at' );
 
 		// WooCheckout probe secret: without this, whoever held the old secret
 		// could still sign probe requests after a disconnect. The literal name
