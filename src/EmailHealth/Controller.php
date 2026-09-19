@@ -58,6 +58,21 @@ class Controller {
 	private const RUN_NOW_LOCK_SECONDS = 60;
 
 	/**
+	 * Transient caching the deliverability state shown in the admin panel.
+	 */
+	private const STATE_CACHE_KEY = 'scanfully_email_deliverability_state';
+
+	/**
+	 * Cached value meaning the last state fetch failed.
+	 */
+	private const STATE_UNAVAILABLE = 'unavailable';
+
+	/**
+	 * Timeout for the state request made while rendering the settings page.
+	 */
+	private const STATE_TIMEOUT_SECONDS = 5;
+
+	/**
 	 * Transient key for the run-now rate limit.
 	 */
 	private const RUN_NOW_LOCK_KEY = 'scanfully_email_deliverability_run_now_lock';
@@ -127,6 +142,9 @@ class Controller {
 		try {
 			self::run_ping_cycle( $source );
 		} finally {
+			// A check ran, so the cached state shown in the admin panel is out of date.
+			delete_transient( self::STATE_CACHE_KEY );
+
 			// Self-schedule the next cycle. Manual "run now" runs are one-shots
 			// and must not fork the scheduled chain.
 			if ( 'manual' !== $source ) {
@@ -680,11 +698,25 @@ class Controller {
 	 * @return array|null
 	 */
 	private static function fetch_state(): ?array {
-		$req = new EmailDeliverabilityStateRequest();
-		$resp = $req->fetch();
-		if ( null === $resp || $resp['status'] < 200 || $resp['status'] >= 300 || ! is_array( $resp['body'] ) ) {
+		// The settings page renders this, so a slow or unavailable API must not
+		// hold the page up: the state is cached, a failure is cached briefly,
+		// and the request itself times out quickly.
+		$cached = get_transient( self::STATE_CACHE_KEY );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		if ( self::STATE_UNAVAILABLE === $cached ) {
 			return null;
 		}
+
+		$req = new EmailDeliverabilityStateRequest();
+		$resp = $req->fetch( self::STATE_TIMEOUT_SECONDS );
+		if ( null === $resp || $resp['status'] < 200 || $resp['status'] >= 300 || ! is_array( $resp['body'] ) ) {
+			set_transient( self::STATE_CACHE_KEY, self::STATE_UNAVAILABLE, MINUTE_IN_SECONDS );
+			return null;
+		}
+
+		set_transient( self::STATE_CACHE_KEY, $resp['body'], 5 * MINUTE_IN_SECONDS );
 		return $resp['body'];
 	}
 

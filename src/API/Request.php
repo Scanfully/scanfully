@@ -119,10 +119,11 @@ abstract class Request {
 	 *
 	 * @param string $endpoint The endpoint to send the request to.
 	 * @param array  $query    Optional query parameters.
+	 * @param int    $timeout  Optional timeout in seconds.
 	 *
 	 * @return array|null
 	 */
-	public function do_get_request( string $endpoint, array $query = [] ): ?array {
+	public function do_get_request( string $endpoint, array $query = [], int $timeout = 30 ): ?array {
 		$headers      = [
 			'Accept' => 'application/json',
 		];
@@ -140,7 +141,7 @@ abstract class Request {
 			$url,
 			[
 				'headers'     => $headers,
-				'timeout'     => 30,
+				'timeout'     => $timeout,
 				'blocking'    => true,
 				'httpversion' => '1.0',
 				'sslverify'   => Main::get_sslverify(),

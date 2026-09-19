@@ -22,6 +22,7 @@ final class RunPingSourceTest extends TestCase {
 		// rescheduling decision is exercised.
 		Functions\when( 'get_option' )->justReturn( '' );
 		Functions\when( 'update_option' )->justReturn( true );
+		Functions\when( 'delete_transient' )->justReturn( true );
 	}
 
 	/**

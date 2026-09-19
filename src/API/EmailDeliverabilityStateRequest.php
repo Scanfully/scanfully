@@ -20,10 +20,12 @@ class EmailDeliverabilityStateRequest extends Request {
 	/**
 	 * Fetch the current state.
 	 *
+	 * @param int $timeout Optional timeout in seconds.
+	 *
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
-	public function fetch(): ?array {
-		return parent::do_get_request( '' );
+	public function fetch( int $timeout = 30 ): ?array {
+		return parent::do_get_request( '', [], $timeout );
 	}
 
 	/**

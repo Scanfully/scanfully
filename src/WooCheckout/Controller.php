@@ -920,16 +920,19 @@ class Controller {
 	 * @return void
 	 */
 	public static function report(): void {
+		// Without a connection there is no site ID or token to report with.
+		if ( ! \Scanfully\Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+
 		$payload = self::build_payload();
 		update_option( self::OPTION_LAST_CONFIG, $payload, false );
 		$response = ( new WooCheckoutConfigRequest() )->send( $payload );
 
 		if ( is_array( $response ) && 200 === (int) ( $response['status'] ?? 0 ) && is_array( $response['body'] ?? null ) ) {
 			$secret = (string) ( $response['body']['probe_secret'] ?? '' );
-			if ( self::is_valid_probe_secret( $secret )
-				&& \Scanfully\Options\Controller::get_options()->is_connected
-				&& get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret
-			) {
+			// Only reached while connected (see the check at the top).
+			if ( self::is_valid_probe_secret( $secret ) && get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret ) {
 				update_option( self::OPTION_PROBE_SECRET, $secret, false );
 			}
 		}
@@ -953,7 +956,22 @@ class Controller {
 	 * @return void
 	 */
 	public static function on_config_change(): void {
-		self::report();
+		self::queue_report();
+	}
+
+	/**
+	 * Queue a config sync in the background instead of calling the API
+	 * inline, so saving WooCommerce settings or pages never waits on the
+	 * Scanfully API. Unique, so several changes in one save queue one sync.
+	 *
+	 * @return void
+	 */
+	private static function queue_report(): void {
+		if ( ! \Scanfully\Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+
+		as_enqueue_async_action( \Scanfully\Cron\Controller::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], 'scanfully', true );
 	}
 
 	/**
@@ -973,6 +991,6 @@ class Controller {
 		if ( $post_id !== $cart_id && $post_id !== $checkout_id ) {
 			return;
 		}
-		self::report();
+		self::queue_report();
 	}
 }
