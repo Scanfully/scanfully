@@ -70,7 +70,7 @@ class Controller {
 
 		if ( isset( $_GET['scanfully-connect-done'] ) ) {
 			// add success message.
-			self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
+			self::print_notice( __( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
 		}
 	}
 
@@ -267,10 +267,10 @@ class Controller {
 			$error_message = '';
 			switch ( $_GET['scanfully-connect-error'] ) {
 				case 'access_denied':
-					$error_message = esc_html__( 'Access denied', 'scanfully' );
+					$error_message = __( 'Access denied', 'scanfully' );
 					break;
 				default:
-					$error_message = esc_html__( 'An unknown error occurred.', 'scanfully' );
+					$error_message = __( 'An unknown error occurred.', 'scanfully' );
 					break;
 			}
 
@@ -281,7 +281,7 @@ class Controller {
 	/**
 	 * Print a notice to the connect admin.
 	 *
-	 * @param  string $message The notice message.
+	 * @param  string $message The notice message, unescaped (it is escaped on output).
 	 * @param  string $type    The notice type.
 	 *
 	 * @return void
