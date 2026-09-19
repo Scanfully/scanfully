@@ -241,6 +241,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Security: API tokens are no longer loaded on every request
 * Fixed: token refresh resetting the connection date and last-used date
 * Fixed: Scanfully admin notices showing to users who can't manage the connection
+* Fixed: recurring job checks running on every front-end request and possible duplicate recurring jobs
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

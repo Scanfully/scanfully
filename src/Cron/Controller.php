@@ -163,14 +163,22 @@ class Controller {
 	 * @return void
 	 */
 	public static function schedule_events(): void {
+		// Checking the schedule costs several queries, so only do it where it
+		// matters: wp-admin, cron runs (WP-Cron and Action Scheduler's runner)
+		// and WP-CLI. Action Scheduler only runs jobs there too, so a broken
+		// schedule is still repaired before anything is missed.
+		if ( ! is_admin() && ! wp_doing_cron() && ! ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+			return;
+		}
+
 		self::migrate_legacy_hooks();
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP ) ) {
-			as_schedule_recurring_action( time(), 3 * HOUR_IN_SECONDS, self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
+			as_schedule_recurring_action( time(), 3 * HOUR_IN_SECONDS, self::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP, true );
 		}
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP ) ) {
-			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP, true );
 		}
 
 		// Email deliverability runs as a self-scheduling single action (each run
@@ -179,15 +187,15 @@ class Controller {
 		// action produced. This only bootstraps the chain, or heals it if it stalls.
 		if ( ! as_has_scheduled_action( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP ) ) {
 			$interval = \Scanfully\EmailHealth\Controller::current_interval_seconds();
-			as_schedule_single_action( time() + $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP );
+			as_schedule_single_action( time() + $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP, true );
 		}
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP ) ) {
-			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP );
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP, true );
 		}
 
 		if ( ! as_has_scheduled_action( self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP ) ) {
-			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP );
+			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP, true );
 		}
 	}
 
