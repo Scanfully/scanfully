@@ -26,7 +26,8 @@ class EmailDeliverabilityProvisionRequest extends Request {
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
 	public function send(): ?array {
-		return parent::do_request_with_response( '', [] );
+		// Short timeout: an email check makes several calls in one background job.
+		return parent::do_request_with_response( '', [], 10 );
 	}
 
 	/**

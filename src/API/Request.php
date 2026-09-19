@@ -85,10 +85,11 @@ abstract class Request {
 	 *
 	 * @param string $endpoint The endpoint to send the request to.
 	 * @param array  $data     The data to send with the request.
+	 * @param int    $timeout  Optional timeout in seconds.
 	 *
 	 * @return array|null
 	 */
-	public function do_request_with_response( string $endpoint, array $data ): ?array {
+	public function do_request_with_response( string $endpoint, array $data, int $timeout = 30 ): ?array {
 		$headers      = [
 			'Content-Type' => 'application/json',
 		];
@@ -99,7 +100,7 @@ abstract class Request {
 
 		$request_args = [
 			'headers'     => $headers,
-			'timeout'     => 30,
+			'timeout'     => $timeout,
 			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => Main::get_sslverify(),

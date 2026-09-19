@@ -33,6 +33,13 @@ final class StateCacheTest extends TestCase {
 	private array $requests = [];
 
 	/**
+	 * Options saved during the test.
+	 *
+	 * @var array<string, string>
+	 */
+	private array $saved = [];
+
+	/**
 	 * The fake API response: [status, body], or null for a transport error.
 	 *
 	 * @var array{int, string}|null
@@ -45,6 +52,12 @@ final class StateCacheTest extends TestCase {
 		$this->requests   = [];
 
 		Functions\when( 'get_option' )->justReturn( 'site-1' );
+		Functions\when( 'update_option' )->alias(
+			function ( string $name, $value ) {
+				$this->saved[ $name ] = (string) $value;
+				return true;
+			}
+		);
 		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url ) => $url );
 		Functions\when( 'get_transient' )->alias(
 			fn( string $key ) => array_key_exists( $key, $this->transients ) ? $this->transients[ $key ][0] : false
@@ -96,5 +109,29 @@ final class StateCacheTest extends TestCase {
 
 		$this->assertCount( 1, $this->requests, 'A failed fetch must not be retried on every page load.' );
 		$this->assertSame( MINUTE_IN_SECONDS, $this->transients['scanfully_email_deliverability_state'][1] );
+	}
+
+	/**
+	 * @dataProvider provide_intervals
+	 *
+	 * @param int    $from_api Interval in the state response.
+	 * @param string $stored   Interval stored.
+	 */
+	public function test_the_configured_interval_is_taken_from_the_state( int $from_api, string $stored ): void {
+		$this->response = [ 200, '{"state":"healthy","interval_seconds":' . $from_api . '}' ];
+
+		$this->fetch_state();
+
+		$this->assertSame( $stored, $this->saved['scanfully_connect_email_deliverability_interval_seconds'] );
+	}
+
+	/**
+	 * @return array<string, array{int, string}>
+	 */
+	public function provide_intervals(): array {
+		return [
+			'two hours'          => [ 7200, '7200' ],
+			'too short, clamped' => [ 1, '900' ],
+		];
 	}
 }

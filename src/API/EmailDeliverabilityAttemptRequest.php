@@ -26,7 +26,8 @@ class EmailDeliverabilityAttemptRequest extends Request {
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
 	public function send( array $data ): ?array {
-		return parent::do_request_with_response( '', $data );
+		// Short timeout: an email check makes several calls in one background job.
+		return parent::do_request_with_response( '', $data, 10 );
 	}
 
 	/**

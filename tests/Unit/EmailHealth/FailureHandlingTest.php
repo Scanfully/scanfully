@@ -55,6 +55,13 @@ final class FailureHandlingTest extends TestCase {
 	 */
 	private int $mails = 0;
 
+	/**
+	 * Timeouts of the API requests made, by endpoint.
+	 *
+	 * @var array<string, int>
+	 */
+	private array $timeouts = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->stubTranslationFunctions();
@@ -84,14 +91,19 @@ final class FailureHandlingTest extends TestCase {
 			}
 		);
 		Functions\when( 'wp_get_environment_type' )->justReturn( 'production' );
-		Functions\when( 'get_plugins' )->justReturn( [] );
+		Functions\when( 'is_plugin_active' )->justReturn( false );
 		Functions\when( 'wp_generate_uuid4' )->justReturn( '0e5a6c9e-3b1f-4d2a-9c7e-5f8b2a1d4c6e' );
 		Functions\when( 'get_bloginfo' )->justReturn( '7.1' );
 		Functions\when( 'is_email' )->returnArg();
 		Functions\when( 'delete_transient' )->justReturn( true );
 		Functions\when( 'wp_json_encode' )->alias( static fn( $data ) => json_encode( $data ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
 		Functions\when( 'is_wp_error' )->alias( static fn( $thing ) => null === $thing );
-		Functions\when( 'wp_remote_post' )->alias( fn( string $url ) => $this->respond( $url ) );
+		Functions\when( 'wp_remote_post' )->alias(
+			function ( string $url, array $args ) {
+				$this->timeouts[ substr( $url, strrpos( $url, '/' ) + 1 ) ] = $args['timeout'];
+				return $this->respond( $url );
+			}
+		);
 		Functions\when( 'wp_remote_get' )->alias( fn( string $url ) => $this->respond( $url ) );
 		Functions\when( 'wp_remote_retrieve_response_code' )->alias( static fn( $response ) => $response[0] );
 		Functions\when( 'wp_remote_retrieve_body' )->alias( static fn( $response ) => $response[1] );
@@ -198,5 +210,32 @@ final class FailureHandlingTest extends TestCase {
 
 		$this->assertSame( '', $this->options['email_deliverability_last_api_error'] );
 		$this->assertSame( 1, $this->mails );
+	}
+
+	public function test_email_check_requests_use_a_short_timeout(): void {
+		$this->mail_result = false;
+
+		$this->run_check();
+
+		$this->assertSame( 10, $this->timeouts['attempt'] );
+		$this->assertSame( 10, $this->timeouts['attempt-result'] );
+	}
+
+	public function test_checks_switched_off_in_the_settings_do_nothing(): void {
+		$this->options['email_deliverability_enabled'] = 'no';
+
+		$this->run_check();
+
+		$this->assertSame( [], $this->calls );
+		$this->assertSame( 0, $this->mails );
+	}
+
+	public function test_checks_can_be_switched_off_with_a_filter(): void {
+		\Brain\Monkey\Filters\expectApplied( 'scanfully_email_deliverability_enabled' )->andReturn( false );
+
+		$this->run_check();
+
+		$this->assertSame( [], $this->calls );
+		$this->assertSame( 0, $this->mails );
 	}
 }

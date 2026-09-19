@@ -26,6 +26,9 @@ if ( ! defined( 'WEEK_IN_SECONDS' ) ) {
 if ( ! defined( 'YEAR_IN_SECONDS' ) ) {
 	define( 'YEAR_IN_SECONDS', 365 * DAY_IN_SECONDS );
 }
+if ( ! defined( 'WP_PLUGIN_DIR' ) ) {
+	define( 'WP_PLUGIN_DIR', ABSPATH . 'wp-content/plugins' );
+}
 if ( ! defined( 'SCANFULLY_VERSION' ) ) {
 	define( 'SCANFULLY_VERSION', '0.0.0-test' );
 }

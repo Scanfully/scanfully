@@ -93,6 +93,12 @@ class Controller {
 	private const NONCE_SAVE_FROM = 'scanfully_email_deliverability_save_from';
 
 	/**
+	 * The admin-post action and nonce for switching email checks on or off.
+	 */
+	private const ADMIN_POST_TOGGLE = 'scanfully_email_deliverability_toggle';
+	private const NONCE_TOGGLE      = 'scanfully_email_deliverability_toggle';
+
+	/**
 	 * Domain suffixes whose admin_email indicates a feedback loop with
 	 * Scanfully's own outbound mail; the Pinger refuses to send if
 	 * admin_email matches.
@@ -108,6 +114,7 @@ class Controller {
 		add_action( CronController::ACTION_EMAIL_DELIVERABILITY_PING, [ self::class, 'run_ping' ], 10, 1 );
 		add_action( 'wp_ajax_' . self::AJAX_RUN_NOW, [ self::class, 'handle_ajax_run_now' ] );
 		add_action( 'admin_post_' . self::ADMIN_POST_SAVE_FROM, [ self::class, 'handle_save_from_address' ] );
+		add_action( 'admin_post_' . self::ADMIN_POST_TOGGLE, [ self::class, 'handle_toggle' ] );
 	}
 
 	// --- Per-cycle Pinger ----------------------------------------------------
@@ -166,7 +173,7 @@ class Controller {
 		if ( 'yes' !== OptionController::get_option( 'is_connected' ) ) {
 			return;
 		}
-		if ( 'yes' !== self::get_enabled_option() ) {
+		if ( ! self::is_enabled() ) {
 			return;
 		}
 		if ( self::is_local_environment() && ! apply_filters( 'scanfully_email_deliverability_force_in_local', false ) ) {
@@ -200,7 +207,7 @@ class Controller {
 		}
 
 		// (4) Compose attempt.
-		$nonce = wp_generate_uuid4();
+		$nonce = self::generate_nonce();
 		$timestamp = self::utc_now_iso();
 		$token = Token::compute( $secret, $site_id, $nonce, $timestamp );
 		$transport_hint = self::detect_transport();
@@ -232,7 +239,7 @@ class Controller {
 					self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 					return;
 				}
-				$nonce = wp_generate_uuid4();
+				$nonce = self::generate_nonce();
 				$timestamp = self::utc_now_iso();
 				$token = Token::compute( $secret, $site_id, $nonce, $timestamp );
 				$attempt_resp = $attempt_req->send(
@@ -587,13 +594,16 @@ class Controller {
 			'wp-ses/wp-ses.php' => 'wp-ses',
 			'wp-mailgun-smtp/wp-mailgun-smtp.php' => 'mailgun-smtp',
 		];
-		if ( ! function_exists( 'get_plugins' ) ) {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
-		$plugins = get_plugins();
+		// is_plugin_active() only reads the active plugins list; the header of
+		// the one matching plugin is read afterwards, instead of every
+		// installed plugin's header on every run.
 		foreach ( $candidates as $file => $slug ) {
-			if ( isset( $plugins[ $file ] ) && is_plugin_active( $file ) ) {
-				$version = isset( $plugins[ $file ]['Version'] ) ? (string) $plugins[ $file ]['Version'] : '';
+			if ( is_plugin_active( $file ) ) {
+				$data    = get_plugin_data( WP_PLUGIN_DIR . '/' . $file, false, false );
+				$version = isset( $data['Version'] ) ? (string) $data['Version'] : '';
 				return $version ? $slug . '/' . $version : $slug;
 			}
 		}
@@ -683,6 +693,36 @@ class Controller {
 	}
 
 	/**
+	 * Whether email checks run on this site: switched on in the Scanfully
+	 * settings (the default), and not turned off by the
+	 * `scanfully_email_deliverability_enabled` filter.
+	 *
+	 * @return bool
+	 */
+	private static function is_enabled(): bool {
+		return (bool) apply_filters( 'scanfully_email_deliverability_enabled', 'yes' === self::get_enabled_option() );
+	}
+
+	/**
+	 * A random version 4 UUID for an attempt. Built from random_bytes() because
+	 * wp_generate_uuid4() uses mt_rand(), which another plugin seeding
+	 * mt_srand() with a fixed value would make repeat.
+	 *
+	 * @return string
+	 */
+	private static function generate_nonce(): string {
+		try {
+			$bytes = random_bytes( 16 );
+		} catch ( \Exception $e ) {
+			return wp_generate_uuid4();
+		}
+		$bytes[6] = chr( ( ord( $bytes[6] ) & 0x0f ) | 0x40 ); // Version 4.
+		$bytes[8] = chr( ( ord( $bytes[8] ) & 0x3f ) | 0x80 ); // RFC 4122 variant.
+
+		return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $bytes ), 4 ) );
+	}
+
+	/**
 	 * Whether we are running in WordPress's "local" environment.
 	 *
 	 * @return bool
@@ -717,6 +757,13 @@ class Controller {
 		}
 
 		set_transient( self::STATE_CACHE_KEY, $resp['body'], 5 * MINUTE_IN_SECONDS );
+
+		// The state carries the site's configured interval, so a change made on
+		// the Scanfully side reaches the site without re-provisioning.
+		if ( isset( $resp['body']['interval_seconds'] ) && (int) $resp['body']['interval_seconds'] > 0 ) {
+			OptionController::set_option( 'email_deliverability_interval_seconds', (string) self::clamp_interval( (int) $resp['body']['interval_seconds'] ), false );
+		}
+
 		return $resp['body'];
 	}
 
@@ -889,6 +936,24 @@ class Controller {
 		<hr />
 		<h2><?php esc_html_e( 'Email deliverability', 'scanfully' ); ?></h2>
 		<p><?php esc_html_e( 'Monitors whether WordPress can deliver email to the outside world.', 'scanfully' ); ?></p>
+		<?php if ( 'yes' === self::get_enabled_option() && ! self::is_enabled() ) : ?>
+			<p><em><?php esc_html_e( 'Email checks are turned off by code on this site (the scanfully_email_deliverability_enabled filter).', 'scanfully' ); ?></em></p>
+		<?php else : ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="<?php echo esc_attr( self::ADMIN_POST_TOGGLE ); ?>" />
+				<input type="hidden" name="scanfully_email_checks" value="<?php echo esc_attr( self::is_enabled() ? 'off' : 'on' ); ?>" />
+				<?php wp_nonce_field( self::NONCE_TOGGLE ); ?>
+				<p>
+					<?php if ( self::is_enabled() ) : ?>
+						<?php esc_html_e( 'Email checks are on: this site regularly sends a test email to Scanfully.', 'scanfully' ); ?>
+						<button type="submit" class="button"><?php esc_html_e( 'Turn off email checks', 'scanfully' ); ?></button>
+					<?php else : ?>
+						<?php esc_html_e( 'Email checks are off.', 'scanfully' ); ?>
+						<button type="submit" class="button button-primary"><?php esc_html_e( 'Turn on email checks', 'scanfully' ); ?></button>
+					<?php endif; ?>
+				</p>
+			</form>
+		<?php endif; ?>
 
 		<?php if ( self::as_heartbeat_stale() ) : ?>
 			<div class="notice notice-warning inline">
@@ -1087,6 +1152,24 @@ class Controller {
 				'message' => __( 'Check scheduled. Results appear in the Activity log within ~30 minutes.', 'scanfully' ),
 			]
 		);
+	}
+
+	/**
+	 * The admin-post handler for switching email checks on or off.
+	 *
+	 * @return void
+	 */
+	public static function handle_toggle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Unauthorized', 'scanfully' ), '', [ 'response' => 403 ] );
+		}
+		check_admin_referer( self::NONCE_TOGGLE );
+
+		$enable = isset( $_POST['scanfully_email_checks'] ) && 'on' === sanitize_key( wp_unslash( $_POST['scanfully_email_checks'] ) );
+		OptionController::set_option( 'email_deliverability_enabled', $enable ? 'yes' : 'no', false );
+
+		wp_safe_redirect( add_query_arg( [ 'page' => 'scanfully' ], admin_url( 'options-general.php' ) ) );
+		exit;
 	}
 
 	/**
