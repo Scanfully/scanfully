@@ -143,6 +143,42 @@ final class WooCheckoutOrderTest extends TestCase {
 		$this->assertSame( '', $normal_order->get_meta( '_scanfully_probe_order' ) );
 	}
 
+	public function test_the_order_query_itself_only_returns_probe_orders(): void {
+		$probe_order = $this->make_order( 'cancelled', true, Controller::PROBE_GATEWAY_ID, 8 );
+		$real_order  = $this->make_order( 'cancelled', false, 'bacs', 8 );
+
+		// Ask WooCommerce directly, without the per-order PHP check, so a meta
+		// filter the order store ignores would show up here.
+		$ids = wc_get_orders(
+			[
+				'status'     => [ 'cancelled' ],
+				'return'     => 'ids',
+				'limit'      => -1,
+				'meta_key'   => '_scanfully_probe_order', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value' => 'true', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+			]
+		);
+		if ( \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled() ) {
+			$ids = wc_get_orders(
+				[
+					'status'     => [ 'cancelled' ],
+					'return'     => 'ids',
+					'limit'      => -1,
+					// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					'meta_query' => [
+						[
+							'key'   => '_scanfully_probe_order',
+							'value' => 'true',
+						],
+					],
+				]
+			);
+		}
+
+		$this->assertContains( $probe_order->get_id(), $ids );
+		$this->assertNotContains( $real_order->get_id(), $ids );
+	}
+
 	public function test_cleanup_cancels_stale_pending_orders_and_deletes_only_old_cancelled_probe_orders(): void {
 		$probe                = Controller::PROBE_GATEWAY_ID;
 		$stale_pending        = $this->make_order( 'pending', true, $probe, 2 );

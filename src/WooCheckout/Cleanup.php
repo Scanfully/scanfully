@@ -106,7 +106,7 @@ class Cleanup {
 	 * Find probe orders with a status, created before a cutoff.
 	 *
 	 * Every result is checked again in PHP (see is_probe_order()), so a meta
-	 * query that is ignored, for example by a custom order data store, can
+	 * filter that is ignored, for example by a custom order data store, can
 	 * never hand a real order to the caller.
 	 *
 	 * @param string $status Order status without the `wc-` prefix.
@@ -115,27 +115,45 @@ class Cleanup {
 	 * @return \WC_Order[]
 	 */
 	private static function find_probe_orders( string $status, int $cutoff ): array {
-		$orders = wc_get_orders(
-			[
-				'limit'        => self::BATCH_SIZE,
-				'date_created' => '<' . $cutoff,
-				'status'       => [ $status ],
-				'return'       => 'objects',
-				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-				'meta_query'   => [
-					[
-						'key'   => AdminFilter::META_KEY,
-						'value' => 'true',
-					],
+		$args = [
+			'limit'        => self::BATCH_SIZE,
+			'date_created' => '<' . $cutoff,
+			'status'       => [ $status ],
+			'return'       => 'objects',
+		];
+
+		// The legacy (posts) order store ignores `meta_query` and would return
+		// every order with the status, so each store gets the form it supports.
+		if ( self::uses_hpos() ) {
+			// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+			$args['meta_query'] = [
+				[
+					'key'   => AdminFilter::META_KEY,
+					'value' => 'true',
 				],
-			]
-		);
+			];
+		} else {
+			$args['meta_key']   = AdminFilter::META_KEY; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+			$args['meta_value'] = 'true'; // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+		}
+
+		$orders = wc_get_orders( $args );
 
 		if ( ! is_array( $orders ) ) {
 			return [];
 		}
 
 		return array_values( array_filter( $orders, [ self::class, 'is_probe_order' ] ) );
+	}
+
+	/**
+	 * Whether WooCommerce stores orders in its own tables (HPOS).
+	 *
+	 * @return bool
+	 */
+	private static function uses_hpos(): bool {
+		return class_exists( \Automattic\WooCommerce\Utilities\OrderUtil::class )
+			&& \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled();
 	}
 
 	/**
