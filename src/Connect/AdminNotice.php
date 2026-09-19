@@ -27,6 +27,11 @@ class AdminNotice {
 	public static function setup(): void {
 		global $pagenow;
 
+		// Notices only exist in wp-admin; skip the option reads everywhere else.
+		if ( ! is_admin() ) {
+			return;
+		}
+
 		$options = OptionsController::get_options();
 
 		if ( $options->is_connected && self::is_connection_stale( $options ) ) {
@@ -101,6 +106,12 @@ class AdminNotice {
 	 * @return void
 	 */
 	public static function print_stale_notice(): void {
+		// Only users who can manage the connection should see it (and its
+		// Reconnect button).
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
 		$reconnect_url = add_query_arg(
 			[
 				'page'                       => 'scanfully',
@@ -138,6 +149,9 @@ class AdminNotice {
 	 * @return void
 	 */
 	public static function print_notice(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
 		?>
 		<div class="notice notice-info is-dismissible scanfully-not-connected-notice">
 			<div class="scanfully-notice-header">
