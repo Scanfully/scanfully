@@ -414,7 +414,8 @@ class Controller {
 				'os_id' => self::get_os_id(),
 				'os_id_like' => self::get_os_id_like(),
 				'os_version' => self::get_os_version(),
-				'web_server' => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				// Not set under WP-CLI or a system cron running Action Scheduler.
+				'web_server' => isset( $_SERVER['SERVER_SOFTWARE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) : null,
 				'curl_version' => self::get_curl_version(),
 				'imagick_available' => extension_loaded( 'imagick' ),
 

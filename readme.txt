@@ -245,6 +245,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: dates shown in UTC on sites that use a manual UTC offset
 * Fixed: site ID not encoded in API URLs, and the dashboard button ignoring the dashboard URL filter
 * Fixed: connect notices showing HTML entities for translated text with special characters
+* Fixed: site health data raising a warning when collected under WP-CLI or a system cron
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
