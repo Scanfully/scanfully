@@ -143,6 +143,30 @@ final class WooCheckoutOrderTest extends TestCase {
 		$this->assertSame( '', $normal_order->get_meta( '_scanfully_probe_order' ) );
 	}
 
+	/**
+	 * Ask WooCommerce whether a webhook would be delivered.
+	 *
+	 * @param string $topic Webhook topic.
+	 * @param int    $arg   Resource ID.
+	 *
+	 * @return bool
+	 */
+	private function webhook_delivers( string $topic, int $arg ): bool {
+		$webhook = new \WC_Webhook();
+		$webhook->set_topic( $topic );
+		return (bool) apply_filters( 'woocommerce_webhook_should_deliver', true, $webhook, $arg );
+	}
+
+	public function test_probe_orders_are_kept_out_of_webhooks(): void {
+		$probe_order = $this->make_order( 'cancelled', true, Controller::PROBE_GATEWAY_ID, 0 );
+		$real_order  = $this->make_order( 'processing', false, 'bacs', 0 );
+
+		$this->assertFalse( $this->webhook_delivers( 'order.created', $probe_order->get_id() ) );
+		$this->assertFalse( $this->webhook_delivers( 'order.updated', $probe_order->get_id() ) );
+		$this->assertTrue( $this->webhook_delivers( 'order.created', $real_order->get_id() ) );
+		$this->assertTrue( $this->webhook_delivers( 'product.updated', $probe_order->get_id() ), 'Other resources are untouched.' );
+	}
+
 	public function test_the_order_query_itself_only_returns_probe_orders(): void {
 		$probe_order = $this->make_order( 'cancelled', true, Controller::PROBE_GATEWAY_ID, 8 );
 		$real_order  = $this->make_order( 'cancelled', false, 'bacs', 8 );

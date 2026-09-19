@@ -52,6 +52,7 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		add_filter( 'woocommerce_email_recipient_customer_processing_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_email_recipient_customer_on_hold_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_can_reduce_order_stock', [ self::class, 'skip_stock_reduction_for_probe' ], 10, 2 );
+		add_filter( 'woocommerce_webhook_should_deliver', [ self::class, 'skip_webhooks_for_probe' ], 10, 3 );
 
 		// Tag probe orders as soon as they are created (classic and block
 		// checkout), so they can be found even if payment never runs.
@@ -218,5 +219,28 @@ class ProbeGateway extends \WC_Payment_Gateway {
 			return false;
 		}
 		return $can_reduce;
+	}
+
+	/**
+	 * Keep probe orders out of WooCommerce webhooks (order.created and the
+	 * like), so ERP, marketing and accounting integrations never see them.
+	 *
+	 * @param bool        $should_deliver Whether the webhook should be delivered.
+	 * @param \WC_Webhook $webhook        The webhook.
+	 * @param mixed       $arg            The resource ID for order topics.
+	 *
+	 * @return bool
+	 */
+	public static function skip_webhooks_for_probe( $should_deliver, $webhook, $arg ) {
+		if ( ! $should_deliver || ! $webhook instanceof \WC_Webhook || 'order' !== $webhook->get_resource() || ! is_numeric( $arg ) ) {
+			return $should_deliver;
+		}
+
+		$order = wc_get_order( (int) $arg );
+		if ( $order instanceof \WC_Order && 'true' === (string) $order->get_meta( '_scanfully_probe_order' ) ) {
+			return false;
+		}
+
+		return $should_deliver;
 	}
 }
