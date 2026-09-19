@@ -73,6 +73,21 @@ final class SiteDataTest extends TestCase {
 		$this->assertSame( dirname( plugin_basename( SCANFULLY_PLUGIN_FILE ) ), $slugs['Scanfully'] ?? null );
 	}
 
+	public function test_the_memory_limit_is_reported_as_it_was_before_being_raised(): void {
+		$original = (string) ini_get( 'memory_limit' );
+		ini_set( 'memory_limit', '96M' ); // phpcs:ignore WordPress.PHP.IniSet.memory_limit_Disallowed -- Simulates the site's normal limit.
+		Controller::record_boot_memory_limit();
+
+		// Action Scheduler raises the limit before running the health sync.
+		ini_set( 'memory_limit', '512M' ); // phpcs:ignore WordPress.PHP.IniSet.memory_limit_Disallowed -- Simulates Action Scheduler.
+		$reported = $this->find( Controller::get_site_data(), 'php_memory_limit' );
+
+		ini_set( 'memory_limit', $original ); // phpcs:ignore WordPress.PHP.IniSet.memory_limit_Disallowed -- Restore.
+		Controller::record_boot_memory_limit();
+
+		$this->assertSame( '96M', $reported, 'A low normal limit must not be hidden by the raised one.' );
+	}
+
 	/**
 	 * Find a key anywhere in nested data.
 	 *

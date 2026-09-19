@@ -248,6 +248,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: site health data raising a warning when collected under WP-CLI or a system cron
 * Fixed: slow user count on large sites, and database size including other installs' tables
 * Fixed: single-file plugins reported with the slug "." in site health data
+* Fixed: site health reporting the raised PHP memory limit instead of the normal one
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

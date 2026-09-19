@@ -17,6 +17,29 @@ use Scanfully\API\SiteDirectoriesRequest;
 class Controller {
 
 	/**
+	 * The PHP memory limit when the plugin booted, before Action Scheduler or
+	 * wp-admin raised it. Null until recorded.
+	 *
+	 * @var string|null
+	 */
+	private static ?string $boot_memory_limit = null;
+
+	/**
+	 * Record the PHP memory limit as it is on a normal page load.
+	 *
+	 * Health data is collected inside Action Scheduler jobs, which raise the
+	 * limit to the admin value first. Reading it then would hide a low limit
+	 * from the Scanfully health check, so it is recorded here, at boot.
+	 *
+	 * @return void
+	 */
+	public static function record_boot_memory_limit(): void {
+		$limit                   = ini_get( 'memory_limit' );
+		self::$boot_memory_limit = false === $limit ? null : (string) $limit;
+	}
+
+
+	/**
 	 * Detect if the site is using SSL/HTTPS.
 	 *
 	 * This improves upon is_ssl() by also checking common headers
@@ -430,7 +453,7 @@ class Controller {
 
 				'php_version' => self::get_php_version(),
 				'php_sapi' => self::get_php_sapi(),
-				'php_memory_limit' => \WP_Site_Health::get_instance()->php_memory_limit,
+				'php_memory_limit' => self::$boot_memory_limit ?? \WP_Site_Health::get_instance()->php_memory_limit,
 				'php_memory_limit_admin' => $php_settings['memory_limit'],
 				'php_max_input_time' => (int) $php_settings['max_input_time'],
 				'php_max_execution_time' => (int) $php_settings['max_execution_time'],

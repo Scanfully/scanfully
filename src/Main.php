@@ -94,6 +94,9 @@ class Main {
 	 * @return void
 	 */
 	public function setup(): void {
+		/** Record the memory limit before anything raises it. */
+		Health\Controller::record_boot_memory_limit();
+
 		/** Stop autoloading tokens stored by earlier versions (runs once). */
 		Options\Controller::maybe_stop_autoloading_tokens();
 
