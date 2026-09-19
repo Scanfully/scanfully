@@ -357,10 +357,15 @@ class Controller {
 		$map = [];
 
 		foreach ( $plugins as $plugin_path => $plugin ) {
+			// A plugin in its own folder is identified by the folder; a
+			// single-file plugin (e.g. hello.php) by its file name.
+			$basename = plugin_basename( $plugin_path );
+			$folder   = dirname( $basename );
+
 			$map[] = [
 				'active' => is_plugin_active( $plugin_path ),
 				'name' => $plugin['Name'],
-				'slug' => dirname( plugin_basename( $plugin_path ) ),
+				'slug' => '.' === $folder ? basename( $basename, '.php' ) : $folder,
 				'url' => $plugin['PluginURI'],
 				'version' => $plugin['Version'],
 				'description' => $plugin['Description'],
