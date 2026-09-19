@@ -34,7 +34,7 @@ class EventRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/timeline', OptionsController::get_option( 'site_id' ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/timeline', rawurlencode( OptionsController::get_option( 'site_id' ) ) );
 	}
 
 	/**

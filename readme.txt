@@ -243,6 +243,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: Scanfully admin notices showing to users who can't manage the connection
 * Fixed: recurring job checks running on every front-end request and possible duplicate recurring jobs
 * Fixed: dates shown in UTC on sites that use a manual UTC offset
+* Fixed: site ID not encoded in API URLs, and the dashboard button ignoring the dashboard URL filter
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

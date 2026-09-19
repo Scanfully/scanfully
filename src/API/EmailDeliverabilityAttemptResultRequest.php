@@ -40,7 +40,7 @@ class EmailDeliverabilityAttemptResultRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/email-health/deliverability/attempt-result',
-			OptionsController::get_option( 'site_id' )
+			rawurlencode( OptionsController::get_option( 'site_id' ) )
 		);
 	}
 

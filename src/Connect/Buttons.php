@@ -70,7 +70,7 @@ class Buttons {
 	 * @return void
 	 */
 	public static function dashboard(): void {
-		$url = sprintf( 'https://app.scanfully.com/sites/%s/dashboard', \Scanfully\Options\Controller::get_option( 'site_id' ) );
+		$url = sprintf( \Scanfully\Main::get_dashboard_url() . '/sites/%s/dashboard', rawurlencode( \Scanfully\Options\Controller::get_option( 'site_id' ) ) );
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" target="_blank" class="scanfully-connect-button scanfully-connect-button-dashboard">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
