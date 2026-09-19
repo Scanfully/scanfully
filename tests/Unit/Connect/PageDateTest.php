@@ -22,13 +22,13 @@ final class PageDateTest extends TestCase {
 		Functions\when( 'get_option' )->alias(
 			static function ( string $name ) {
 				$values = [
-					'timezone_string' => 'Europe/Amsterdam',
-					'date_format'     => 'Y-m-d',
-					'time_format'     => 'H:i',
+					'date_format' => 'Y-m-d',
+					'time_format' => 'H:i',
 				];
 				return $values[ $name ] ?? '';
 			}
 		);
+		Functions\when( 'wp_timezone' )->alias( static fn() => new \DateTimeZone( 'Europe/Amsterdam' ) );
 	}
 
 	/**

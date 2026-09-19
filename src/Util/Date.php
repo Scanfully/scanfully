@@ -13,17 +13,12 @@ namespace Scanfully\Util;
 class Date {
 
 	/**
-	 * Get the current date time zone
+	 * Get the site's timezone, whether it is set as a city (Europe/Amsterdam)
+	 * or as a manual UTC offset (UTC+2).
 	 *
 	 * @return \DateTimeZone
-	 * @throws \Exception When the site's timezone string is invalid.
 	 */
 	public static function get_timezone(): \DateTimeZone {
-		$tz_string = get_option( 'timezone_string', 'UTC' );
-		if ( $tz_string === '' ) {
-			$tz_string = 'UTC';
-		}
-
-		return new \DateTimeZone( $tz_string );
+		return wp_timezone();
 	}
 }
