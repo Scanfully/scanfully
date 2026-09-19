@@ -461,29 +461,25 @@ class Controller {
 	/**
 	 * Send the directory data to the API
 	 *
+	 * Sizes are measured fresh on every run, because WordPress caches
+	 * directory sizes indefinitely and never clears them for plugin or theme
+	 * changes. When a size can't be measured in time, nothing is sent: the API
+	 * would otherwise store a size of 0. One retry is queued an hour later,
+	 * which usually runs in a request with more time left.
+	 *
 	 * @return void
 	 */
 	public static function send_directories_data(): void {
+		delete_transient( 'dirsize_cache' );
 
-		// load wp_site_health class if not loaded, this is not loaded by default.
-		if ( ! class_exists( 'WP_Site_Health' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
-		}
-
-		if ( ! function_exists( 'get_plugins' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-
-		// directories to check.
+		// directories to check. Content first: it caches the sizes of the
+		// directories inside it, so the others are read from that cache.
 		$dirs = [
 			'content' => WP_CONTENT_DIR,
 			'plugins' => WP_PLUGIN_DIR,
 			'themes' => get_theme_root( get_template() ),
-			'uploads' => wp_upload_dir()['basedir'],
+			'uploads' => wp_upload_dir( null, false )['basedir'],
 		];
-
-		// dir requests.
-		$request = new SiteDirectoriesRequest();
 
 		// data array.
 		$data = [
@@ -494,12 +490,35 @@ class Controller {
 
 		// add data for each directory.
 		foreach ( $dirs as $key => $dir ) {
-			$data['data'][ $key . '_size' ] = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
+			// No time limit argument: WordPress then stops safely before the
+			// PHP time limit (and has no limit under WP-CLI).
+			$size = recurse_dirsize( $dir );
+			if ( null === $size ) {
+				self::schedule_directories_retry();
+				return;
+			}
+
+			$data['data'][ $key . '_size' ] = (float) round( $size / 1000000, 2 );
 			$data['data'][ $key . '_writable' ] = wp_is_writable( $dir );
 			$data['data'][ $key . '_dir' ] = $dir;
 		}
 
 		// send event.
+		$request = new SiteDirectoriesRequest();
 		$request->send( $data );
+	}
+
+	/**
+	 * Queue one retry of the directory sync an hour from now.
+	 *
+	 * The retry gets its own arguments: the daily recurring sync uses the same
+	 * hook with no arguments, and the unique flag would otherwise refuse it.
+	 *
+	 * @return void
+	 */
+	private static function schedule_directories_retry(): void {
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			as_schedule_single_action( time() + HOUR_IN_SECONDS, \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [ 'retry' => 1 ], 'scanfully', true );
+		}
 	}
 }

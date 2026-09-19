@@ -235,6 +235,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: WooCommerce orders, imports and bulk edits flooding the timeline with post events
 * Fixed: update events reported for failed installs, for Scanfully itself in other folders, and with the wrong version for themes outside the default theme folder
 * Fixed: email deliverability checks treating API problems as mail failures and missing real first failures
+* Fixed: directory sizes reported as 0 or stale; they are now measured fresh and skipped when they can't be measured
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
