@@ -109,6 +109,30 @@ class PostSaved extends Event {
 	private const DEDUP_TTL = 5;
 
 	/**
+	 * Default maximum number of post events per minute, so bulk edits and
+	 * similar mass saves can't queue thousands of jobs. Filterable via
+	 * `scanfully_post_saved_events_per_minute`.
+	 */
+	private const MAX_EVENTS_PER_MINUTE = 30;
+
+	/**
+	 * Internal post types that are saved in the background and never
+	 * represent content an editor changed.
+	 */
+	private const IGNORED_POST_TYPES = [
+		'revision',
+		'attachment',
+		'nav_menu_item',
+		'wp_template',
+		'wp_template_part',
+		'oembed_cache',
+		'customize_changeset',
+		'user_request',
+		'acf-field',
+		'acf-field-group',
+	];
+
+	/**
 	 * A check if a event should fire
 	 *
 	 * @param  array $data The event data.
@@ -125,12 +149,32 @@ class PostSaved extends Event {
 			return false;
 		}
 
-		// only fire if the post status is one of these.
-		if ( ! in_array( $data[1]->post_status, [ 'publish', 'draft', 'private', 'trash' ] ) ) {
+		// Imports save many posts at once; they aren't individual edits.
+		if ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) {
 			return false;
 		}
 
-		if ( in_array( $data[1]->post_type, [ 'revision', 'attachment', 'nav_menu_item', 'wp_template', 'wp_template_part' ] ) ) {
+		$post = $data[1] ?? null;
+		if ( ! is_object( $post ) || ! isset( $post->post_status, $post->post_type ) ) {
+			return false;
+		}
+
+		// only fire if the post status is one of these.
+		if ( ! in_array( $post->post_status, [ 'publish', 'draft', 'private', 'trash' ], true ) ) {
+			return false;
+		}
+
+		if ( ! self::is_tracked_post_type( (string) $post->post_type ) ) {
+			return false;
+		}
+
+		/**
+		 * Filters whether a post save is reported to Scanfully.
+		 *
+		 * @param bool   $should_fire Whether to report the save.
+		 * @param object $post        The saved post.
+		 */
+		if ( ! apply_filters( 'scanfully_post_saved_should_fire', true, $post ) ) {
 			return false;
 		}
 
@@ -148,9 +192,61 @@ class PostSaved extends Event {
 			return false;
 		}
 
+		if ( self::is_rate_limited() ) {
+			return false;
+		}
+
 		set_transient( $transient_key, 1, self::DEDUP_TTL );
 		self::$fired_ids[ $post_id ] = true;
 
 		return true;
+	}
+
+	/**
+	 * Whether saves of this post type are reported. Skips internal types,
+	 * types without an admin screen, and every WooCommerce order type: with
+	 * HPOS, each order also saves a backup post (a placeholder, or a
+	 * `shop_order` draft when sync is on), which would otherwise turn every
+	 * checkout into a timeline event.
+	 *
+	 * @param string $post_type The post type.
+	 *
+	 * @return bool
+	 */
+	private static function is_tracked_post_type( string $post_type ): bool {
+		if ( in_array( $post_type, self::IGNORED_POST_TYPES, true ) ) {
+			return false;
+		}
+
+		if ( function_exists( 'wc_get_order_types' ) && in_array( $post_type, wc_get_order_types(), true ) ) {
+			return false;
+		}
+
+		$type_object = get_post_type_object( $post_type );
+
+		return is_object( $type_object ) && ! empty( $type_object->show_ui );
+	}
+
+	/**
+	 * Count this event against the per-minute cap. Returns true when the cap
+	 * is reached and the event should be dropped.
+	 *
+	 * @return bool
+	 */
+	private static function is_rate_limited(): bool {
+		$limit = (int) apply_filters( 'scanfully_post_saved_events_per_minute', self::MAX_EVENTS_PER_MINUTE );
+		if ( $limit < 1 ) {
+			return false;
+		}
+
+		$bucket = 'scanfully_post_events_' . (int) floor( time() / MINUTE_IN_SECONDS );
+		$count  = (int) get_transient( $bucket );
+		if ( $count >= $limit ) {
+			return true;
+		}
+
+		set_transient( $bucket, $count + 1, 2 * MINUTE_IN_SECONDS );
+
+		return false;
 	}
 }

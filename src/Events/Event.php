@@ -7,6 +7,8 @@
 
 namespace Scanfully\Events;
 
+use Scanfully\Options;
+
 /**
  * Class Event
  */
@@ -94,6 +96,12 @@ abstract class Event {
 	 * @return void
 	 */
 	public function listener_callback( ...$args ): void {
+
+		// A site that isn't connected has nowhere to send events; the job
+		// would only be discarded when it runs.
+		if ( ! Options\Controller::get_options()->is_connected ) {
+			return;
+		}
 
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
