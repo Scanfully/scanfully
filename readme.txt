@@ -250,6 +250,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: single-file plugins reported with the slug "." in site health data
 * Fixed: site health reporting the raised PHP memory limit instead of the normal one
 * Fixed: publish events dropped right after a draft save, and Quick Edit and page builder saves missing from the timeline
+* Fixed: rewrite rule flushes creating repeated timeline events
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
