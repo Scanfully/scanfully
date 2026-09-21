@@ -206,39 +206,20 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 
 == Changelog ==
 
-= 1.7.0: September 18, 2026 =
+= 1.7.0: September 21, 2026 =
 * Added: WooCommerce checkout monitoring support.
 * Added: PHPCS, PHPStan, PHPUnit and wp-env tooling with composer scripts and QA workflow
-* Fixed: probe header check firing rest_api_init too early and breaking REST routes for late-registered post types
-* Security: post passwords are no longer sent in timeline events
-* Security: connect flow accepting an empty state, which let a forged link connect the site to another Scanfully account
+* Added: uninstall cleanup that removes all plugin options, scheduled jobs and the WooCheckout probe user
 * Fixed: connect success handler continuing to render the page after redirecting
-* Security: API requests now verify TLS certificates
-* Security: WooCheckout probe secret is cleared on disconnect and only accepted in the expected format while connected
-* Security: stricter site ID validation in the connect flow
-* Security: WooCheckout probe headers now expire two hours after the scan was prepared
-* Security: on-demand sync endpoint now requires the site access token
 * Fixed: token refresh locking sites out when refreshes overlap or the API returns an error response
 * Fixed: deactivation leaving queued event jobs behind and queueing new jobs for Scanfully itself
-* Added: uninstall cleanup that removes all plugin options, scheduled jobs and the WooCheckout probe user
-* Security: edit shortcut no longer redirects visitors who can't edit, and its responses are never cached
-* Security: WooCheckout probe account is only used while it is a plain customer, and is reset on every login
-* Fixed: WooCheckout probe orders holding stock; they are now cancelled when the check ends and cleaned up safely
-* Added: WooCommerce integration tests for probe orders, run with both legacy and HPOS order storage
-* Added: WooCommerce compatibility declaration for HPOS order storage and the Cart/Checkout blocks
-* Security: email deliverability checks are only sent to Scanfully ping addresses
 * Fixed: email deliverability check interval from the API is kept between 15 minutes and 7 days
 * Fixed: manual email deliverability check postponing the scheduled checks
-* Changed: QA workflow also runs on pushes to the dev branch
-* Changed: integration tests run in a separate wp-env test environment
-* Fixed: probe order cleanup query ignoring its probe filter on stores with legacy order storage
-* Fixed: WooCommerce orders, imports and bulk edits flooding the timeline with post events
 * Fixed: update events reported for failed installs, for Scanfully itself in other folders, and with the wrong version for themes outside the default theme folder
 * Fixed: email deliverability checks treating API problems as mail failures and missing real first failures
 * Fixed: directory sizes reported as 0 or stale; they are now measured fresh and skipped when they can't be measured
-* Fixed: Scanfully settings page and WooCommerce admin saves waiting on slow Scanfully API calls
+* Fixed: Scanfully settings page saves waiting on slow Scanfully API calls
 * Fixed: Scanfully settings page breaking on an unreadable stored date
-* Security: API tokens are no longer loaded on every request
 * Fixed: token refresh resetting the connection date and last-used date
 * Fixed: Scanfully admin notices showing to users who can't manage the connection
 * Fixed: recurring job checks running on every front-end request and possible duplicate recurring jobs
@@ -253,13 +234,15 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: rewrite rule flushes creating repeated timeline events
 * Fixed: oversized timeline events being dropped, and update events crashing on invalid input
 * Fixed: timeline events silently lost when the API rejects them; temporary failures are now retried
-* Security: WooCheckout ping and product search only sign for the scan in the probe header
-* Fixed: WooCheckout probe orders being sent to WooCommerce webhooks
-* Security: WooCheckout probe responses are never stored by page caches
-* Fixed: WooCheckout loading on unsupported WooCommerce versions, product picking stopping after 50 products, and the stub payment page being public
 * Fixed: email deliverability checks with a guessable nonce, slow transport detection and long timeouts; added a setting to turn the checks off
+* Security: post passwords are no longer sent in timeline events
+* Security: connect flow accepting an empty state, which let a forged link connect the site to another Scanfully account
+* Security: API requests now verify TLS certificates
+* Security: stricter site ID validation in the connect flow
+* Security: edit shortcut no longer redirects visitors who can't edit, and its responses are never cached
+* Security: email deliverability checks are only sent to Scanfully ping addresses
+* Security: API tokens are no longer loaded on every request
 * Security: site API tokens are revoked on disconnect, reconnect and uninstall
-* Fixed: email deliverability toggle button and last API error date misplaced on the settings page
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
