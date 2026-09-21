@@ -45,9 +45,32 @@ class Controller {
 	private const FAILURE_BACKOFF_SECONDS = 86400; // 24h
 
 	/**
+	 * Bounds for the interval the API configures. Anything outside is clamped,
+	 * so a bad value can neither flood the site with test emails nor stop the
+	 * checks for weeks.
+	 */
+	private const MIN_INTERVAL_SECONDS = 15 * MINUTE_IN_SECONDS;
+	private const MAX_INTERVAL_SECONDS = 7 * DAY_IN_SECONDS;
+
+	/**
 	 * Server-side rate limit for the "Run check now" admin button.
 	 */
 	private const RUN_NOW_LOCK_SECONDS = 60;
+
+	/**
+	 * Transient caching the deliverability state shown in the admin panel.
+	 */
+	private const STATE_CACHE_KEY = 'scanfully_email_deliverability_state';
+
+	/**
+	 * Cached value meaning the last state fetch failed.
+	 */
+	private const STATE_UNAVAILABLE = 'unavailable';
+
+	/**
+	 * Timeout for the state request made while rendering the settings page.
+	 */
+	private const STATE_TIMEOUT_SECONDS = 5;
 
 	/**
 	 * Transient key for the run-now rate limit.
@@ -60,7 +83,7 @@ class Controller {
 	private const AJAX_RUN_NOW = 'scanfully_email_deliverability_run_now';
 
 	/**
-	 * admin-post action name for saving the From address.
+	 * The admin-post action name for saving the From address.
 	 */
 	private const ADMIN_POST_SAVE_FROM = 'scanfully_email_deliverability_save_from';
 
@@ -68,6 +91,12 @@ class Controller {
 	 * Nonce action used by the From-address save form.
 	 */
 	private const NONCE_SAVE_FROM = 'scanfully_email_deliverability_save_from';
+
+	/**
+	 * The admin-post action and nonce for switching email checks on or off.
+	 */
+	private const ADMIN_POST_TOGGLE = 'scanfully_email_deliverability_toggle';
+	private const NONCE_TOGGLE      = 'scanfully_email_deliverability_toggle';
 
 	/**
 	 * Domain suffixes whose admin_email indicates a feedback loop with
@@ -85,6 +114,7 @@ class Controller {
 		add_action( CronController::ACTION_EMAIL_DELIVERABILITY_PING, [ self::class, 'run_ping' ], 10, 1 );
 		add_action( 'wp_ajax_' . self::AJAX_RUN_NOW, [ self::class, 'handle_ajax_run_now' ] );
 		add_action( 'admin_post_' . self::ADMIN_POST_SAVE_FROM, [ self::class, 'handle_save_from_address' ] );
+		add_action( 'admin_post_' . self::ADMIN_POST_TOGGLE, [ self::class, 'handle_toggle' ] );
 	}
 
 	// --- Per-cycle Pinger ----------------------------------------------------
@@ -92,13 +122,25 @@ class Controller {
 	/**
 	 * Per-cycle Pinger entry point. Wired to the AS recurring action.
 	 *
-	 * @param array $args Optional args: {source: 'scheduled'|'manual'}.
+	 * Action Scheduler passes an action's args as separate arguments, so the
+	 * manual run (queued with `[ 'source' => 'manual' ]`) arrives here as the
+	 * string 'manual'. An array with a `source` key is accepted too.
+	 *
+	 * @param string|array $args Optional: 'scheduled' or 'manual', or {source: 'scheduled'|'manual'}.
 	 *
 	 * @return void
 	 */
 	public static function run_ping( $args = [] ): void {
-		$args = is_array( $args ) ? $args : [];
-		$source = isset( $args['source'] ) ? (string) $args['source'] : 'scheduled';
+		if ( is_string( $args ) ) {
+			$source = $args;
+		} elseif ( is_array( $args ) && isset( $args['source'] ) ) {
+			$source = (string) $args['source'];
+		} else {
+			$source = 'scheduled';
+		}
+		if ( ! in_array( $source, [ 'scheduled', 'manual' ], true ) ) {
+			$source = 'scheduled';
+		}
 
 		// (1) Heartbeat first so admin UI can detect AS staleness even when we
 		// short-circuit below.
@@ -107,6 +149,9 @@ class Controller {
 		try {
 			self::run_ping_cycle( $source );
 		} finally {
+			// A check ran, so the cached state shown in the admin panel is out of date.
+			delete_transient( self::STATE_CACHE_KEY );
+
 			// Self-schedule the next cycle. Manual "run now" runs are one-shots
 			// and must not fork the scheduled chain.
 			if ( 'manual' !== $source ) {
@@ -128,7 +173,7 @@ class Controller {
 		if ( 'yes' !== OptionController::get_option( 'is_connected' ) ) {
 			return;
 		}
-		if ( 'yes' !== self::get_enabled_option() ) {
+		if ( ! self::is_enabled() ) {
 			return;
 		}
 		if ( self::is_local_environment() && ! apply_filters( 'scanfully_email_deliverability_force_in_local', false ) ) {
@@ -147,8 +192,11 @@ class Controller {
 		// (3) Lazy provision.
 		$secret = OptionController::get_option( 'email_deliverability_secret' );
 		$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
-		if ( '' === $secret || '' === $inbound_address ) {
+		// A stored address that doesn't pass validation (for example saved by
+		// an older version) is treated as missing and provisioned again.
+		if ( '' === $secret || ! self::is_valid_inbound_template( $inbound_address ) ) {
 			if ( ! self::provision_credentials() ) {
+				self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 				return;
 			}
 			$secret = OptionController::get_option( 'email_deliverability_secret' );
@@ -159,7 +207,7 @@ class Controller {
 		}
 
 		// (4) Compose attempt.
-		$nonce = wp_generate_uuid4();
+		$nonce = self::generate_nonce();
 		$timestamp = self::utc_now_iso();
 		$token = Token::compute( $secret, $site_id, $nonce, $timestamp );
 		$transport_hint = self::detect_transport();
@@ -182,16 +230,16 @@ class Controller {
 			$status = null === $attempt_resp ? 0 : (int) $attempt_resp['status'];
 			if ( 401 === $status || 409 === $status ) {
 				if ( ! self::provision_credentials() ) {
-					self::record_failure();
+					self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 					return;
 				}
 				$secret = OptionController::get_option( 'email_deliverability_secret' );
 				$inbound_address = OptionController::get_option( 'email_deliverability_inbound_address' );
 				if ( '' === $secret || '' === $inbound_address ) {
-					self::record_failure();
+					self::record_api_error( __( 'The site could not be set up for email checks by the Scanfully API.', 'scanfully' ) );
 					return;
 				}
-				$nonce = wp_generate_uuid4();
+				$nonce = self::generate_nonce();
 				$timestamp = self::utc_now_iso();
 				$token = Token::compute( $secret, $site_id, $nonce, $timestamp );
 				$attempt_resp = $attempt_req->send(
@@ -204,19 +252,22 @@ class Controller {
 					]
 				);
 				if ( null === $attempt_resp || $attempt_resp['status'] < 200 || $attempt_resp['status'] >= 300 ) {
-					self::record_failure();
+					self::record_api_error( self::describe_api_error( $attempt_resp ) );
 					return;
 				}
 			} else {
-				self::record_failure();
+				// No mail was sent, so this is not a delivery failure and must
+				// not switch the site to the faster failure cadence.
+				self::record_api_error( self::describe_api_error( $attempt_resp ) );
 				return;
 			}
 		}
+		self::clear_api_error();
 
 		// (6) Build mail.
 		$to = self::expand_inbound_address( $inbound_address, $nonce );
 		if ( '' === $to ) {
-			self::record_failure();
+			self::record_api_error( __( 'The email address from the Scanfully API is not a valid Scanfully address.', 'scanfully' ) );
 			return;
 		}
 		$subject = sprintf( 'Scanfully deliverability ping %s', $nonce );
@@ -249,20 +300,12 @@ class Controller {
 
 		// (8) Reconcile the local send result with the adaptive cadence.
 		if ( false === $sent || '' !== $captured_error ) {
-			// wp_mail() reported a failure. Always tell the server so its state
-			// machine has the data. But some transports return false (or fire
-			// wp_mail_failed) even when the message is actually delivered; the
-			// server is authoritative because it confirms inbound arrival. If it
-			// already reports "healthy", treat this as a false positive and clear
-			// the backoff instead of pinning the site to the 30-minute cadence
-			// indefinitely (every failing cycle would otherwise re-stamp the
-			// marker so the 24h window never expires).
+			// wp_mail() reported a failure: tell the server and switch to the
+			// faster cadence. The marker is only stamped once per failure
+			// window (see record_failure()), so repeated failures can't keep
+			// the site on the faster cadence forever.
 			self::post_attempt_failure( $nonce, $captured_error );
-			if ( self::server_reports_healthy() ) {
-				self::clear_failure();
-			} else {
-				self::record_failure();
-			}
+			self::record_failure();
 		} else {
 			// Local send succeeded: clear any stale backoff so the cadence
 			// reverts to the default interval on the next reschedule.
@@ -292,10 +335,16 @@ class Controller {
 		if ( empty( $body['secret'] ) || empty( $body['inbound_address'] ) ) {
 			return false;
 		}
+		// The API decides where the site sends its test email, so only accept
+		// the exact format it builds, on a Scanfully domain.
+		if ( ! self::is_valid_inbound_template( (string) $body['inbound_address'] ) ) {
+			self::log_warn( 'Provision returned an inbound address that is not a Scanfully ping address; ignoring it.' );
+			return false;
+		}
 		OptionController::set_option( 'email_deliverability_secret', (string) $body['secret'], false );
 		OptionController::set_option( 'email_deliverability_inbound_address', (string) $body['inbound_address'], false );
 		if ( ! empty( $body['interval_seconds'] ) ) {
-			OptionController::set_option( 'email_deliverability_interval_seconds', (string) (int) $body['interval_seconds'], false );
+			OptionController::set_option( 'email_deliverability_interval_seconds', (string) self::clamp_interval( (int) $body['interval_seconds'] ), false );
 		}
 		return true;
 	}
@@ -332,11 +381,72 @@ class Controller {
 	private static function expand_inbound_address( string $template, string $nonce ): string {
 		try {
 			$encoded = AddressCodec::encode( $nonce );
-		} catch (\Throwable $e) {
+		} catch ( \Throwable $e ) {
 			self::log_warn( 'AddressCodec encode failed: ' . $e->getMessage() );
 			return '';
 		}
-		return apply_filters( 'scanfully_email_expand_inbound_address', str_replace( '{nonce}', $encoded, $template ) );
+
+		$address = str_replace( '{nonce}', $encoded, $template );
+		if ( ! self::is_valid_inbound_address( $address ) ) {
+			self::log_warn( 'Inbound address is not a Scanfully ping address; not sending.' );
+			return '';
+		}
+
+		return apply_filters( 'scanfully_email_expand_inbound_address', $address );
+	}
+
+	/**
+	 * Whether an inbound address template from the API has the exact format
+	 * the API builds: `ping+{26 base32 chars}.{nonce}@{domain}`, on an
+	 * allowed Scanfully domain.
+	 *
+	 * @param string $template The address template.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_inbound_template( string $template ): bool {
+		return 1 === preg_match( '/^ping\+[a-z2-7]{26}\.\{nonce\}@([a-z0-9.-]+)\z/', $template, $matches )
+			&& self::is_allowed_inbound_domain( $matches[1] );
+	}
+
+	/**
+	 * Whether a final inbound address is a single Scanfully ping address:
+	 * `ping+{26 base32 chars}.{26 base32 chars}@{domain}`, on an allowed
+	 * Scanfully domain. wp_mail() splits recipients on commas, so anything
+	 * looser could send the test email to other addresses.
+	 *
+	 * @param string $address The address.
+	 *
+	 * @return bool
+	 */
+	private static function is_valid_inbound_address( string $address ): bool {
+		return 1 === preg_match( '/^ping\+[a-z2-7]{26}\.[a-z2-7]{26}@([a-z0-9.-]+)\z/', $address, $matches )
+			&& self::is_allowed_inbound_domain( $matches[1] )
+			&& false !== is_email( $address );
+	}
+
+	/**
+	 * Whether a domain is a Scanfully domain (or a subdomain of one) that
+	 * may receive the test email. Filter
+	 * `scanfully_email_deliverability_inbound_domains` to add a domain, for
+	 * example a local mail catcher during development.
+	 *
+	 * @param string $domain The domain.
+	 *
+	 * @return bool
+	 */
+	private static function is_allowed_inbound_domain( string $domain ): bool {
+		$domain  = strtolower( $domain );
+		$allowed = (array) apply_filters( 'scanfully_email_deliverability_inbound_domains', [ 'scanfully.com', 'scanfully.dev' ] );
+
+		foreach ( $allowed as $allowed_domain ) {
+			$allowed_domain = strtolower( (string) $allowed_domain );
+			if ( '' !== $allowed_domain && ( $domain === $allowed_domain || self::str_ends_with( $domain, '.' . $allowed_domain ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -345,7 +455,61 @@ class Controller {
 	 * @return void
 	 */
 	private static function record_failure(): void {
+		// Only start a new window when there is no current one; re-stamping
+		// on every failing cycle would keep the window from ever expiring.
+		$last_failure = OptionController::get_option( 'email_deliverability_last_failure_at' );
+		$ts           = '' === $last_failure ? false : strtotime( $last_failure );
+		if ( false !== $ts && ( time() - $ts ) < self::FAILURE_BACKOFF_SECONDS ) {
+			return;
+		}
 		OptionController::set_option( 'email_deliverability_last_failure_at', self::utc_now_iso(), false );
+	}
+
+	/**
+	 * Record a problem talking to the Scanfully API. Kept apart from mail
+	 * failures: no mail was sent, so the delivery cadence doesn't change.
+	 * Shown in the admin panel until the next successful attempt.
+	 *
+	 * @param string $message Human readable description.
+	 *
+	 * @return void
+	 */
+	private static function record_api_error( string $message ): void {
+		OptionController::set_option( 'email_deliverability_last_api_error', $message, false );
+		OptionController::set_option( 'email_deliverability_last_api_error_at', self::utc_now_iso(), false );
+	}
+
+	/**
+	 * Clear the last API error after a successful attempt.
+	 *
+	 * @return void
+	 */
+	private static function clear_api_error(): void {
+		if ( '' !== OptionController::get_option( 'email_deliverability_last_api_error' ) ) {
+			OptionController::set_option( 'email_deliverability_last_api_error', '', false );
+			OptionController::set_option( 'email_deliverability_last_api_error_at', '', false );
+		}
+	}
+
+	/**
+	 * Describe a failed attempt request for the admin panel.
+	 *
+	 * @param array|null $response The response from Request::do_request_with_response(), or null.
+	 *
+	 * @return string
+	 */
+	private static function describe_api_error( ?array $response ): string {
+		if ( null === $response ) {
+			return __( 'The Scanfully API could not be reached.', 'scanfully' );
+		}
+
+		$status = (int) ( $response['status'] ?? 0 );
+		if ( 400 === $status && false !== strpos( (string) ( $response['raw'] ?? '' ), 'timestamp out of range' ) ) {
+			return __( "This server's clock is more than 5 minutes off. Correct the server time so email checks can run.", 'scanfully' );
+		}
+
+		/* translators: %d: HTTP status code. */
+		return sprintf( __( 'The Scanfully API returned HTTP status %d.', 'scanfully' ), $status );
 	}
 
 	/**
@@ -360,19 +524,6 @@ class Controller {
 		}
 	}
 
-	/**
-	 * Whether the server currently reports the site as healthy. Used to detect
-	 * false-positive wp_mail() failures where the transport returns false (or
-	 * fires wp_mail_failed) even though the message is actually delivered.
-	 * Best-effort: on a transport error fetch_state() returns null, so we fall
-	 * back to the conservative behaviour of honouring the local failure signal.
-	 *
-	 * @return bool
-	 */
-	private static function server_reports_healthy(): bool {
-		$state = self::fetch_state();
-		return is_array( $state ) && isset( $state['state'] ) && 'healthy' === (string) $state['state'];
-	}
 
 	/**
 	 * Arm the next deliverability ping as a single action at the adaptive
@@ -409,9 +560,21 @@ class Controller {
 		}
 		$cached = (int) OptionController::get_option( 'email_deliverability_interval_seconds' );
 		if ( $cached > 0 ) {
-			return $cached;
+			// Clamped on read too, for values stored by earlier versions.
+			return self::clamp_interval( $cached );
 		}
 		return self::FALLBACK_INTERVAL_SECONDS;
+	}
+
+	/**
+	 * Keep an interval from the API between 15 minutes and 7 days.
+	 *
+	 * @param int $seconds Interval in seconds.
+	 *
+	 * @return int
+	 */
+	private static function clamp_interval( int $seconds ): int {
+		return max( self::MIN_INTERVAL_SECONDS, min( self::MAX_INTERVAL_SECONDS, $seconds ) );
 	}
 
 	// --- Helpers -------------------------------------------------------------
@@ -431,13 +594,16 @@ class Controller {
 			'wp-ses/wp-ses.php' => 'wp-ses',
 			'wp-mailgun-smtp/wp-mailgun-smtp.php' => 'mailgun-smtp',
 		];
-		if ( ! function_exists( 'get_plugins' ) ) {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
-		$plugins = get_plugins();
+		// is_plugin_active() only reads the active plugins list; the header of
+		// the one matching plugin is read afterwards, instead of every
+		// installed plugin's header on every run.
 		foreach ( $candidates as $file => $slug ) {
-			if ( isset( $plugins[ $file ] ) && is_plugin_active( $file ) ) {
-				$version = isset( $plugins[ $file ]['Version'] ) ? (string) $plugins[ $file ]['Version'] : '';
+			if ( is_plugin_active( $file ) ) {
+				$data    = get_plugin_data( WP_PLUGIN_DIR . '/' . $file, false, false );
+				$version = isset( $data['Version'] ) ? (string) $data['Version'] : '';
 				return $version ? $slug . '/' . $version : $slug;
 			}
 		}
@@ -527,6 +693,36 @@ class Controller {
 	}
 
 	/**
+	 * Whether email checks run on this site: switched on in the Scanfully
+	 * settings (the default), and not turned off by the
+	 * `scanfully_email_deliverability_enabled` filter.
+	 *
+	 * @return bool
+	 */
+	private static function is_enabled(): bool {
+		return (bool) apply_filters( 'scanfully_email_deliverability_enabled', 'yes' === self::get_enabled_option() );
+	}
+
+	/**
+	 * A random version 4 UUID for an attempt. Built from random_bytes() because
+	 * wp_generate_uuid4() uses mt_rand(), which another plugin seeding
+	 * mt_srand() with a fixed value would make repeat.
+	 *
+	 * @return string
+	 */
+	private static function generate_nonce(): string {
+		try {
+			$bytes = random_bytes( 16 );
+		} catch ( \Exception $e ) {
+			return wp_generate_uuid4();
+		}
+		$bytes[6] = chr( ( ord( $bytes[6] ) & 0x0f ) | 0x40 ); // Version 4.
+		$bytes[8] = chr( ( ord( $bytes[8] ) & 0x3f ) | 0x80 ); // RFC 4122 variant.
+
+		return vsprintf( '%s%s-%s-%s-%s-%s%s%s', str_split( bin2hex( $bytes ), 4 ) );
+	}
+
+	/**
 	 * Whether we are running in WordPress's "local" environment.
 	 *
 	 * @return bool
@@ -542,11 +738,32 @@ class Controller {
 	 * @return array|null
 	 */
 	private static function fetch_state(): ?array {
-		$req = new EmailDeliverabilityStateRequest();
-		$resp = $req->fetch();
-		if ( null === $resp || $resp['status'] < 200 || $resp['status'] >= 300 || ! is_array( $resp['body'] ) ) {
+		// The settings page renders this, so a slow or unavailable API must not
+		// hold the page up: the state is cached, a failure is cached briefly,
+		// and the request itself times out quickly.
+		$cached = get_transient( self::STATE_CACHE_KEY );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+		if ( self::STATE_UNAVAILABLE === $cached ) {
 			return null;
 		}
+
+		$req = new EmailDeliverabilityStateRequest();
+		$resp = $req->fetch( self::STATE_TIMEOUT_SECONDS );
+		if ( null === $resp || $resp['status'] < 200 || $resp['status'] >= 300 || ! is_array( $resp['body'] ) ) {
+			set_transient( self::STATE_CACHE_KEY, self::STATE_UNAVAILABLE, MINUTE_IN_SECONDS );
+			return null;
+		}
+
+		set_transient( self::STATE_CACHE_KEY, $resp['body'], 5 * MINUTE_IN_SECONDS );
+
+		// The state carries the site's configured interval, so a change made on
+		// the Scanfully side reaches the site without re-provisioning.
+		if ( isset( $resp['body']['interval_seconds'] ) && (int) $resp['body']['interval_seconds'] > 0 ) {
+			OptionController::set_option( 'email_deliverability_interval_seconds', (string) self::clamp_interval( (int) $resp['body']['interval_seconds'] ), false );
+		}
+
 		return $resp['body'];
 	}
 
@@ -559,7 +776,7 @@ class Controller {
 		try {
 			$dt = new \DateTime( 'now', new \DateTimeZone( 'UTC' ) );
 			return $dt->format( 'Y-m-d\TH:i:s\Z' );
-		} catch (\Exception $e) {
+		} catch ( \Exception $e ) {
 			return gmdate( 'Y-m-d\TH:i:s\Z' );
 		}
 	}
@@ -620,12 +837,12 @@ class Controller {
 			}
 			try {
 				$dt->setTimezone( Util\Date::get_timezone() );
-			} catch (\Exception $e) {
+			} catch ( \Exception $e ) {
 				// Unrecognised timezone; leave the DateTime in UTC.
 				unset( $e );
 			}
 			return $dt->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
-		} catch (\Exception $e) {
+		} catch ( \Exception $e ) {
 			return '-';
 		}
 	}
@@ -653,6 +870,13 @@ class Controller {
 		return $seconds . ' s';
 	}
 
+	/**
+	 * Format an interval in seconds as a human readable string.
+	 *
+	 * @param int $seconds The interval in seconds.
+	 *
+	 * @return string
+	 */
 	private static function format_interval( int $seconds ): string {
 		if ( $seconds >= 3600 && 0 === $seconds % 3600 ) {
 			$hours = $seconds / 3600;
@@ -712,6 +936,26 @@ class Controller {
 		<hr />
 		<h2><?php esc_html_e( 'Email deliverability', 'scanfully' ); ?></h2>
 		<p><?php esc_html_e( 'Monitors whether WordPress can deliver email to the outside world.', 'scanfully' ); ?></p>
+		<?php if ( 'yes' === self::get_enabled_option() && ! self::is_enabled() ) : ?>
+			<p><em><?php esc_html_e( 'Email checks are turned off by code on this site (the scanfully_email_deliverability_enabled filter).', 'scanfully' ); ?></em></p>
+		<?php else : ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="<?php echo esc_attr( self::ADMIN_POST_TOGGLE ); ?>" />
+				<input type="hidden" name="scanfully_email_checks" value="<?php echo esc_attr( self::is_enabled() ? 'off' : 'on' ); ?>" />
+				<?php wp_nonce_field( self::NONCE_TOGGLE ); ?>
+				<?php if ( self::is_enabled() ) : ?>
+					<p><?php esc_html_e( 'Email checks are on: this site regularly sends a test email to Scanfully.', 'scanfully' ); ?></p>
+					<div class="scanfully-connect-button-wrapper">
+						<button type="submit" class="button"><?php esc_html_e( 'Turn off email checks', 'scanfully' ); ?></button>
+					</div>
+				<?php else : ?>
+					<p><?php esc_html_e( 'Email checks are off.', 'scanfully' ); ?></p>
+					<div class="scanfully-connect-button-wrapper">
+						<button type="submit" class="button button-primary"><?php esc_html_e( 'Turn on email checks', 'scanfully' ); ?></button>
+					</div>
+				<?php endif; ?>
+			</form>
+		<?php endif; ?>
 
 		<?php if ( self::as_heartbeat_stale() ) : ?>
 			<div class="notice notice-warning inline">
@@ -763,6 +1007,16 @@ class Controller {
 					<div class="scanfully-connect-details-label"><?php esc_html_e( 'Mail transport', 'scanfully' ); ?></div>
 					<div class="scanfully-connect-details-value"><span
 							class="scanfully-connect-blob"><?php echo esc_html( (string) $state['transport_hint'] ); ?></span></div>
+				</li>
+			<?php endif; ?>
+			<?php $api_error = OptionController::get_option( 'email_deliverability_last_api_error' ); ?>
+			<?php if ( '' !== $api_error ) : ?>
+				<li>
+					<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last API error', 'scanfully' ); ?></div>
+					<div class="scanfully-connect-details-value"><span
+							class="scanfully-connect-blob scanfully-connect-blob-error"><?php echo esc_html( $api_error ); ?></span>
+						<div style="margin-top:.8em;"><?php echo esc_html( self::format_utc_date( OptionController::get_option( 'email_deliverability_last_api_error_at' ) ) ); ?></div>
+					</div>
 				</li>
 			<?php endif; ?>
 			<li>
@@ -903,7 +1157,25 @@ class Controller {
 	}
 
 	/**
-	 * admin-post handler for saving the From-address override. Empty input
+	 * The admin-post handler for switching email checks on or off.
+	 *
+	 * @return void
+	 */
+	public static function handle_toggle(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Unauthorized', 'scanfully' ), '', [ 'response' => 403 ] );
+		}
+		check_admin_referer( self::NONCE_TOGGLE );
+
+		$enable = isset( $_POST['scanfully_email_checks'] ) && 'on' === sanitize_key( wp_unslash( $_POST['scanfully_email_checks'] ) );
+		OptionController::set_option( 'email_deliverability_enabled', $enable ? 'yes' : 'no', false );
+
+		wp_safe_redirect( add_query_arg( [ 'page' => 'scanfully' ], admin_url( 'options-general.php' ) ) );
+		exit;
+	}
+
+	/**
+	 * The admin-post handler for saving the From-address override. Empty input
 	 * clears the override, restoring the admin_email fallback.
 	 *
 	 * @return void
@@ -914,7 +1186,7 @@ class Controller {
 		}
 		check_admin_referer( self::NONCE_SAVE_FROM );
 
-		$raw = isset( $_POST['scanfully_from_address'] ) ? wp_unslash( $_POST['scanfully_from_address'] ) : '';
+		$raw = isset( $_POST['scanfully_from_address'] ) ? wp_unslash( $_POST['scanfully_from_address'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized with sanitize_email() below; the raw value is only used to detect empty input.
 		$value = trim( sanitize_email( (string) $raw ) );
 
 		$status = 'ok';

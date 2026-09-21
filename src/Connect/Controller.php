@@ -1,4 +1,9 @@
 <?php
+/**
+ * The connect controller class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Connect;
 
@@ -6,6 +11,9 @@ use Scanfully\Main;
 use Scanfully\Options\Controller as OptionsController;
 use Scanfully\Options\Options;
 
+/**
+ * Handles the flow for connecting the site to, and disconnecting it from, Scanfully.
+ */
 class Controller {
 
 	public const DATE_FORMAT = 'Y-m-d H:i:s';
@@ -16,7 +24,7 @@ class Controller {
 	 * @return void
 	 */
 	public static function setup(): void {
-		add_action( 'admin_init', [ Controller::class, 'catch_connect_requests' ] );
+		add_action( 'admin_init', [ self::class, 'catch_connect_requests' ] );
 	}
 
 	/**
@@ -28,38 +36,42 @@ class Controller {
 		return current_user_can( 'manage_options' );
 	}
 
+	/**
+	 * Route connect, disconnect and reconnect requests to their handlers.
+	 *
+	 * @return void
+	 */
 	public static function catch_connect_requests(): void {
 
-		// handle start connect request
+		// handle start connect request.
 		if ( isset( $_GET['scanfully-connect'] ) ) {
 			self::handle_connect_start();
 		}
 
-		// handle start disconnect request
+		// handle start disconnect request.
 		if ( isset( $_GET['scanfully-disconnect'] ) ) {
 			self::handle_disconnect_start();
 		}
 
-		// handle reconnect request (disconnect + start new connect)
+		// handle reconnect request (disconnect + start new connect).
 		if ( isset( $_GET['scanfully-reconnect'] ) ) {
 			self::handle_reconnect();
 		}
 
-		// handle connect success return request
+		// handle connect success return request.
 		if ( isset( $_GET['scanfully-connect-success'] ) ) {
 			self::handle_request_connect_success();
 		}
 
-		// handle connect error return request
+		// handle connect error return request.
 		if ( isset( $_GET['scanfully-connect-error'] ) ) {
 			self::handle_request_connect_error();
 		}
 
 		if ( isset( $_GET['scanfully-connect-done'] ) ) {
-			// add success message
-			self::print_notice( esc_html__( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
+			// add success message.
+			self::print_notice( __( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
 		}
-
 	}
 
 	/**
@@ -68,12 +80,12 @@ class Controller {
 	 * @return void
 	 */
 	private static function handle_connect_start(): void {
-		// check nonce
-		if ( ! isset( $_GET['scanfully-connect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-connect-nonce'], 'scanfully-connect-redirect' ) ) {
+		// check nonce.
+		if ( ! isset( $_GET['scanfully-connect-nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['scanfully-connect-nonce'] ) ), 'scanfully-connect-redirect' ) ) {
 			wp_die( 'Invalid Scanfully connect nonce' );
 		}
 
-		// check permissions
+		// check permissions.
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
@@ -101,20 +113,23 @@ class Controller {
 	 * @return void
 	 */
 	private static function handle_disconnect_start(): void {
-		// check nonce
-		if ( ! isset( $_GET['scanfully-disconnect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-disconnect-nonce'], 'scanfully-disconnect-redirect' ) ) {
+		// check nonce.
+		if ( ! isset( $_GET['scanfully-disconnect-nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['scanfully-disconnect-nonce'] ) ), 'scanfully-disconnect-redirect' ) ) {
 			wp_die( 'Invalid Scanfully disconnect nonce' );
 		}
 
-		// check permissions
+		// check permissions.
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// remove all options / settings
+		// make the API forget the tokens before the site does.
+		self::revoke_tokens();
+
+		// remove all options / settings.
 		OptionsController::clear();
 
-		// redirect to base connect page
+		// redirect to base connect page.
 		wp_redirect( Page::get_page_url() );
 		exit;
 	}
@@ -125,20 +140,21 @@ class Controller {
 	 * @return void
 	 */
 	private static function handle_reconnect(): void {
-		// check nonce
-		if ( ! isset( $_GET['scanfully-reconnect-nonce'] ) || ! wp_verify_nonce( $_GET['scanfully-reconnect-nonce'], 'scanfully-reconnect' ) ) {
+		// check nonce.
+		if ( ! isset( $_GET['scanfully-reconnect-nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['scanfully-reconnect-nonce'] ) ), 'scanfully-reconnect' ) ) {
 			wp_die( 'Invalid Scanfully reconnect nonce' );
 		}
 
-		// check permissions
+		// check permissions.
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// clear existing connection
+		// revoke and clear the existing connection.
+		self::revoke_tokens();
 		OptionsController::clear();
 
-		// build the connect URL and redirect directly into the connect flow
+		// build the connect URL and redirect directly into the connect flow.
 		$connect_url = add_query_arg(
 			[
 				'redirect_uri' => rawurlencode( Page::get_page_url() ),
@@ -159,34 +175,39 @@ class Controller {
 	 */
 	private static function handle_request_connect_success(): void {
 
-		// check permissions
+		// check permissions.
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// check if state matches
-		if ( self::get_state() !== $_GET['state'] ) {
+		// check if state matches. The stored state is single use, so it is
+		// deleted before comparing, and an empty value never matches.
+		$expected_state = self::get_state();
+		$given_state    = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		self::delete_state();
+		if ( '' === $expected_state || '' === $given_state || ! hash_equals( $expected_state, $given_state ) ) {
 			wp_die( 'Invalid Scanfully connect state' );
 		}
 
-		// check if required parameters are set
+		// check if required parameters are set.
 		if ( ! isset( $_GET['code'] ) || ! isset( $_GET['site'] ) ) {
 			wp_die( 'Invalid Scanfully connect parameters' );
 		}
 
-		// delete state
-		self::delete_state();
+		// get variables.
+		$code = sanitize_text_field( wp_unslash( $_GET['code'] ) );
+		$site = sanitize_text_field( wp_unslash( $_GET['site'] ) );
 
-		// get variables
-		$code = $_GET['code'];
-		$site = $_GET['site'];
+		// the site ID ends up in API URL paths, so only allow plain ID characters.
+		if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}\z/', $site ) ) {
+			wp_die( 'Invalid Scanfully connect parameters' );
+		}
 
-		// exchange authorization code for access token
+		// exchange authorization code for access token.
 		$tokens = self::exchange_authorization_code( $code, $site );
 
-		// validate token response so we fail gracefully if the API is unreachable or returned an error
-		if ( ! is_array( $tokens )
-			|| empty( $tokens['access_token'] )
+		// validate token response so we fail gracefully if the API is unreachable or returned an error.
+		if ( empty( $tokens['access_token'] )
 			|| empty( $tokens['refresh_token'] )
 			|| empty( $tokens['expires'] )
 		) {
@@ -207,7 +228,7 @@ class Controller {
 			wp_die( 'Error setting parsing expires date. Please contact support.' );
 		}
 
-		// format options
+		// format options.
 		$options = new Options(
 			true,
 			$site,
@@ -218,16 +239,20 @@ class Controller {
 			$now->format( self::DATE_FORMAT )
 		);
 
-		// save options
+		// save options.
 		OptionsController::set_options( $options );
 
-
-		// run cron jobs a single time so user doesn't have to wait for the next cron job
+		// run cron jobs a single time so user doesn't have to wait for the next cron job.
 		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [], 'scanfully' );
 		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], 'scanfully' );
+		if ( \Scanfully\WooCheckout\Controller::is_woocommerce_active() ) {
+			// fetches the probe secret, which is cleared on disconnect.
+			as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], 'scanfully' );
+		}
 
-		// redirect to base connect page with success message
+		// redirect to base connect page with success message.
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
+		exit;
 	}
 
 	/**
@@ -238,7 +263,7 @@ class Controller {
 	private static function handle_request_connect_error(): void {
 		if ( isset( $_GET['scanfully-connect-error'] ) ) {
 
-			// check permissions
+			// check permissions.
 			if ( ! self::user_has_access() ) {
 				wp_die( 'You do not have permission to do this.' );
 			}
@@ -246,10 +271,10 @@ class Controller {
 			$error_message = '';
 			switch ( $_GET['scanfully-connect-error'] ) {
 				case 'access_denied':
-					$error_message = esc_html__( 'Access denied', 'scanfully' );
+					$error_message = __( 'Access denied', 'scanfully' );
 					break;
 				default:
-					$error_message = esc_html__( 'An unknown error occurred.', 'scanfully' );
+					$error_message = __( 'An unknown error occurred.', 'scanfully' );
 					break;
 			}
 
@@ -260,28 +285,31 @@ class Controller {
 	/**
 	 * Print a notice to the connect admin.
 	 *
-	 * @param  string $message
-	 * @param  string $type
+	 * @param  string $message The notice message, unescaped (it is escaped on output).
+	 * @param  string $type    The notice type.
 	 *
 	 * @return void
 	 */
 	private static function print_notice( string $message, string $type = 'error' ): void {
-		add_action( 'scanfully_connect_notices', function () use ( $message, $type ) {
-			?>
+		add_action(
+			'scanfully_connect_notices',
+			function () use ( $message, $type ) {
+				?>
 			<div class="scanfully-connect-notice scanfully-connect-notice-<?php echo esc_attr( $type ); ?> is-dismissible">
 				<p><?php echo esc_html( $message ); ?></p>
 			</div>
-			<?php
-		} );
+				<?php
+			}
+		);
 	}
 
 	/**
 	 * Exchange the authorization code for an access and refresh token.
 	 *
-	 * @param  string $code
-	 * @param  string $site
+	 * @param  string $code The authorization code.
+	 * @param  string $site The Scanfully site ID.
 	 *
-	 * @return array('access_token' => '...', 'refresh_token' => '...', 'expires_in' => '...')
+	 * @return array<string, mixed> The token response (access_token, refresh_token, expires), or an empty array on failure.
 	 */
 	private static function exchange_authorization_code( string $code, string $site ): array {
 
@@ -291,23 +319,29 @@ class Controller {
 			'timeout'     => 60,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
-			'body'        => wp_json_encode( [
-				'grant_type' => 'authorization_code',
-				'code'       => $code,
-				'site_id'    => $site,
-			] ),
+			'sslverify'   => Main::get_sslverify(),
+			'body'        => wp_json_encode(
+				[
+					'grant_type' => 'authorization_code',
+					'code'       => $code,
+					'site_id'    => $site,
+				]
+			),
 		];
 
 		// later check if post failed and show a notice to admins.
 		$resp = wp_remote_post( Main::get_api_url() . '/connect/token', $request_args );
 
-		// check if the request failed
+		// check if the request failed.
 		if ( is_wp_error( $resp ) ) {
 			return [];
 		}
 
-		// todo check if request failed based on http status code
+		// only a 200 response carries tokens; anything else (including an error
+		// page from a proxy in front of the API) is a failure.
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return [];
+		}
 
 		$body = wp_remote_retrieve_body( $resp );
 
@@ -315,15 +349,17 @@ class Controller {
 			return [];
 		}
 
-		// return the response
-		return json_decode( $body, true );
+		// return the response, or an empty array when the body is not a JSON object.
+		$tokens = json_decode( $body, true );
+
+		return is_array( $tokens ) ? $tokens : [];
 	}
 
 	/**
 	 * Use the refresh token to get a new access and refresh token
 	 *
-	 * @param  string $refresh_token
-	 * @param  string $site
+	 * @param  string $refresh_token The refresh token.
+	 * @param  string $site          The Scanfully site ID.
 	 *
 	 * @return array
 	 */
@@ -332,26 +368,32 @@ class Controller {
 		// request arguments for the requests.
 		$request_args = [
 			'headers'     => [ 'Content-Type' => 'application/json' ],
-			'timeout'     => 60,
+			'timeout'     => 15,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
-			'body'        => wp_json_encode( [
-				'grant_type'    => 'refresh_token',
-				'refresh_token' => $refresh_token,
-				'site_id'       => $site,
-			] ),
+			'sslverify'   => Main::get_sslverify(),
+			'body'        => wp_json_encode(
+				[
+					'grant_type'    => 'refresh_token',
+					'refresh_token' => $refresh_token,
+					'site_id'       => $site,
+				]
+			),
 		];
 
 		// later check if post failed and show a notice to admins.
 		$resp = wp_remote_post( Main::get_api_url() . '/connect/token', $request_args );
 
-		// check if the request failed
+		// check if the request failed.
 		if ( is_wp_error( $resp ) ) {
 			return [];
 		}
 
-		// todo check if request failed based on http status code
+		// only a 200 response carries tokens; anything else (including an error
+		// page from a proxy in front of the API) is a failure.
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $resp ) ) {
+			return [];
+		}
 
 		$body = wp_remote_retrieve_body( $resp );
 
@@ -359,20 +401,52 @@ class Controller {
 			return [];
 		}
 
-		// return the response
-		return json_decode( $body, true );
+		// return the response, or an empty array when the body is not a JSON object.
+		$tokens = json_decode( $body, true );
+
+		return is_array( $tokens ) ? $tokens : [];
 	}
 
 
 	/**
+	 * Ask the API to revoke this site's tokens, so they stop working once the
+	 * site forgets them. Without this, a copy of the tokens (from a backup or
+	 * a database dump) stays valid on the API side until it expires.
+	 *
+	 * Best effort: a failure never blocks the disconnect, and the timeout is
+	 * short so an unreachable API doesn't hold up the admin.
+	 *
+	 * @return void
+	 */
+	public static function revoke_tokens(): void {
+		$site_id      = OptionsController::get_option( 'site_id' );
+		$access_token = OptionsController::get_option( 'access_token' );
+		if ( '' === $site_id || '' === $access_token ) {
+			return;
+		}
+
+		wp_remote_post(
+			Main::get_api_url() . '/sites/' . rawurlencode( $site_id ) . '/connect/revoke',
+			[
+				'headers'     => [ 'Authorization' => sprintf( 'Bearer %s', $access_token ) ],
+				'timeout'     => 5,
+				'blocking'    => true,
+				'httpversion' => '1.0',
+				'sslverify'   => Main::get_sslverify(),
+			]
+		);
+	}
+
+	/**
 	 * Generate a state variable for the connect request.
 	 * This also saves it in a transient, so we can validate it when the authorization is returned.
+	 * The state is stored per user, so it can only be completed by the user who started the flow.
 	 *
 	 * @return string
 	 */
 	public static function generate_state(): string {
-		$state = wp_generate_password( 12, false, false );
-		set_transient( 'scanfully_connect_state', $state, HOUR_IN_SECONDS );
+		$state = wp_generate_password( 32, false, false );
+		set_transient( self::get_state_key(), $state, 15 * MINUTE_IN_SECONDS );
 
 		return $state;
 	}
@@ -380,10 +454,12 @@ class Controller {
 	/**
 	 * Get the state variable for the connect request.
 	 *
-	 * @return string
+	 * @return string The stored state, or an empty string when there is none.
 	 */
 	public static function get_state(): string {
-		return get_transient( 'scanfully_connect_state' );
+		$state = get_transient( self::get_state_key() );
+
+		return is_string( $state ) ? $state : '';
 	}
 
 	/**
@@ -392,7 +468,18 @@ class Controller {
 	 * @return void
 	 */
 	public static function delete_state(): void {
+		delete_transient( self::get_state_key() );
+
+		// state stored by earlier versions, shared by all users.
 		delete_transient( 'scanfully_connect_state' );
 	}
 
+	/**
+	 * Get the transient key holding the connect state for the current user.
+	 *
+	 * @return string
+	 */
+	private static function get_state_key(): string {
+		return 'scanfully_connect_state_' . get_current_user_id();
+	}
 }

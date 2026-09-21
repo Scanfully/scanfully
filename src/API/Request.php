@@ -7,6 +7,7 @@
 
 namespace Scanfully\API;
 
+use Scanfully\Main;
 use Scanfully\Options\Controller as OptionController;
 
 /**
@@ -20,9 +21,9 @@ abstract class Request {
 	 * @param  string $endpoint The endpoint to send the request to.
 	 * @param  array  $data The data to send with the request.
 	 *
-	 * @return void
+	 * @return int|null The HTTP status, or null when the request itself failed.
 	 */
-	public function do_request( string $endpoint, array $data ): void {
+	public function do_request( string $endpoint, array $data ): ?int {
 
 		// headers for the requests.
 		$headers = [
@@ -41,7 +42,7 @@ abstract class Request {
 			'timeout'     => 60,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 		];
 
 		// add body to request if there's any.
@@ -51,24 +52,27 @@ abstract class Request {
 		}
 
 		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
 
 		// Only update last_used when we can confirm a successful response.
-		if ( ! is_wp_error( $response ) ) {
-			$status = wp_remote_retrieve_response_code( $response );
-			if ( $status >= 200 && $status < 300 ) {
-				// A successful request proves the connection works, so clear any
-				// stale refresh-failure state that would otherwise keep the
-				// broken-connection notice showing while data is flowing.
-				\Scanfully\Cron\Controller::clear_refresh_failures();
-				try {
-					$now = new \DateTime();
-					$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-					OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
-				} catch ( \Exception $e ) {
-					// do nothing for now, just don't break the plugin.
-				}
+		$status = (int) wp_remote_retrieve_response_code( $response );
+		if ( $status >= 200 && $status < 300 ) {
+			// A successful request proves the connection works, so clear any
+			// stale refresh-failure state that would otherwise keep the
+			// broken-connection notice showing while data is flowing.
+			\Scanfully\Cron\Controller::clear_refresh_failures();
+			try {
+				$now = new \DateTime();
+				$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+				OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
+			} catch ( \Exception $e ) {
+				// do nothing for now, just don't break the plugin.
 			}
 		}
+
+		return $status;
 	}
 
 	/**
@@ -81,10 +85,11 @@ abstract class Request {
 	 *
 	 * @param string $endpoint The endpoint to send the request to.
 	 * @param array  $data     The data to send with the request.
+	 * @param int    $timeout  Optional timeout in seconds.
 	 *
 	 * @return array|null
 	 */
-	public function do_request_with_response( string $endpoint, array $data ): ?array {
+	public function do_request_with_response( string $endpoint, array $data, int $timeout = 30 ): ?array {
 		$headers      = [
 			'Content-Type' => 'application/json',
 		];
@@ -95,10 +100,10 @@ abstract class Request {
 
 		$request_args = [
 			'headers'     => $headers,
-			'timeout'     => 30,
+			'timeout'     => $timeout,
 			'blocking'    => true,
 			'httpversion' => '1.0',
-			'sslverify'   => false,
+			'sslverify'   => Main::get_sslverify(),
 		];
 		$request_body = $this->get_body( $data );
 		if ( ! empty( $request_body ) ) {
@@ -118,10 +123,11 @@ abstract class Request {
 	 *
 	 * @param string $endpoint The endpoint to send the request to.
 	 * @param array  $query    Optional query parameters.
+	 * @param int    $timeout  Optional timeout in seconds.
 	 *
 	 * @return array|null
 	 */
-	public function do_get_request( string $endpoint, array $query = [] ): ?array {
+	public function do_get_request( string $endpoint, array $query = [], int $timeout = 30 ): ?array {
 		$headers      = [
 			'Accept' => 'application/json',
 		];
@@ -139,10 +145,10 @@ abstract class Request {
 			$url,
 			[
 				'headers'     => $headers,
-				'timeout'     => 30,
+				'timeout'     => $timeout,
 				'blocking'    => true,
 				'httpversion' => '1.0',
-				'sslverify'   => false,
+				'sslverify'   => Main::get_sslverify(),
 			]
 		);
 
@@ -154,7 +160,7 @@ abstract class Request {
 	 *
 	 * @param array|\WP_Error $response The raw response from wp_remote_*.
 	 *
-	 * @return array|null Null on transport error; otherwise ['status' => int, 'body' => mixed].
+	 * @return array|null Null on transport error; otherwise ['status' => int, 'body' => mixed, 'raw' => string].
 	 */
 	private function process_response( $response ): ?array {
 		if ( is_wp_error( $response ) ) {
@@ -180,6 +186,7 @@ abstract class Request {
 		return [
 			'status' => $status,
 			'body'   => $decoded,
+			'raw'    => (string) $raw_body,
 		];
 	}
 

@@ -34,7 +34,7 @@ class SiteDataRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/health/data', OptionsController::get_option( 'site_id' ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/health/data', rawurlencode( OptionsController::get_option( 'site_id' ) ) );
 	}
 
 	/**

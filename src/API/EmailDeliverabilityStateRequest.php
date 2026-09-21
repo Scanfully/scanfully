@@ -20,10 +20,12 @@ class EmailDeliverabilityStateRequest extends Request {
 	/**
 	 * Fetch the current state.
 	 *
+	 * @param int $timeout Optional timeout in seconds.
+	 *
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
-	public function fetch(): ?array {
-		return parent::do_get_request( '' );
+	public function fetch( int $timeout = 30 ): ?array {
+		return parent::do_get_request( '', [], $timeout );
 	}
 
 	/**
@@ -36,7 +38,7 @@ class EmailDeliverabilityStateRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/email-health/deliverability/state',
-			OptionsController::get_option( 'site_id' )
+			rawurlencode( OptionsController::get_option( 'site_id' ) )
 		);
 	}
 

@@ -1,7 +1,15 @@
 <?php
+/**
+ * The connect buttons class file.
+ *
+ * @package Scanfully
+ */
 
 namespace Scanfully\Connect;
 
+/**
+ * Renders the buttons on the connect page.
+ */
 class Buttons {
 
 	/**
@@ -10,11 +18,14 @@ class Buttons {
 	 * @return void
 	 */
 	public static function connect(): void {
-		$url = add_query_arg( [
-			'page'                    => 'scanfully',
-			'scanfully-connect'       => 1,
-			'scanfully-connect-nonce' => wp_create_nonce( 'scanfully-connect-redirect' )
-		], admin_url( 'options-general.php' ) );
+		$url = add_query_arg(
+			[
+				'page'                    => 'scanfully',
+				'scanfully-connect'       => 1,
+				'scanfully-connect-nonce' => wp_create_nonce( 'scanfully-connect-redirect' ),
+			],
+			admin_url( 'options-general.php' )
+		);
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" class="scanfully-connect-button scanfully-connect-button-authorize">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -32,11 +43,14 @@ class Buttons {
 	 * @return void
 	 */
 	public static function disconnect(): void {
-		$url = add_query_arg( [
-			'page'                       => 'scanfully',
-			'scanfully-disconnect'       => 1,
-			'scanfully-disconnect-nonce' => wp_create_nonce( 'scanfully-disconnect-redirect' )
-		], admin_url( 'options-general.php' ) );
+		$url = add_query_arg(
+			[
+				'page'                       => 'scanfully',
+				'scanfully-disconnect'       => 1,
+				'scanfully-disconnect-nonce' => wp_create_nonce( 'scanfully-disconnect-redirect' ),
+			],
+			admin_url( 'options-general.php' )
+		);
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" class="scanfully-connect-button scanfully-connect-button-disconnect">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -56,7 +70,7 @@ class Buttons {
 	 * @return void
 	 */
 	public static function dashboard(): void {
-		$url = sprintf( "https://app.scanfully.com/sites/%s/dashboard", \Scanfully\Options\Controller::get_option( 'site_id' ) );
+		$url = sprintf( \Scanfully\Main::get_dashboard_url() . '/sites/%s/dashboard', rawurlencode( \Scanfully\Options\Controller::get_option( 'site_id' ) ) );
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" target="_blank" class="scanfully-connect-button scanfully-connect-button-dashboard">
 			<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -67,5 +81,4 @@ class Buttons {
 		</a>
 		<?php
 	}
-
 }

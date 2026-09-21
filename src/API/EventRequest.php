@@ -20,10 +20,10 @@ class EventRequest extends Request {
 	 *
 	 * @param  array $data The data to send with the request.
 	 *
-	 * @return void
+	 * @return int|null The HTTP status, or null when the request itself failed.
 	 */
-	public function send( array $data ): void {
-		parent::do_request( '', $data );
+	public function send( array $data ): ?int {
+		return parent::do_request( '', $data );
 	}
 
 	/**
@@ -34,7 +34,7 @@ class EventRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/timeline', OptionsController::get_option( 'site_id' ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/timeline', rawurlencode( OptionsController::get_option( 'site_id' ) ) );
 	}
 
 	/**

@@ -1,5 +1,5 @@
 <?php
-/*
+/**
  * Scanfully WordPress plugin
  *
  * @package   Scanfully\Main
@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.6.0
+ * Version:     1.7.0
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully
@@ -40,22 +40,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
 require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
-function Scanfully(): \Scanfully\Main {
+// Declare compatibility with WooCommerce's HPOS order storage and the
+// Cart/Checkout blocks. WooCommerce only accepts this inside
+// before_woocommerce_init.
+add_action(
+	'before_woocommerce_init',
+	function () {
+		if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', __FILE__, true );
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'cart_checkout_blocks', __FILE__, true );
+		}
+	}
+);
+
+/**
+ * Get the main plugin instance.
+ *
+ * @return \Scanfully\Main
+ */
+function Scanfully(): \Scanfully\Main { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionNameInvalid -- Public API; renaming would break backwards compatibility.
 	return \Scanfully\Main::get();
 }
 
-// boot
-add_action( 'plugins_loaded', function () {
-	// meta
-	define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
-	define( 'SCANFULLY_VERSION', '1.6.0' );
+// boot.
+add_action(
+	'plugins_loaded',
+	function () {
+		// meta.
+		define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
+		define( 'SCANFULLY_VERSION', '1.7.0' );
 
-	// boot
-	require __DIR__ . '/vendor/autoload.php';
-	Scanfully()->setup();
-}, 20 );
+		// boot.
+		require __DIR__ . '/vendor/autoload.php';
+		Scanfully()->setup();
+	},
+	20
+);
 
-// register deactivation hook
-register_deactivation_hook( __FILE__, function () {
-	\Scanfully\Cron\Controller::clear_scheduled_events();
-} );
+// register deactivation hook.
+register_deactivation_hook(
+	__FILE__,
+	function () {
+		\Scanfully\Cron\Controller::clear_scheduled_events();
+	}
+);

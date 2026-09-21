@@ -7,6 +7,8 @@
 
 namespace Scanfully\Events;
 
+use Scanfully\Options;
+
 /**
  * Class Event
  */
@@ -45,8 +47,8 @@ abstract class Event {
 	 *
 	 * @param  string $event The type of event.
 	 * @param  string $action The action to listen to.
-	 * @param  int $priority The priority of the action.
-	 * @param  int $accepted_args The accepted arguments.
+	 * @param  int    $priority The priority of the action.
+	 * @param  int    $accepted_args The accepted arguments.
 	 */
 	public function __construct(
 		string $event,
@@ -95,6 +97,12 @@ abstract class Event {
 	 */
 	public function listener_callback( ...$args ): void {
 
+		// A site that isn't connected has nowhere to send events; the job
+		// would only be discarded when it runs.
+		if ( ! Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+
 		// check if we should fire the event.
 		if ( ! $this->should_fire( $args ) ) {
 			return;
@@ -104,13 +112,66 @@ abstract class Event {
 		as_schedule_single_action(
 			time(),
 			Controller::ACTION_SEND_EVENT,
-			[
-				'type' => $this->type,
-				'user' => $this->get_user(),
-				'data' => $this->get_post_body( $args ),
-			],
+			self::fit_args(
+				[
+					'type' => $this->type,
+					'user' => $this->get_user(),
+					'data' => $this->get_post_body( $args ),
+				]
+			),
 			'scanfully'
 		);
+	}
+
+	/**
+	 * Action Scheduler rejects jobs whose arguments are longer than this, when
+	 * encoded as JSON; the event would be lost.
+	 */
+	private const MAX_ARGS_LENGTH = 8000;
+
+	/**
+	 * Keep the job arguments within Action Scheduler's size limit: shorten
+	 * long strings (such as a very long post title) first, and only replace
+	 * the event data when that isn't enough.
+	 *
+	 * @param array $args The job arguments.
+	 *
+	 * @return array
+	 */
+	private static function fit_args( array $args ): array {
+		foreach ( [ 0, 1000, 200 ] as $max_length ) {
+			if ( $max_length > 0 ) {
+				$args['data'] = self::shorten_strings( $args['data'], $max_length );
+			}
+			if ( strlen( (string) wp_json_encode( $args ) ) <= self::MAX_ARGS_LENGTH ) {
+				return $args;
+			}
+		}
+
+		$args['data'] = [ 'truncated' => true ];
+
+		return $args;
+	}
+
+	/**
+	 * Shorten every string in a value to a maximum length.
+	 *
+	 * @param mixed $value      The value.
+	 * @param int   $max_length Maximum string length in characters.
+	 *
+	 * @return mixed
+	 */
+	private static function shorten_strings( $value, int $max_length ) {
+		if ( is_string( $value ) ) {
+			return mb_strlen( $value ) > $max_length ? mb_substr( $value, 0, $max_length ) : $value;
+		}
+		if ( is_array( $value ) ) {
+			foreach ( $value as $key => $item ) {
+				$value[ $key ] = self::shorten_strings( $item, $max_length );
+			}
+		}
+
+		return $value;
 	}
 
 	/**
@@ -125,7 +186,7 @@ abstract class Event {
 	/**
 	 * A check if a event should fire
 	 *
-	 * @param  array $data
+	 * @param  array $data The event data.
 	 *
 	 * @return bool
 	 */

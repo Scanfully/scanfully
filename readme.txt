@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -205,6 +205,44 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.7.0: September 21, 2026 =
+* Added: WooCommerce checkout monitoring support.
+* Added: PHPCS, PHPStan, PHPUnit and wp-env tooling with composer scripts and QA workflow
+* Added: uninstall cleanup that removes all plugin options, scheduled jobs and the WooCheckout probe user
+* Fixed: connect success handler continuing to render the page after redirecting
+* Fixed: token refresh locking sites out when refreshes overlap or the API returns an error response
+* Fixed: deactivation leaving queued event jobs behind and queueing new jobs for Scanfully itself
+* Fixed: email deliverability check interval from the API is kept between 15 minutes and 7 days
+* Fixed: manual email deliverability check postponing the scheduled checks
+* Fixed: update events reported for failed installs, for Scanfully itself in other folders, and with the wrong version for themes outside the default theme folder
+* Fixed: email deliverability checks treating API problems as mail failures and missing real first failures
+* Fixed: directory sizes reported as 0 or stale; they are now measured fresh and skipped when they can't be measured
+* Fixed: Scanfully settings page saves waiting on slow Scanfully API calls
+* Fixed: Scanfully settings page breaking on an unreadable stored date
+* Fixed: token refresh resetting the connection date and last-used date
+* Fixed: Scanfully admin notices showing to users who can't manage the connection
+* Fixed: recurring job checks running on every front-end request and possible duplicate recurring jobs
+* Fixed: dates shown in UTC on sites that use a manual UTC offset
+* Fixed: site ID not encoded in API URLs, and the dashboard button ignoring the dashboard URL filter
+* Fixed: connect notices showing HTML entities for translated text with special characters
+* Fixed: site health data raising a warning when collected under WP-CLI or a system cron
+* Fixed: slow user count on large sites, and database size including other installs' tables
+* Fixed: single-file plugins reported with the slug "." in site health data
+* Fixed: site health reporting the raised PHP memory limit instead of the normal one
+* Fixed: publish events dropped right after a draft save, and Quick Edit and page builder saves missing from the timeline
+* Fixed: rewrite rule flushes creating repeated timeline events
+* Fixed: oversized timeline events being dropped, and update events crashing on invalid input
+* Fixed: timeline events silently lost when the API rejects them; temporary failures are now retried
+* Fixed: email deliverability checks with a guessable nonce, slow transport detection and long timeouts; added a setting to turn the checks off
+* Security: post passwords are no longer sent in timeline events
+* Security: connect flow accepting an empty state, which let a forged link connect the site to another Scanfully account
+* Security: API requests now verify TLS certificates
+* Security: stricter site ID validation in the connect flow
+* Security: edit shortcut no longer redirects visitors who can't edit, and its responses are never cached
+* Security: email deliverability checks are only sent to Scanfully ping addresses
+* Security: API tokens are no longer loaded on every request
+* Security: site API tokens are revoked on disconnect, reconnect and uninstall
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data

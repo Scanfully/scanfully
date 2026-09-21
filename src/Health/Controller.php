@@ -17,6 +17,29 @@ use Scanfully\API\SiteDirectoriesRequest;
 class Controller {
 
 	/**
+	 * The PHP memory limit when the plugin booted, before Action Scheduler or
+	 * wp-admin raised it. Null until recorded.
+	 *
+	 * @var string|null
+	 */
+	private static ?string $boot_memory_limit = null;
+
+	/**
+	 * Record the PHP memory limit as it is on a normal page load.
+	 *
+	 * Health data is collected inside Action Scheduler jobs, which raise the
+	 * limit to the admin value first. Reading it then would hide a low limit
+	 * from the Scanfully health check, so it is recorded here, at boot.
+	 *
+	 * @return void
+	 */
+	public static function record_boot_memory_limit(): void {
+		$limit                   = ini_get( 'memory_limit' );
+		self::$boot_memory_limit = false === $limit ? null : (string) $limit;
+	}
+
+
+	/**
 	 * Detect if the site is using SSL/HTTPS.
 	 *
 	 * This improves upon is_ssl() by also checking common headers
@@ -192,7 +215,7 @@ class Controller {
 	/**
 	 * Get various php settings
 	 *
-	 * @return null[]
+	 * @return array<string, string|null>
 	 */
 	private static function get_php_settings(): array {
 		$ini_values = [
@@ -333,8 +356,9 @@ class Controller {
 	private static function get_db_size(): int {
 		global $wpdb;
 		$size = 0;
+		// Only this install's tables: other installs can share the database.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		$rows = $wpdb->get_results( 'SHOW TABLE STATUS', ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( 'SHOW TABLE STATUS LIKE %s', $wpdb->esc_like( $wpdb->base_prefix ) . '%' ), ARRAY_A );
 
 		if ( $wpdb->num_rows > 0 ) {
 			foreach ( $rows as $row ) {
@@ -343,23 +367,6 @@ class Controller {
 		}
 
 		return (int) $size;
-	}
-
-	/**
-	 * Checks what WordPress directories are writable
-	 *
-	 * @return array
-	 */
-	private static function get_writable_directories(): array {
-		$upload_dir = wp_upload_dir();
-
-		return [
-			'abspath' => wp_is_writable( ABSPATH ),
-			'wp_content' => wp_is_writable( WP_CONTENT_DIR ),
-			'uploads' => wp_is_writable( $upload_dir['basedir'] ),
-			'plugins' => wp_is_writable( WP_PLUGIN_DIR ),
-			'theme' => wp_is_writable( get_theme_root( get_template() ) ),
-		];
 	}
 
 	/**
@@ -373,10 +380,15 @@ class Controller {
 		$map = [];
 
 		foreach ( $plugins as $plugin_path => $plugin ) {
+			// A plugin in its own folder is identified by the folder; a
+			// single-file plugin (e.g. hello.php) by its file name.
+			$basename = plugin_basename( $plugin_path );
+			$folder   = dirname( $basename );
+
 			$map[] = [
 				'active' => is_plugin_active( $plugin_path ),
 				'name' => $plugin['Name'],
-				'slug' => dirname( plugin_basename( $plugin_path ) ),
+				'slug' => '.' === $folder ? basename( $basename, '.php' ) : $folder,
 				'url' => $plugin['PluginURI'],
 				'version' => $plugin['Version'],
 				'description' => $plugin['Description'],
@@ -388,13 +400,18 @@ class Controller {
 		return $map;
 	}
 
+	/**
+	 * Get the site data sent to Scanfully.
+	 *
+	 * @return array
+	 */
 	public static function get_site_data(): array {
 		// load wp_site_health class if not loaded, this is not loaded by default.
 		if ( ! class_exists( 'WP_Site_Health' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
 		}
 
-		if ( ! function_exists( "get_plugins" ) ) {
+		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
 
@@ -419,20 +436,24 @@ class Controller {
 				'wp_environment_type' => wp_get_environment_type(),
 				'permalink_structure' => get_option( 'permalink_structure' ),
 				'locale' => get_locale(),
-				'user_count' => (int) count_users()['total_users'],
+				// get_user_count() is cached; count_users() scans every user's
+				// capabilities. On multisite count_users() is kept, because it
+				// counts this site's users rather than the whole network's.
+				'user_count' => is_multisite() ? (int) count_users()['total_users'] : (int) get_user_count(),
 				'site_url' => home_url(),
 
 				'server_arch' => self::get_server_arch(),
 				'os_id' => self::get_os_id(),
 				'os_id_like' => self::get_os_id_like(),
 				'os_version' => self::get_os_version(),
-				'web_server' => esc_attr( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) ?? null, // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPress.Security.ValidatedSanitizedInput.InputNotValidated
+				// Not set under WP-CLI or a system cron running Action Scheduler.
+				'web_server' => isset( $_SERVER['SERVER_SOFTWARE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['SERVER_SOFTWARE'] ) ) : null,
 				'curl_version' => self::get_curl_version(),
 				'imagick_available' => extension_loaded( 'imagick' ),
 
 				'php_version' => self::get_php_version(),
 				'php_sapi' => self::get_php_sapi(),
-				'php_memory_limit' => \WP_Site_Health::get_instance()->php_memory_limit,
+				'php_memory_limit' => self::$boot_memory_limit ?? \WP_Site_Health::get_instance()->php_memory_limit,
 				'php_memory_limit_admin' => $php_settings['memory_limit'],
 				'php_max_input_time' => (int) $php_settings['max_input_time'],
 				'php_max_execution_time' => (int) $php_settings['max_execution_time'],
@@ -450,7 +471,7 @@ class Controller {
 			'plugins' => self::get_plugins(),
 		];
 
-		// filter data
+		// filter data.
 		$data = apply_filters( 'scanfully_health_data', $data );
 
 		return $data;
@@ -473,31 +494,27 @@ class Controller {
 	/**
 	 * Send the directory data to the API
 	 *
+	 * Sizes are measured fresh on every run, because WordPress caches
+	 * directory sizes indefinitely and never clears them for plugin or theme
+	 * changes. When a size can't be measured in time, nothing is sent: the API
+	 * would otherwise store a size of 0. One retry is queued an hour later,
+	 * which usually runs in a request with more time left.
+	 *
 	 * @return void
 	 */
 	public static function send_directories_data(): void {
+		delete_transient( 'dirsize_cache' );
 
-		// load wp_site_health class if not loaded, this is not loaded by default.
-		if ( ! class_exists( 'WP_Site_Health' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/class-wp-site-health.php';
-		}
-
-		if ( ! function_exists( "get_plugins" ) ) {
-			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-		}
-
-		// directories to check.
+		// directories to check. Content first: it caches the sizes of the
+		// directories inside it, so the others are read from that cache.
 		$dirs = [
 			'content' => WP_CONTENT_DIR,
 			'plugins' => WP_PLUGIN_DIR,
 			'themes' => get_theme_root( get_template() ),
-			'uploads' => wp_upload_dir()['basedir'],
+			'uploads' => wp_upload_dir( null, false )['basedir'],
 		];
 
-		// dir requests
-		$request = new SiteDirectoriesRequest();
-
-		// data array
+		// data array.
 		$data = [
 			'data' => [
 				'db_size' => round( self::get_db_size() / 1000000, 2 ),
@@ -506,13 +523,35 @@ class Controller {
 
 		// add data for each directory.
 		foreach ( $dirs as $key => $dir ) {
-			$data['data'][ $key . '_size' ] = (float) round( recurse_dirsize( $dir, null, 30 ) / 1000000, 2 );
+			// No time limit argument: WordPress then stops safely before the
+			// PHP time limit (and has no limit under WP-CLI).
+			$size = recurse_dirsize( $dir );
+			if ( null === $size ) {
+				self::schedule_directories_retry();
+				return;
+			}
+
+			$data['data'][ $key . '_size' ] = (float) round( $size / 1000000, 2 );
 			$data['data'][ $key . '_writable' ] = wp_is_writable( $dir );
 			$data['data'][ $key . '_dir' ] = $dir;
 		}
 
 		// send event.
+		$request = new SiteDirectoriesRequest();
 		$request->send( $data );
 	}
 
+	/**
+	 * Queue one retry of the directory sync an hour from now.
+	 *
+	 * The retry gets its own arguments: the daily recurring sync uses the same
+	 * hook with no arguments, and the unique flag would otherwise refuse it.
+	 *
+	 * @return void
+	 */
+	private static function schedule_directories_retry(): void {
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			as_schedule_single_action( time() + HOUR_IN_SECONDS, \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [ 'retry' => 1 ], 'scanfully', true );
+		}
+	}
 }

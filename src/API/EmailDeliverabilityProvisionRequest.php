@@ -26,7 +26,8 @@ class EmailDeliverabilityProvisionRequest extends Request {
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
 	public function send(): ?array {
-		return parent::do_request_with_response( '', [] );
+		// Short timeout: an email check makes several calls in one background job.
+		return parent::do_request_with_response( '', [], 10 );
 	}
 
 	/**
@@ -39,7 +40,7 @@ class EmailDeliverabilityProvisionRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/email-health/deliverability/provision',
-			OptionsController::get_option( 'site_id' )
+			rawurlencode( OptionsController::get_option( 'site_id' ) )
 		);
 	}
 
