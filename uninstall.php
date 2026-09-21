@@ -2,8 +2,8 @@
 /**
  * Uninstall cleanup.
  *
- * Runs when the plugin is deleted from the Plugins screen. Removes everything
- * the plugin stored: options and transients (including the API tokens and the
+ * Runs when the plugin is deleted from the Plugins screen. Revokes the site's
+ * API tokens, then removes everything the plugin stored: options and transients (including the API tokens and the
  * WooCheckout probe secret), Scanfully's Action Scheduler jobs and the
  * WooCheckout probe user.
  *
@@ -23,9 +23,38 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
  * @return void
  */
 function scanfully_uninstall_site(): void {
+	scanfully_uninstall_revoke_tokens();
 	scanfully_uninstall_probe_user();
 	scanfully_uninstall_scheduled_actions();
 	scanfully_uninstall_options();
+}
+
+/**
+ * Ask the API to revoke the site's tokens before they are deleted below, so a
+ * copy of them stops working too. Mirrors Connect\Controller::revoke_tokens():
+ * best effort with a short timeout, and never blocks the uninstall.
+ *
+ * @return void
+ */
+function scanfully_uninstall_revoke_tokens(): void {
+	$site_id      = (string) get_option( 'scanfully_connect_site_id', '' );
+	$access_token = (string) get_option( 'scanfully_connect_access_token', '' );
+	if ( '' === $site_id || '' === $access_token ) {
+		return;
+	}
+
+	$api_url = (string) apply_filters( 'scanfully_api_url', 'https://api.scanfully.com/v1' );
+
+	wp_remote_post(
+		$api_url . '/sites/' . rawurlencode( $site_id ) . '/connect/revoke',
+		[
+			'headers'     => [ 'Authorization' => sprintf( 'Bearer %s', $access_token ) ],
+			'timeout'     => 5,
+			'blocking'    => true,
+			'httpversion' => '1.0',
+			'sslverify'   => (bool) apply_filters( 'scanfully_sslverify', true ),
+		]
+	);
 }
 
 /**

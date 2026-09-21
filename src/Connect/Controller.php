@@ -123,6 +123,9 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
+		// make the API forget the tokens before the site does.
+		self::revoke_tokens();
+
 		// remove all options / settings.
 		OptionsController::clear();
 
@@ -147,7 +150,8 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// clear existing connection.
+		// revoke and clear the existing connection.
+		self::revoke_tokens();
 		OptionsController::clear();
 
 		// build the connect URL and redirect directly into the connect flow.
@@ -403,6 +407,35 @@ class Controller {
 		return is_array( $tokens ) ? $tokens : [];
 	}
 
+
+	/**
+	 * Ask the API to revoke this site's tokens, so they stop working once the
+	 * site forgets them. Without this, a copy of the tokens (from a backup or
+	 * a database dump) stays valid on the API side until it expires.
+	 *
+	 * Best effort: a failure never blocks the disconnect, and the timeout is
+	 * short so an unreachable API doesn't hold up the admin.
+	 *
+	 * @return void
+	 */
+	public static function revoke_tokens(): void {
+		$site_id      = OptionsController::get_option( 'site_id' );
+		$access_token = OptionsController::get_option( 'access_token' );
+		if ( '' === $site_id || '' === $access_token ) {
+			return;
+		}
+
+		wp_remote_post(
+			Main::get_api_url() . '/sites/' . rawurlencode( $site_id ) . '/connect/revoke',
+			[
+				'headers'     => [ 'Authorization' => sprintf( 'Bearer %s', $access_token ) ],
+				'timeout'     => 5,
+				'blocking'    => true,
+				'httpversion' => '1.0',
+				'sslverify'   => Main::get_sslverify(),
+			]
+		);
+	}
 
 	/**
 	 * Generate a state variable for the connect request.
