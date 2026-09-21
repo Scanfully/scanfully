@@ -943,15 +943,17 @@ class Controller {
 				<input type="hidden" name="action" value="<?php echo esc_attr( self::ADMIN_POST_TOGGLE ); ?>" />
 				<input type="hidden" name="scanfully_email_checks" value="<?php echo esc_attr( self::is_enabled() ? 'off' : 'on' ); ?>" />
 				<?php wp_nonce_field( self::NONCE_TOGGLE ); ?>
-				<p>
-					<?php if ( self::is_enabled() ) : ?>
-						<?php esc_html_e( 'Email checks are on: this site regularly sends a test email to Scanfully.', 'scanfully' ); ?>
+				<?php if ( self::is_enabled() ) : ?>
+					<p><?php esc_html_e( 'Email checks are on: this site regularly sends a test email to Scanfully.', 'scanfully' ); ?></p>
+					<div class="scanfully-connect-button-wrapper">
 						<button type="submit" class="button"><?php esc_html_e( 'Turn off email checks', 'scanfully' ); ?></button>
-					<?php else : ?>
-						<?php esc_html_e( 'Email checks are off.', 'scanfully' ); ?>
+					</div>
+				<?php else : ?>
+					<p><?php esc_html_e( 'Email checks are off.', 'scanfully' ); ?></p>
+					<div class="scanfully-connect-button-wrapper">
 						<button type="submit" class="button button-primary"><?php esc_html_e( 'Turn on email checks', 'scanfully' ); ?></button>
-					<?php endif; ?>
-				</p>
+					</div>
+				<?php endif; ?>
 			</form>
 		<?php endif; ?>
 
@@ -1013,7 +1015,7 @@ class Controller {
 					<div class="scanfully-connect-details-label"><?php esc_html_e( 'Last API error', 'scanfully' ); ?></div>
 					<div class="scanfully-connect-details-value"><span
 							class="scanfully-connect-blob scanfully-connect-blob-error"><?php echo esc_html( $api_error ); ?></span>
-						<?php echo esc_html( self::format_utc_date( OptionController::get_option( 'email_deliverability_last_api_error_at' ) ) ); ?>
+						<div style="margin-top:.8em;"><?php echo esc_html( self::format_utc_date( OptionController::get_option( 'email_deliverability_last_api_error_at' ) ) ); ?></div>
 					</div>
 				</li>
 			<?php endif; ?>

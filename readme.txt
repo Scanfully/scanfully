@@ -259,6 +259,7 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 * Fixed: WooCheckout loading on unsupported WooCommerce versions, product picking stopping after 50 products, and the stub payment page being public
 * Fixed: email deliverability checks with a guessable nonce, slow transport detection and long timeouts; added a setting to turn the checks off
 * Security: site API tokens are revoked on disconnect, reconnect and uninstall
+* Fixed: email deliverability toggle button and last API error date misplaced on the settings page
 
 = 1.6.0: August 20, 2026 =
 * Added: report OS distribution (os_id, os_id_like, os_version) in health data
