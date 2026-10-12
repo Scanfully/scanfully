@@ -104,14 +104,11 @@ final class SyncEndpointTest extends TestCase {
 		];
 		add_filter( 'pre_http_request', $block );
 
-		// By hook only, and counted before and after: after CleanupTest's
-		// uninstall in the same run, jobs are not found by their group, so
-		// earlier tests' jobs cannot be cleaned up either.
-		$hooks = [ 'scanfully_sync_site_health', 'scanfully_sync_directories' ];
-		$due   = static fn( string $hook ): int => count(
+		$due = static fn( string $hook ): int => count(
 			as_get_scheduled_actions(
 				[
 					'hook'         => $hook,
+					'group'        => 'scanfully',
 					'status'       => \ActionScheduler_Store::STATUS_PENDING,
 					'date'         => gmdate( 'Y-m-d H:i:s', time() + 60 ),
 					'date_compare' => '<=',
@@ -120,13 +117,12 @@ final class SyncEndpointTest extends TestCase {
 				'ids'
 			)
 		);
-		$before = array_map( $due, $hooks );
 
 		try {
 			$this->assertSame( 202, $this->post_sync( [ 'Authorization' => 'Bearer ' . self::TOKEN ] ) );
 
-			foreach ( $hooks as $index => $hook ) {
-				$this->assertSame( $before[ $index ] + 1, $due( $hook ), $hook . ' must run now, not with the recurring sync.' );
+			foreach ( [ 'scanfully_sync_site_health', 'scanfully_sync_directories' ] as $hook ) {
+				$this->assertSame( 1, $due( $hook ), $hook . ' must run now, not with the recurring sync.' );
 			}
 		} finally {
 			remove_filter( 'pre_http_request', $block );
