@@ -69,4 +69,45 @@ final class SyncEndpointTest extends TestCase {
 	public function test_the_fallback_header_is_accepted(): void {
 		$this->assertSame( 202, $this->post_sync( [ 'X-Scanfully-Token' => self::TOKEN ] ) );
 	}
+
+	public function test_an_accepted_sync_starts_the_queue_runner_now(): void {
+		if ( ! class_exists( \ActionScheduler::class ) ) {
+			$this->markTestSkipped( 'Action Scheduler not loaded.' );
+		}
+
+		// Catch the runner's loopback request instead of sending it.
+		$requests = [];
+		$catch    = static function ( $response, array $args, string $url ) use ( &$requests ) {
+			$requests[] = [
+				'url'  => $url,
+				'args' => $args,
+			];
+			return [
+				'headers'  => [],
+				'body'     => '',
+				'response' => [
+					'code'    => 200,
+					'message' => 'OK',
+				],
+				'cookies'  => [],
+			];
+		};
+		add_filter( 'pre_http_request', $catch, 10, 3 );
+		\ActionScheduler::lock()->set( 'async-request-runner' ); // as if an admin page just started a runner.
+
+		try {
+			$this->assertSame( 202, $this->post_sync( [ 'Authorization' => 'Bearer ' . self::TOKEN ] ) );
+		} finally {
+			remove_filter( 'pre_http_request', $catch, 10 );
+			as_unschedule_all_actions( 'scanfully_sync_site_health', [], 'scanfully' );
+			as_unschedule_all_actions( 'scanfully_sync_directories', [], 'scanfully' );
+		}
+
+		$runners = array_filter(
+			$requests,
+			static fn( array $request ) => false !== strpos( $request['url'], 'admin-ajax.php' ) && false !== strpos( $request['url'], 'as_async_request_queue_runner' )
+		);
+		$this->assertCount( 1, $runners, 'The sync must start the queue runner, not wait for WP-Cron.' );
+		$this->assertFalse( reset( $runners )['args']['blocking'], 'The runner request must not hold up the response.' );
+	}
 }

@@ -58,6 +58,10 @@ final class ControllerTest extends TestCase {
 				return true;
 			}
 		);
+		$GLOBALS['scanfully_test_action_scheduler'] = [
+			'locks'      => [],
+			'dispatched' => [],
+		];
 		Functions\when( 'as_schedule_single_action' )->alias(
 			function ( ...$args ) {
 				$this->scheduled[] = $args;
@@ -127,6 +131,13 @@ final class ControllerTest extends TestCase {
 		}
 	}
 
+	public function test_a_sync_starts_the_queue_runner_now(): void {
+		Controller::handle_sync();
+
+		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'The syncs must not wait for WP-Cron.' );
+		$this->assertSame( [ 'async-request-runner' ], $GLOBALS['scanfully_test_action_scheduler']['locks'] );
+	}
+
 	public function test_a_second_sync_within_the_window_is_rate_limited(): void {
 		Controller::handle_sync();
 		$response = Controller::handle_sync();
@@ -134,5 +145,6 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 429, $response->get_status() );
 		$this->assertArrayHasKey( 'Retry-After', $response->get_headers() );
 		$this->assertCount( 2, $this->scheduled );
+		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'A refused sync starts no runner.' );
 	}
 }
