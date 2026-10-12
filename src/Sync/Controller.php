@@ -113,7 +113,8 @@ class Controller {
 
 	/**
 	 * Handle an on-demand sync request. Schedules the existing health and
-	 * directory syncs to run as soon as possible and returns immediately.
+	 * directory syncs, starts the queue runner so they run now, and returns
+	 * immediately.
 	 *
 	 * @return \WP_REST_Response
 	 */
@@ -137,6 +138,7 @@ class Controller {
 		set_transient( self::RATE_LIMIT_TRANSIENT, time(), self::RATE_LIMIT_WINDOW );
 
 		self::schedule_syncs();
+		self::run_queue_now();
 
 		return new \WP_REST_Response( [ 'status' => 'scheduled' ], 202 );
 	}
@@ -156,5 +158,27 @@ class Controller {
 		// Unique: parallel requests can't queue duplicate syncs.
 		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP, true );
 		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP, true );
+	}
+
+	/**
+	 * Start Action Scheduler's queue runner now, with the non-blocking
+	 * loopback request (admin-ajax) it sends itself on admin pages. Without
+	 * it the syncs wait for WP-Cron, which only runs on a later visit, so a
+	 * quiet site would not sync until someone loads a page. The runner still
+	 * decides for itself: it only runs with actions due, below its limit of
+	 * concurrent batches, and when no filter turned async requests off.
+	 *
+	 * @return void
+	 */
+	private static function run_queue_now(): void {
+		if ( ! class_exists( 'ActionScheduler' ) || ! class_exists( 'ActionScheduler_AsyncRequest_QueueRunner' ) ) {
+			return;
+		}
+
+		// The lock keeps the admin shutdown hook from dispatching a second
+		// runner within its minute; a runner it already started picks up the
+		// new actions or dispatches again when it finishes.
+		\ActionScheduler::lock()->set( 'async-request-runner' );
+		( new \ActionScheduler_AsyncRequest_QueueRunner( \ActionScheduler::store() ) )->maybe_dispatch();
 	}
 }

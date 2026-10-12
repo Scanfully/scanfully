@@ -208,6 +208,71 @@ namespace {
 			public $supports = [ 'products' ];
 		}
 	}
+
+	if ( ! class_exists( 'ActionScheduler' ) ) {
+		/**
+		 * Stub of Action Scheduler's facade, for the lock and store the sync
+		 * endpoint uses to start the queue runner. The stubs record what they
+		 * are asked in $GLOBALS['scanfully_test_action_scheduler'].
+		 */
+		class ActionScheduler {
+			/**
+			 * The lock.
+			 *
+			 * @return ActionScheduler_Lock
+			 */
+			public static function lock() {
+				return new ActionScheduler_Lock();
+			}
+
+			/**
+			 * The store.
+			 *
+			 * @return null
+			 */
+			public static function store() {
+				return null;
+			}
+		}
+
+		/**
+		 * Stub of Action Scheduler's lock.
+		 */
+		class ActionScheduler_Lock {
+			/**
+			 * Set a lock.
+			 *
+			 * @param string $lock_type The lock type.
+			 *
+			 * @return bool
+			 */
+			public function set( $lock_type ) {
+				$GLOBALS['scanfully_test_action_scheduler']['locks'][] = $lock_type;
+				return true;
+			}
+		}
+
+		/**
+		 * Stub of Action Scheduler's async queue runner.
+		 */
+		class ActionScheduler_AsyncRequest_QueueRunner {
+			/**
+			 * Constructor.
+			 *
+			 * @param mixed $store The store.
+			 */
+			public function __construct( $store ) {}
+
+			/**
+			 * Dispatch a runner.
+			 *
+			 * @return void
+			 */
+			public function maybe_dispatch() {
+				$GLOBALS['scanfully_test_action_scheduler']['dispatched'][] = true;
+			}
+		}
+	}
 }
 
 namespace Automattic\WooCommerce\Blocks\Payments\Integrations {
