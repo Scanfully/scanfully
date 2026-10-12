@@ -155,9 +155,11 @@ class Controller {
 			return;
 		}
 
-		// Unique: parallel requests can't queue duplicate syncs.
-		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP, true );
-		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP, true );
+		// Not unique: a unique action is skipped while another one with the
+		// same hook is pending, and the recurring syncs always are, so the
+		// request would queue nothing. The rate limit bounds the duplicates.
+		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
+		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_DIRECTORIES, [], self::AS_GROUP );
 	}
 
 	/**
