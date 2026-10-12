@@ -131,7 +131,7 @@ This helps you detect problems affecting contact forms, password resets, WooComm
 
 Scanfully notifies you when monitored events need your attention.
 
-You decide where those notifications should go using [notification channels](https://scanfully.com/docs/channels/).
+You decide where those notifications should go using [notification channels](https://docs.scanfully.com/notifications/).
 
 Scanfully currently supports email, Slack, Discord, and Pushover.
 

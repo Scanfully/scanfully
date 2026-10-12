@@ -165,7 +165,7 @@ class Page {
 			</div>
 			<div class="scanfully-setup-footer">
 				<p>version <?php echo esc_html( SCANFULLY_VERSION ); ?></p>
-				<p><a href="https://scanfully.com/docs/"><?php esc_html_e( 'help center', 'scanfully' ); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e( 'contact us', 'scanfully' ); ?></a></p>
+				<p><a href="https://docs.scanfully.com/"><?php esc_html_e( 'help center', 'scanfully' ); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e( 'contact us', 'scanfully' ); ?></a></p>
 			</div>
 		</div>
 		<?php
