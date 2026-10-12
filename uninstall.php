@@ -125,6 +125,11 @@ function scanfully_uninstall_scheduled_actions(): void {
 	$wpdb->delete( $actions, [ 'group_id' => $group_id ], [ '%d' ] );
 	$wpdb->delete( $groups, [ 'group_id' => $group_id ], [ '%d' ] );
 	// phpcs:enable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+	// Action Scheduler 4.1+ caches group ids for ten minutes. Drop the cached id
+	// so jobs scheduled after a reinstall create the group again instead of
+	// pointing at the deleted row.
+	wp_cache_delete( 'scanfully', 'action_scheduler_groups' );
 }
 
 /**

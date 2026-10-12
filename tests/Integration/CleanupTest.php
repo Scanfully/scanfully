@@ -174,6 +174,24 @@ final class CleanupTest extends TestCase {
 	}
 
 	/**
+	 * Action Scheduler caches group ids, so a job scheduled after uninstall (a
+	 * reinstall, or the next test) must not reuse the deleted group's id.
+	 *
+	 * @depends test_uninstall_keeps_an_account_that_is_not_the_probe_user
+	 */
+	public function test_jobs_scheduled_after_uninstall_are_found_by_their_group(): void {
+		$this->schedule_jobs();
+
+		scanfully_uninstall_site();
+		$this->schedule_jobs();
+
+		$this->assertSame( 2, $this->pending_jobs() );
+
+		as_unschedule_all_actions( '', [], 'scanfully' );
+		$this->assertSame( 0, $this->pending_jobs() );
+	}
+
+	/**
 	 * @depends test_uninstall_keeps_an_account_that_is_not_the_probe_user
 	 */
 	public function test_uninstall_revokes_the_site_tokens_before_deleting_them(): void {
