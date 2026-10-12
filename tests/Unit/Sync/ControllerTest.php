@@ -118,7 +118,7 @@ final class ControllerTest extends TestCase {
 		$this->assertFalse( Controller::check_permission( $this->request( [ 'X-Scanfully-Token' => '' ] ) ) );
 	}
 
-	public function test_a_sync_schedules_unique_health_and_directory_jobs(): void {
+	public function test_a_sync_schedules_health_and_directory_jobs_beside_the_recurring_ones(): void {
 		$response = Controller::handle_sync();
 
 		$this->assertSame( 202, $response->get_status() );
@@ -127,7 +127,7 @@ final class ControllerTest extends TestCase {
 		$this->assertContains( CronController::ACTION_SYNC_SITE_HEALTH, $hooks );
 		$this->assertContains( CronController::ACTION_SYNC_DIRECTORIES, $hooks );
 		foreach ( $this->scheduled as $args ) {
-			$this->assertTrue( $args[4], 'Sync jobs must be scheduled as unique.' );
+			$this->assertFalse( $args[4] ?? false, 'A unique job is skipped while the recurring sync is pending.' );
 		}
 	}
 
