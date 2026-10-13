@@ -206,6 +206,13 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 
 == Changelog ==
 
+= 1.8.0: October 13, 2026 =
+* Added: site data includes each plugin's latest version from WordPress's own update check, so Scanfully can show which plugins have an update
+* Changed: help center and notification channels links now point to docs.scanfully.com
+* Fixed: a sync requested from the dashboard now runs right away instead of waiting for the next visit to the site or for the pending regular syncs
+* Fixed: jobs scheduled within ten minutes of an uninstall being stored under the deleted Action Scheduler group
+* Security: the connect flow uses PKCE, so an authorization code that ends up anywhere else cannot be exchanged for tokens
+
 = 1.7.0: September 21, 2026 =
 * Added: WooCommerce checkout monitoring support.
 * Added: PHPCS, PHPStan, PHPUnit and wp-env tooling with composer scripts and QA workflow
