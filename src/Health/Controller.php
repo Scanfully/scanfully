@@ -376,6 +376,7 @@ class Controller {
 	 */
 	private static function get_plugins(): array {
 		$plugins = get_plugins();
+		$updates = get_site_transient( 'update_plugins' );
 
 		$map = [];
 
@@ -391,6 +392,7 @@ class Controller {
 				'slug' => '.' === $folder ? basename( $basename, '.php' ) : $folder,
 				'url' => $plugin['PluginURI'],
 				'version' => $plugin['Version'],
+				'latest_version' => self::get_latest_version( $updates, $plugin_path ),
 				'description' => $plugin['Description'],
 				'author' => $plugin['Author'],
 				'author_uri' => $plugin['AuthorURI'],
@@ -398,6 +400,34 @@ class Controller {
 		}
 
 		return $map;
+	}
+
+	/**
+	 * Get the latest version of a plugin as WordPress's own update check knows
+	 * it, which covers premium plugins with their own updater too.
+	 *
+	 * @param mixed  $updates     The update_plugins site transient.
+	 * @param string $plugin_path The plugin's file, relative to the plugins folder.
+	 *
+	 * @return string|null The latest version, or null when WordPress does not know it.
+	 */
+	private static function get_latest_version( $updates, string $plugin_path ): ?string {
+		if ( ! is_object( $updates ) ) {
+			return null;
+		}
+
+		// "response" holds the plugins with an update, "no_update" the ones
+		// that are up to date.
+		foreach ( [ 'response', 'no_update' ] as $list ) {
+			$item = $updates->{$list}[ $plugin_path ] ?? null;
+			// Some third-party updaters add an array instead of an object.
+			$version = is_array( $item ) ? ( $item['new_version'] ?? null ) : ( is_object( $item ) ? ( $item->new_version ?? null ) : null );
+			if ( is_scalar( $version ) && '' !== (string) $version ) {
+				return (string) $version;
+			}
+		}
+
+		return null;
 	}
 
 	/**

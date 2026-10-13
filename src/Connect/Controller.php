@@ -96,9 +96,11 @@ class Controller {
 		// the WordPress installation URL (which may be in a subdirectory).
 		$connect_url = add_query_arg(
 			[
-				'redirect_uri' => rawurlencode( Page::get_page_url() ),
-				'site'         => rawurlencode( home_url() ),
-				'state'        => self::generate_state(),
+				'redirect_uri'          => rawurlencode( Page::get_page_url() ),
+				'site'                  => rawurlencode( home_url() ),
+				'state'                 => self::generate_state(),
+				'code_challenge'        => self::code_challenge( self::generate_code_verifier() ),
+				'code_challenge_method' => 'S256',
 			],
 			Main::get_connect_url()
 		);
@@ -157,9 +159,11 @@ class Controller {
 		// build the connect URL and redirect directly into the connect flow.
 		$connect_url = add_query_arg(
 			[
-				'redirect_uri' => rawurlencode( Page::get_page_url() ),
-				'site'         => rawurlencode( home_url() ),
-				'state'        => self::generate_state(),
+				'redirect_uri'          => rawurlencode( Page::get_page_url() ),
+				'site'                  => rawurlencode( home_url() ),
+				'state'                 => self::generate_state(),
+				'code_challenge'        => self::code_challenge( self::generate_code_verifier() ),
+				'code_challenge_method' => 'S256',
 			],
 			Main::get_connect_url()
 		);
@@ -198,13 +202,18 @@ class Controller {
 		$code = sanitize_text_field( wp_unslash( $_GET['code'] ) );
 		$site = sanitize_text_field( wp_unslash( $_GET['site'] ) );
 
+		// the PKCE verifier proves to the API that this site started the
+		// connect request; like the state, it is single use.
+		$verifier = self::get_code_verifier();
+		self::delete_code_verifier();
+
 		// the site ID ends up in API URL paths, so only allow plain ID characters.
 		if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}\z/', $site ) ) {
 			wp_die( 'Invalid Scanfully connect parameters' );
 		}
 
 		// exchange authorization code for access token.
-		$tokens = self::exchange_authorization_code( $code, $site );
+		$tokens = self::exchange_authorization_code( $code, $site, $verifier );
 
 		// validate token response so we fail gracefully if the API is unreachable or returned an error.
 		if ( empty( $tokens['access_token'] )
@@ -307,11 +316,21 @@ class Controller {
 	 * Exchange the authorization code for an access and refresh token.
 	 *
 	 * @param  string $code The authorization code.
-	 * @param  string $site The Scanfully site ID.
+	 * @param  string $site     The Scanfully site ID.
+	 * @param  string $verifier The PKCE code verifier of the connect request, or an empty string without one.
 	 *
 	 * @return array<string, mixed> The token response (access_token, refresh_token, expires), or an empty array on failure.
 	 */
-	private static function exchange_authorization_code( string $code, string $site ): array {
+	private static function exchange_authorization_code( string $code, string $site, string $verifier ): array {
+
+		$body = [
+			'grant_type' => 'authorization_code',
+			'code'       => $code,
+			'site_id'    => $site,
+		];
+		if ( '' !== $verifier ) {
+			$body['code_verifier'] = $verifier;
+		}
 
 		// request arguments for the requests.
 		$request_args = [
@@ -320,13 +339,7 @@ class Controller {
 			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => Main::get_sslverify(),
-			'body'        => wp_json_encode(
-				[
-					'grant_type' => 'authorization_code',
-					'code'       => $code,
-					'site_id'    => $site,
-				]
-			),
+			'body'        => wp_json_encode( $body ),
 		];
 
 		// later check if post failed and show a notice to admins.
@@ -481,5 +494,60 @@ class Controller {
 	 */
 	private static function get_state_key(): string {
 		return 'scanfully_connect_state_' . get_current_user_id();
+	}
+
+	/**
+	 * Generate and store the PKCE code verifier (RFC 7636) for a connect
+	 * request of the current user. The API only exchanges the code for a
+	 * request that started with its challenge for the verifier, so a code
+	 * that ends up elsewhere is worthless.
+	 *
+	 * @return string The verifier: 64 random letters and digits.
+	 */
+	public static function generate_code_verifier(): string {
+		$verifier = wp_generate_password( 64, false, false );
+		set_transient( self::get_code_verifier_key(), $verifier, 15 * MINUTE_IN_SECONDS );
+
+		return $verifier;
+	}
+
+	/**
+	 * Get the stored PKCE code verifier of the current user.
+	 *
+	 * @return string The verifier, or an empty string when there is none.
+	 */
+	public static function get_code_verifier(): string {
+		$verifier = get_transient( self::get_code_verifier_key() );
+
+		return is_string( $verifier ) ? $verifier : '';
+	}
+
+	/**
+	 * Delete the stored PKCE code verifier of the current user.
+	 *
+	 * @return void
+	 */
+	public static function delete_code_verifier(): void {
+		delete_transient( self::get_code_verifier_key() );
+	}
+
+	/**
+	 * The S256 challenge of a code verifier: its SHA-256, base64url without padding.
+	 *
+	 * @param  string $verifier The code verifier.
+	 *
+	 * @return string
+	 */
+	public static function code_challenge( string $verifier ): string {
+		return rtrim( strtr( base64_encode( hash( 'sha256', $verifier, true ) ), '+/', '-_' ), '=' ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- base64url is the encoding RFC 7636 requires.
+	}
+
+	/**
+	 * Get the transient key holding the PKCE code verifier for the current user.
+	 *
+	 * @return string
+	 */
+	private static function get_code_verifier_key(): string {
+		return 'scanfully_connect_verifier_' . get_current_user_id();
 	}
 }

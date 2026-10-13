@@ -58,6 +58,10 @@ final class ControllerTest extends TestCase {
 				return true;
 			}
 		);
+		$GLOBALS['scanfully_test_action_scheduler'] = [
+			'locks'      => [],
+			'dispatched' => [],
+		];
 		Functions\when( 'as_schedule_single_action' )->alias(
 			function ( ...$args ) {
 				$this->scheduled[] = $args;
@@ -114,7 +118,7 @@ final class ControllerTest extends TestCase {
 		$this->assertFalse( Controller::check_permission( $this->request( [ 'X-Scanfully-Token' => '' ] ) ) );
 	}
 
-	public function test_a_sync_schedules_unique_health_and_directory_jobs(): void {
+	public function test_a_sync_schedules_health_and_directory_jobs_beside_the_recurring_ones(): void {
 		$response = Controller::handle_sync();
 
 		$this->assertSame( 202, $response->get_status() );
@@ -123,8 +127,15 @@ final class ControllerTest extends TestCase {
 		$this->assertContains( CronController::ACTION_SYNC_SITE_HEALTH, $hooks );
 		$this->assertContains( CronController::ACTION_SYNC_DIRECTORIES, $hooks );
 		foreach ( $this->scheduled as $args ) {
-			$this->assertTrue( $args[4], 'Sync jobs must be scheduled as unique.' );
+			$this->assertFalse( $args[4] ?? false, 'A unique job is skipped while the recurring sync is pending.' );
 		}
+	}
+
+	public function test_a_sync_starts_the_queue_runner_now(): void {
+		Controller::handle_sync();
+
+		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'The syncs must not wait for WP-Cron.' );
+		$this->assertSame( [ 'async-request-runner' ], $GLOBALS['scanfully_test_action_scheduler']['locks'] );
 	}
 
 	public function test_a_second_sync_within_the_window_is_rate_limited(): void {
@@ -134,5 +145,6 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 429, $response->get_status() );
 		$this->assertArrayHasKey( 'Retry-After', $response->get_headers() );
 		$this->assertCount( 2, $this->scheduled );
+		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'A refused sync starts no runner.' );
 	}
 }

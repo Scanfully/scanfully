@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.7.0
+Stable tag: 1.8.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -131,7 +131,7 @@ This helps you detect problems affecting contact forms, password resets, WooComm
 
 Scanfully notifies you when monitored events need your attention.
 
-You decide where those notifications should go using [notification channels](https://scanfully.com/docs/channels/).
+You decide where those notifications should go using [notification channels](https://docs.scanfully.com/notifications/).
 
 Scanfully currently supports email, Slack, Discord, and Pushover.
 
@@ -205,6 +205,13 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.8.0: October 13, 2026 =
+* Added: site data includes each plugin's latest version from WordPress's own update check, so Scanfully can show which plugins have an update
+* Changed: help center and notification channels links now point to docs.scanfully.com
+* Fixed: a sync requested from the dashboard now runs right away instead of waiting for the next visit to the site or for the pending regular syncs
+* Fixed: jobs scheduled within ten minutes of an uninstall being stored under the deleted Action Scheduler group
+* Security: the connect flow uses PKCE, so an authorization code that ends up anywhere else cannot be exchanged for tokens
 
 = 1.7.0: September 21, 2026 =
 * Added: WooCommerce checkout monitoring support.

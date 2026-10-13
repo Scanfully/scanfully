@@ -75,6 +75,7 @@ final class EventSendFailureTest extends TestCase {
 			[
 				'hook'     => EventsController::ACTION_SEND_EVENT,
 				'args'     => [ 'PostSaved', [ 'id' => 1 ], [ 'id' => 2 ], 1 ],
+				'group'    => 'scanfully',
 				'status'   => \ActionScheduler_Store::STATUS_PENDING,
 				'per_page' => -1,
 			],
