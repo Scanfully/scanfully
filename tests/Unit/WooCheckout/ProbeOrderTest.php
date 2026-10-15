@@ -25,6 +25,9 @@ final class ProbeOrderTest extends TestCase {
 		parent::setUp();
 		$this->stubTranslationFunctions();
 		$this->set_probe_request( false );
+		// WooCommerce Subscriptions is "active" in every test, so the
+		// subscription paths always run; orders have none unless a test says so.
+		Functions\when( 'wcs_get_subscriptions_for_order' )->justReturn( [] );
 	}
 
 	protected function tearDown(): void {
@@ -55,7 +58,7 @@ final class ProbeOrderTest extends TestCase {
 	 * @param bool   $tagged         Whether the probe meta is set.
 	 * @param string $payment_method Payment method ID.
 	 *
-	 * @return \Mockery\MockInterface
+	 * @return \Mockery\MockInterface&\WC_Order
 	 */
 	private function order( bool $tagged = true, string $payment_method = Controller::PROBE_GATEWAY_ID ) {
 		$order = Mockery::mock( 'WC_Order' );
@@ -77,6 +80,47 @@ final class ProbeOrderTest extends TestCase {
 
 		$this->assertSame( 'success', $result['result'] );
 		$this->assertStringContainsString( 'scanfully_probe_psp=1', $result['redirect'] );
+	}
+
+	public function test_a_probe_payment_tags_and_cancels_the_subscriptions_it_created(): void {
+		$order = Mockery::mock( 'WC_Order' );
+		$order->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$order->shouldReceive( 'set_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+		$order->shouldReceive( 'save' )->once();
+
+		$pending = Mockery::mock( 'WC_Order' );
+		$pending->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$pending->shouldReceive( 'save_meta_data' )->once();
+		$pending->shouldReceive( 'has_status' )->with( 'cancelled' )->andReturn( false );
+		$pending->shouldReceive( 'update_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+
+		// Subscriptions already cancelled it along with the parent order.
+		$already = Mockery::mock( 'WC_Order' );
+		$already->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$already->shouldReceive( 'save_meta_data' )->once();
+		$already->shouldReceive( 'has_status' )->with( 'cancelled' )->andReturn( true );
+		$already->shouldNotReceive( 'update_status' );
+
+		Functions\when( 'wcs_get_subscriptions_for_order' )->justReturn(
+			[
+				101 => $pending,
+				102 => $already,
+			]
+		);
+		Functions\when( 'wc_get_order' )->justReturn( $order );
+		Functions\when( 'home_url' )->justReturn( 'https://shop.test/' );
+		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url ) => $url . '?' . http_build_query( $args ) );
+
+		$result = ( new ProbeGateway() )->process_payment( 12 );
+
+		$this->assertSame( 'success', $result['result'] );
+	}
+
+	public function test_emails_about_probe_subscriptions_are_suppressed(): void {
+		$subscription = $this->order();
+
+		$this->assertSame( '', ProbeGateway::suppress_email_for_probe( 'shop@scanfully.com', $subscription ) );
+		$this->assertSame( 'shop@scanfully.com', ProbeGateway::suppress_email_for_probe( 'shop@scanfully.com', $this->order( false ) ) );
 	}
 
 	public function test_orders_created_during_a_probe_are_tagged(): void {
@@ -113,6 +157,9 @@ final class ProbeOrderTest extends TestCase {
 		$queried_statuses = [];
 		Functions\when( 'wc_get_orders' )->alias(
 			function ( array $args ) use ( $pending, $cancelled, &$queried_statuses ) {
+				if ( 'shop_order' !== $args['type'] ) {
+					return [];
+				}
 				$queried_statuses[] = $args['status'];
 				return [ 'pending' ] === $args['status'] ? [ $pending ] : [ $cancelled ];
 			}
@@ -121,6 +168,28 @@ final class ProbeOrderTest extends TestCase {
 		Cleanup::run();
 
 		$this->assertSame( [ [ 'pending' ], [ 'cancelled' ] ], $queried_statuses );
+	}
+
+	public function test_cleanup_handles_probe_subscriptions_before_probe_orders(): void {
+		$pending   = $this->order();
+		$cancelled = $this->order();
+		$pending->shouldReceive( 'update_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+		$cancelled->shouldReceive( 'delete' )->once()->with( true );
+
+		$queries = [];
+		Functions\when( 'wc_get_orders' )->alias(
+			function ( array $args ) use ( $pending, $cancelled, &$queries ) {
+				$queries[] = $args['type'] . ':' . $args['status'][0];
+				if ( 'shop_subscription' !== $args['type'] ) {
+					return [];
+				}
+				return [ 'pending' ] === $args['status'] ? [ $pending ] : [ $cancelled ];
+			}
+		);
+
+		Cleanup::run();
+
+		$this->assertSame( [ 'shop_subscription:pending', 'shop_subscription:cancelled', 'shop_order:pending', 'shop_order:cancelled' ], $queries );
 	}
 
 	public function test_cleanup_never_touches_orders_that_are_not_probe_orders(): void {
