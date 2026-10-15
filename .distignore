@@ -10,6 +10,7 @@
 /.vscode
 /.idea
 /.wp-env.json
+/.wp-env.test.json
 
 # Tooling and tests
 /tests
