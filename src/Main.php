@@ -156,6 +156,12 @@ class Main {
 		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
 		Events\Controller::register( new Events\CoreUpdateFailed() ); // when an automatic core update fails.
+		Events\Controller::register( new Events\UserCreated() ); // when a user is created.
+		Events\Controller::register( new Events\UserDeleted() ); // when a user is deleted.
+		Events\Controller::register( new Events\UserRoleChanged() ); // when a user's role is changed.
+		foreach ( Events\SiteOptionChanged::OPTIONS as $option ) {
+			Events\Controller::register( new Events\SiteOptionChanged( $option ) ); // when a key setting is changed.
+		}
 
 		// custom events.
 		Events\Controller::setup_custom_events();
