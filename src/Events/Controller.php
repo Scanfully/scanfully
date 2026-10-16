@@ -261,7 +261,9 @@ class Controller {
 				}
 				self::$reported_failures[ $type . ':' . $slug ] = true;
 
-				$name = (string) ( $update->name ?? '' );
+				// The automatic updater reads names through get_plugin_data()
+				// and WP_Theme, which return them HTML-encoded.
+				$name = html_entity_decode( (string) ( $update->name ?? '' ), ENT_QUOTES, 'UTF-8' );
 				do_action(
 					'scanfully_' . $type . '_update_failed',
 					[
@@ -320,7 +322,89 @@ class Controller {
 			}
 		}
 
-		return trim( html_entity_decode( wp_strip_all_tags( $message ), ENT_QUOTES, 'UTF-8' ) );
+		return trim( self::strip_paths( html_entity_decode( wp_strip_all_tags( $message ), ENT_QUOTES, 'UTF-8' ) ) );
+	}
+
+	/**
+	 * Remove absolute server paths from an error message. WordPress puts the
+	 * full path in the error data of file errors (such as "Could not create
+	 * directory." or "Destination folder already exists."). Paths under a
+	 * known WordPress directory become relative (`wp-content/plugins/akismet/`);
+	 * any other absolute path keeps only its last part (`…/akismet.zip`).
+	 * URLs are left alone.
+	 *
+	 * @param string $message The message.
+	 *
+	 * @return string
+	 */
+	private static function strip_paths( string $message ): string {
+		foreach ( self::path_roots() as $root => $label ) {
+			$quoted = preg_quote( $root, '#' );
+			// The root followed by a separator, then the root on its own.
+			$message = (string) preg_replace( '#' . $quoted . '[/\\\\]#', '' === $label ? '' : $label . '/', $message );
+			$message = (string) preg_replace( '#' . $quoted . '(?=[\s\'"<>(),;:]|\.(?:\s|$)|$)#', '' === $label ? './' : $label, $message );
+		}
+
+		// Any other absolute path: Unix (not part of a URL), then Windows.
+		$message = (string) preg_replace( '#(?<![\w:/.~\-])/(?:[^\s\'"<>/\\\\]+/)+([^\s\'"<>/\\\\]*)#', '…/$1', $message );
+		$message = (string) preg_replace( '#(?<![\w:])[A-Za-z]:[/\\\\](?:[^\s\'"<>/\\\\]+[/\\\\])*([^\s\'"<>/\\\\]*)#', '…/$1', $message );
+
+		return $message;
+	}
+
+	/**
+	 * The known WordPress directories and the relative name each one gets in
+	 * an error message, longest path first, without a trailing separator.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function path_roots(): array {
+		global $wp_filesystem;
+
+		$candidates = [
+			[ WP_PLUGIN_DIR, 'wp-content/plugins' ],
+			[ ABSPATH, '' ],
+		];
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$candidates[] = [ WP_CONTENT_DIR, 'wp-content' ];
+		}
+		if ( function_exists( 'get_theme_root' ) ) {
+			$candidates[] = [ get_theme_root(), 'wp-content/themes' ];
+		}
+		if ( function_exists( 'get_temp_dir' ) ) {
+			$candidates[] = [ get_temp_dir(), 'tmp' ];
+		}
+		// The file system WordPress writes through (FTP, SSH) can see the
+		// site under other paths.
+		if ( is_object( $wp_filesystem ) ) {
+			if ( method_exists( $wp_filesystem, 'wp_plugins_dir' ) ) {
+				$candidates[] = [ $wp_filesystem->wp_plugins_dir(), 'wp-content/plugins' ];
+			}
+			if ( method_exists( $wp_filesystem, 'wp_content_dir' ) ) {
+				$candidates[] = [ $wp_filesystem->wp_content_dir(), 'wp-content' ];
+			}
+			if ( method_exists( $wp_filesystem, 'abspath' ) ) {
+				$candidates[] = [ $wp_filesystem->abspath(), '' ];
+			}
+		}
+
+		$roots = [];
+		foreach ( $candidates as [ $path, $label ] ) {
+			$path = rtrim( (string) $path, '/\\' );
+			// A root of "/" (an FTP account that starts in the site) would
+			// match everything.
+			if ( strlen( $path ) > 1 && ! isset( $roots[ $path ] ) ) {
+				$roots[ $path ] = $label;
+			}
+		}
+		uksort(
+			$roots,
+			static function ( string $a, string $b ): int {
+				return strlen( $b ) - strlen( $a );
+			}
+		);
+
+		return $roots;
 	}
 
 	/**

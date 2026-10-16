@@ -41,6 +41,13 @@ final class SiteOptionChangedTest extends TestCase {
 		);
 	}
 
+	public function test_the_site_title_is_sent_as_plain_text(): void {
+		$body = ( new SiteOptionChanged( 'blogname' ) )->get_post_body( [ 'Tom &amp; Jerry', 'Barry&#039;s Shop' ] );
+
+		$this->assertSame( 'Tom & Jerry', $body['old'] );
+		$this->assertSame( "Barry's Shop", $body['new'] );
+	}
+
 	public function test_yes_or_no_options_are_sent_as_1_or_0(): void {
 		$body = ( new SiteOptionChanged( 'blog_public' ) )->get_post_body( [ '1', 0 ] );
 

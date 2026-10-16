@@ -38,13 +38,13 @@ class ThemeInstalled extends Event {
 			return [];
 		}
 
-		$name = (string) $theme->get( 'Name' );
+		$name = self::plain_text( $theme->get( 'Name' ) );
 
 		return [
 			'name'    => '' !== $name ? $name : $theme->get_stylesheet(),
 			'slug'    => $theme->get_stylesheet(),
 			'version' => (string) $theme->get( 'Version' ),
-			'author'  => (string) $theme->get( 'Author' ),
+			'author'  => self::plain_text( $theme->get( 'Author' ) ),
 		];
 	}
 

@@ -32,15 +32,15 @@ class ThemeSwitched extends Event {
 		$new_theme = $data[1] ?? null;
 		$old_theme = $data[2] ?? null;
 
-		$name = $new_theme instanceof \WP_Theme ? (string) $new_theme->get( 'Name' ) : '';
+		$name = $new_theme instanceof \WP_Theme ? self::plain_text( $new_theme->get( 'Name' ) ) : '';
 		if ( '' === $name && is_string( $data[0] ?? null ) ) {
-			$name = $data[0];
+			$name = self::plain_text( $data[0] );
 		}
 
 		return [
 			'name'     => $name,
 			'slug'     => $new_theme instanceof \WP_Theme ? $new_theme->get_stylesheet() : '',
-			'old_name' => $old_theme instanceof \WP_Theme ? (string) $old_theme->get( 'Name' ) : '',
+			'old_name' => $old_theme instanceof \WP_Theme ? self::plain_text( $old_theme->get( 'Name' ) ) : '',
 			'old_slug' => $old_theme instanceof \WP_Theme ? $old_theme->get_stylesheet() : '',
 		];
 	}

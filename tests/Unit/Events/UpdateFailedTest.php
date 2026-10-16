@@ -54,6 +54,8 @@ final class UpdateFailedTest extends TestCase {
 		Functions\when( 'is_wp_error' )->alias( static fn( $thing ) => $thing instanceof \WP_Error );
 		Functions\when( 'wp_strip_all_tags' )->alias( 'strip_tags' );
 		Functions\when( 'get_bloginfo' )->justReturn( '6.8.1' );
+		Functions\when( 'get_theme_root' )->justReturn( ABSPATH . 'wp-content/themes' );
+		Functions\when( 'get_temp_dir' )->justReturn( '/tmp/' );
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => array_key_exists( $key, $this->transients ) ? $this->transients[ $key ] : false );
 		Functions\when( 'set_transient' )->alias(
 			function ( string $key, $value ) {
@@ -120,8 +122,108 @@ final class UpdateFailedTest extends TestCase {
 		Controller::install_package_failed( $this->error( 'Could not copy file.', '/wp-content/themes/twentytwentyfive/style.css' ), [ 'theme' => 'twentytwentyfive' ] );
 
 		$this->assertSame( 'twentytwentyfive', $this->reported['theme'][0]['name'], 'Without a remembered name, the slug is used.' );
-		$this->assertSame( 'Could not copy file. /wp-content/themes/twentytwentyfive/style.css', $this->reported['theme'][0]['error'] );
+		$this->assertSame( 'Could not copy file. …/style.css', $this->reported['theme'][0]['error'], 'An unknown absolute path keeps only its last part.' );
 		$this->assertArrayNotHasKey( 'plugin', $this->reported );
+	}
+
+	/**
+	 * @dataProvider provide_errors_with_paths
+	 *
+	 * @param string $message  The error message.
+	 * @param string $data     The error data (core puts the path here).
+	 * @param string $expected The error sent.
+	 */
+	public function test_server_paths_are_removed_from_the_error( string $message, string $data, string $expected ): void {
+		Controller::install_package_failed( $this->error( $message, $data ), [ 'plugin' => 'akismet/akismet.php' ] );
+
+		$this->assertSame( $expected, $this->reported['plugin'][0]['error'] );
+	}
+
+	/**
+	 * Real core messages with the path WordPress adds as error data.
+	 *
+	 * @return array<string, array{string, string, string}>
+	 */
+	public function provide_errors_with_paths(): array {
+		return [
+			'mkdir_failed_destination'     => [ 'Could not create directory.', WP_PLUGIN_DIR . '/akismet/', 'Could not create directory. wp-content/plugins/akismet/' ],
+			'folder_exists'                => [ 'Destination folder already exists.', ABSPATH . 'wp-content/themes/twentytwentyfive/', 'Destination folder already exists. wp-content/themes/twentytwentyfive/' ],
+			'copy_failed_copy_dir'         => [ 'Could not copy file.', WP_PLUGIN_DIR . '/akismet/class.akismet.php', 'Could not copy file. wp-content/plugins/akismet/class.akismet.php' ],
+			'copy_failed_for_update_core'  => [ 'The update cannot be installed because some files could not be copied.', ABSPATH . 'wp-admin/includes/update-core.php', 'The update cannot be installed because some files could not be copied. wp-admin/includes/update-core.php' ],
+			'mkdir_failed_ziparchive'      => [ 'Could not create directory.', '/tmp/akismet-Ab12/akismet/', 'Could not create directory. tmp/akismet-Ab12/akismet/' ],
+			'mkdir_failed_move_dir, other' => [ 'Could not create directory.', '/srv/backups/upgrade-temp-backup/plugins/akismet', 'Could not create directory. …/akismet' ],
+			'Windows path'                 => [ 'Could not copy file.', 'C:\\inetpub\\wwwroot\\wp-content\\upgrade\\akismet.tmp', 'Could not copy file. …/akismet.tmp' ],
+			'the plugins directory itself' => [ 'Could not create directory.', WP_PLUGIN_DIR, 'Could not create directory. wp-content/plugins' ],
+			'a URL is left alone'          => [ 'Download failed.', 'https://downloads.wordpress.org/plugin/akismet.5.4.zip', 'Download failed. https://downloads.wordpress.org/plugin/akismet.5.4.zip' ],
+			'no path'                      => [ 'Download failed.', 'Not Found', 'Download failed. Not Found' ],
+			'and/or is not a path'         => [ 'The package could not be installed.', 'The theme and/or plugin is missing.', 'The package could not be installed. The theme and/or plugin is missing.' ],
+		];
+	}
+
+	public function test_paths_of_the_file_system_wordpress_writes_through_are_removed(): void {
+		$GLOBALS['wp_filesystem'] = new class() {
+			/**
+			 * The site root as the FTP account sees it.
+			 *
+			 * @return string
+			 */
+			public function abspath() {
+				return '/public_html/';
+			}
+
+			/**
+			 * The content directory as the FTP account sees it.
+			 *
+			 * @return string
+			 */
+			public function wp_content_dir() {
+				return '/public_html/wp-content/';
+			}
+		};
+
+		Controller::install_package_failed( $this->error( 'Could not create directory.', '/public_html/wp-content/upgrade/akismet/' ), [ 'plugin' => 'akismet/akismet.php' ] );
+		unset( $GLOBALS['wp_filesystem'] );
+
+		$this->assertSame( 'Could not create directory. wp-content/upgrade/akismet/', $this->reported['plugin'][0]['error'] );
+	}
+
+	public function test_a_root_file_system_path_is_not_used_as_a_root(): void {
+		$GLOBALS['wp_filesystem'] = new class() {
+			/**
+			 * An FTP account that starts in the site.
+			 *
+			 * @return string
+			 */
+			public function abspath() {
+				return '/';
+			}
+		};
+
+		Controller::automatic_updates_failed(
+			[
+				'plugin' => [
+					$this->auto_update(
+						(object) [ 'plugin' => 'akismet/akismet.php' ],
+						null,
+						'Akismet',
+						[ 'Downloading update from https://downloads.wordpress.org/plugin/akismet.5.4.zip&#8230;', 'Download failed. A valid URL was not provided.' ]
+					),
+				],
+			]
+		);
+		unset( $GLOBALS['wp_filesystem'] );
+
+		$this->assertSame( 'Download failed. A valid URL was not provided.', $this->reported['plugin'][0]['error'] );
+	}
+
+	public function test_names_from_the_automatic_updater_are_sent_as_plain_text(): void {
+		Controller::automatic_updates_failed(
+			[
+				'theme' => [ $this->auto_update( (object) [ 'theme' => 'tom-jerry' ], null, 'Tom &amp; Jerry', [ 'Failed.' ] ) ],
+			]
+		);
+
+		$this->assertSame( 'Tom & Jerry', $this->reported['theme'][0]['name'] );
 	}
 
 	public function test_scanfully_s_own_failed_update_is_reported(): void {

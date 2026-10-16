@@ -46,7 +46,7 @@ class ThemeDeleted extends Event {
 		}
 
 		$theme = wp_get_theme( $stylesheet );
-		$name  = $theme->exists() ? (string) $theme->get( 'Name' ) : '';
+		$name  = $theme->exists() ? self::plain_text( $theme->get( 'Name' ) ) : '';
 
 		self::$pending[ $stylesheet ] = [
 			'name'    => '' !== $name ? $name : $stylesheet,

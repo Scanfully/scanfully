@@ -11,8 +11,9 @@ namespace Scanfully\Events;
  * Class UserEvent
  *
  * Base for the user created, deleted and role changed events. These only
- * ever send a user's ID, display name and roles: never the email address or
- * the login.
+ * ever send a user's ID, display name and roles, and never an email
+ * address. The display name may be the same as the login: WordPress uses
+ * the login as the display name unless the user picks another one.
  *
  * @package Scanfully\Events
  */
@@ -86,7 +87,7 @@ abstract class UserEvent extends Event {
 	 */
 	protected static function has_elevated_capabilities( \WP_User $user ): bool {
 		foreach ( self::ELEVATED_CAPABILITIES as $capability ) {
-			if ( user_can( $user, $capability ) ) {
+			if ( user_can( $user, $capability ) ) { // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Core capabilities from ELEVATED_CAPABILITIES.
 				return true;
 			}
 		}

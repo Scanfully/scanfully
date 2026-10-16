@@ -109,6 +109,20 @@ abstract class Event {
 	}
 
 	/**
+	 * Plain text from a value WordPress stores or returns HTML-encoded, such
+	 * as the site title (`Barry&#039;s Shop`) or a theme name read through
+	 * WP_Theme (`Tom &amp; Jerry`), so a name is spelled the same in every
+	 * event.
+	 *
+	 * @param mixed $value The value.
+	 *
+	 * @return string
+	 */
+	protected static function plain_text( $value ): string {
+		return html_entity_decode( (string) $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/**
 	 * Whether a string is an email address.
 	 *
 	 * @param string $value The string.

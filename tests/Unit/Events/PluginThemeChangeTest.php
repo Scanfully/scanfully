@@ -292,6 +292,28 @@ final class PluginThemeChangeTest extends TestCase {
 		);
 	}
 
+	public function test_theme_names_are_sent_as_plain_text(): void {
+		$new  = $this->theme( 'tom-jerry', 'Tom &amp; Jerry' );
+		$old  = $this->theme( 'barrys', 'Barry&#039;s Theme' );
+		$body = ( new ThemeSwitched() )->get_post_body( [ 'Tom &amp; Jerry', $new, $old ] );
+
+		$this->assertSame( 'Tom & Jerry', $body['name'] );
+		$this->assertSame( "Barry's Theme", $body['old_name'] );
+
+		Functions\when( 'wp_get_theme' )->justReturn( $new );
+		ThemeDeleted::remember( 'tom-jerry' );
+		$this->assertSame( 'Tom & Jerry', ( new ThemeDeleted() )->get_post_body( [ 'tom-jerry', true ] )['name'] );
+
+		$installed = [
+			$this->upgrader( [ 'destination_name' => 'tom-jerry' ], $new ),
+			[
+				'type'   => 'theme',
+				'action' => 'install',
+			],
+		];
+		$this->assertSame( 'Tom & Jerry', ( new ThemeInstalled() )->get_post_body( $installed )['name'] );
+	}
+
 	public function test_switching_to_the_same_theme_is_not_reported(): void {
 		$theme = $this->theme( 'twentytwentyfive', 'Twenty Twenty-Five' );
 

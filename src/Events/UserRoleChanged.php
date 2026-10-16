@@ -18,13 +18,14 @@ namespace Scanfully\Events;
 class UserRoleChanged extends UserEvent {
 
 	/**
-	 * Whether a new user is being inserted. WordPress sets the first role of
-	 * a new user before `user_register`; that is part of creating the user,
-	 * not a role change.
+	 * The login of the new user being inserted, or ''. WordPress sets the
+	 * first role of a new user before `user_register`; that is part of
+	 * creating the user, not a role change. Keyed by login, so an insert that
+	 * fails after this point can't hide a later role change of another user.
 	 *
-	 * @var bool
+	 * @var string
 	 */
-	private static bool $creating_user = false;
+	private static string $creating_login = '';
 
 	/**
 	 * Users created in this request, by ID. Other plugins (on
@@ -54,7 +55,7 @@ class UserRoleChanged extends UserEvent {
 	}
 
 	/**
-	 * Note whether the user being saved is a new user.
+	 * Note the login of a new user that is about to be inserted.
 	 *
 	 * @param mixed $data   The user data, returned unchanged.
 	 * @param mixed $update Whether an existing user is updated.
@@ -62,7 +63,7 @@ class UserRoleChanged extends UserEvent {
 	 * @return mixed
 	 */
 	public static function note_user_insert( $data, $update ) {
-		self::$creating_user = ! $update;
+		self::$creating_login = ! $update && is_array( $data ) ? (string) ( $data['user_login'] ?? '' ) : '';
 
 		return $data;
 	}
@@ -75,7 +76,7 @@ class UserRoleChanged extends UserEvent {
 	 * @return void
 	 */
 	public static function note_user_registered( $user_id = 0 ): void {
-		self::$creating_user = false;
+		self::$creating_login = '';
 		if ( is_numeric( $user_id ) && (int) $user_id > 0 ) {
 			self::$created_user_ids[ (int) $user_id ] = true;
 		}
@@ -121,8 +122,14 @@ class UserRoleChanged extends UserEvent {
 			return false;
 		}
 
-		// The first role of a user that is being created.
-		if ( self::$creating_user && [] === $old_roles ) {
+		$user = get_userdata( $user_id );
+		if ( ! $user instanceof \WP_User ) {
+			return false;
+		}
+
+		// The first role of a user that is being created; only once.
+		if ( [] === $old_roles && '' !== self::$creating_login && $user->user_login === self::$creating_login ) {
+			self::$creating_login = '';
 			return false;
 		}
 
@@ -134,11 +141,6 @@ class UserRoleChanged extends UserEvent {
 
 		$key = $user_id . '|' . $role . '|' . implode( ',', $old_roles );
 		if ( isset( self::$fired[ $key ] ) ) {
-			return false;
-		}
-
-		$user = get_userdata( $user_id );
-		if ( ! $user instanceof \WP_User ) {
 			return false;
 		}
 

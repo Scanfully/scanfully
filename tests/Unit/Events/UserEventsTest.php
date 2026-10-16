@@ -51,7 +51,7 @@ final class UserEventsTest extends TestCase {
 		$this->current_user_id = 1;
 
 		$defaults = [
-			'creating_user'    => false,
+			'creating_login'   => '',
 			'created_user_ids' => [],
 			'fired'            => [],
 		];
@@ -65,7 +65,7 @@ final class UserEventsTest extends TestCase {
 		Functions\when( 'get_current_user_id' )->alias( fn() => $this->current_user_id );
 		// Roles that can edit content or manage the site.
 		Functions\when( 'user_can' )->alias(
-			static fn( $user, string $capability ) => [] !== array_intersect( (array) $user->roles, [ 'administrator', 'editor', 'author', 'contributor', 'shop_manager' ] )
+			static fn( $user ) => [] !== array_intersect( (array) $user->roles, [ 'administrator', 'editor', 'author', 'contributor', 'shop_manager' ] )
 		);
 		Functions\when( 'is_email' )->alias( static fn( $email ) => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) );
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => array_key_exists( $key, $this->transients ) ? $this->transients[ $key ] : false );
@@ -274,11 +274,32 @@ final class UserEventsTest extends TestCase {
 		$this->add_user( 19, 'New', [ 'subscriber' ] );
 		$event = new UserRoleChanged();
 
-		UserRoleChanged::note_user_insert( [], false );
+		UserRoleChanged::note_user_insert( [ 'user_login' => 'login-19' ], false );
 		$this->assertFalse( $event->should_fire( [ 19, 'subscriber', [] ] ), 'While the user is created.' );
 
 		UserRoleChanged::note_user_registered( 19 );
 		$this->assertTrue( $event->should_fire( [ 19, 'subscriber', [] ] ), 'A role given later by someone signed in.' );
+	}
+
+	public function test_a_failed_insert_does_not_hide_a_later_role_change_of_another_user(): void {
+		$this->add_user( 26, 'Existing', [ 'editor' ] );
+		$event = new UserRoleChanged();
+
+		// wp_insert_user() fails after this point (a database error), so
+		// user_register never runs.
+		UserRoleChanged::note_user_insert( [ 'user_login' => 'ghost' ], false );
+
+		$this->assertTrue( $event->should_fire( [ 26, 'editor', [] ] ) );
+	}
+
+	public function test_the_first_role_of_a_new_user_is_skipped_only_once(): void {
+		$this->add_user( 27, 'New', [ 'subscriber' ] );
+		$event = new UserRoleChanged();
+
+		UserRoleChanged::note_user_insert( [ 'user_login' => 'login-27' ], false );
+
+		$this->assertFalse( $event->should_fire( [ 27, 'subscriber', [] ] ) );
+		$this->assertTrue( $event->should_fire( [ 27, 'editor', [] ] ), 'A second role change in the same request.' );
 	}
 
 	public function test_a_role_set_right_after_a_plain_sign_up_is_not_a_role_change(): void {

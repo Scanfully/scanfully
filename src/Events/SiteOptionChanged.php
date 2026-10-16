@@ -99,6 +99,10 @@ class SiteOptionChanged extends Event {
 		if ( 'blog_public' === $this->option ) {
 			return is_scalar( $value ) ? (string) (int) $value : '0';
 		}
+		// The site title is stored HTML-encoded (`Barry&#039;s Shop`).
+		if ( 'blogname' === $this->option ) {
+			return is_scalar( $value ) ? self::plain_text( $value ) : '';
+		}
 		if ( is_scalar( $value ) ) {
 			return (string) $value;
 		}
