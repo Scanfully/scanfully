@@ -25,13 +25,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The full checkout (fetch-depth: 0) already has the base branch.
           BASE="origin/${{ github.base_ref }}"
-          git fetch origin "${{ github.base_ref }}" --depth=1
 
           # Count lines added to the baseline that look like a new ignore entry.
           # Commented lines (such as the example in the file header) are skipped.
+          # grep exits 1 when nothing matches, which pipefail would turn into a failure.
           ADDED=$(git diff "$BASE"...HEAD -- phpstan-baseline.neon \
-            | grep -E '^\+[[:space:]]*message:' \
+            | { grep -E '^\+[[:space:]]*message:' || true; } \
             | wc -l \
             | tr -d ' ')
 
@@ -43,7 +44,7 @@ jobs:
           echo "Detected $ADDED new baseline entries; checking for matching BASELINE: blocks..."
 
           JUSTIFIED=$(git diff "$BASE"...HEAD -- phpstan-baseline.neon \
-            | grep -E '^\+\s*#\s*BASELINE:' \
+            | { grep -E '^\+\s*#\s*BASELINE:' || true; } \
             | wc -l \
             | tr -d ' ')
 
