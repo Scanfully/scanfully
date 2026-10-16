@@ -44,7 +44,7 @@ final class ActivityEventTest extends TestCase {
 		require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 
 		update_option( 'scanfully_connect_is_connected', 'yes' );
-		delete_transient( 'scanfully_user_events_' . (int) floor( time() / MINUTE_IN_SECONDS ) );
+		delete_transient( 'scanfully_user_events_rate' );
 		as_unschedule_all_actions( '', [], 'scanfully' );
 		wp_set_current_user( 1 );
 	}
@@ -156,6 +156,33 @@ final class ActivityEventTest extends TestCase {
 		wp_set_current_user( 0 );
 
 		$this->create_user( (string) get_option( 'default_role' ) );
+
+		$this->assertSame( [], $this->queued_types() );
+	}
+
+	public function test_a_sign_up_as_administrator_is_reported_when_that_is_the_default_role(): void {
+		$this->restore_later( 'default_role' );
+		update_option( 'default_role', 'administrator' );
+		as_unschedule_all_actions( '', [], 'scanfully' );
+		wp_set_current_user( 0 );
+
+		$this->create_user( 'administrator' );
+
+		$this->assertSame( [ 'UserCreated' ], $this->queued_types() );
+	}
+
+	public function test_a_role_another_plugin_sets_on_sign_up_is_not_a_role_change(): void {
+		wp_set_current_user( 0 );
+		if ( ! get_role( 'customer' ) ) {
+			$this->markTestSkipped( 'Needs the WooCommerce customer role.' );
+		}
+		$set_role = static function ( $user_id ) {
+			( new \WP_User( $user_id ) )->set_role( 'customer' );
+		};
+		add_action( 'user_register', $set_role, 20 );
+
+		$this->create_user( 'subscriber' );
+		remove_action( 'user_register', $set_role, 20 );
 
 		$this->assertSame( [], $this->queued_types() );
 	}

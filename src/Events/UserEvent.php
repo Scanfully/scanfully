@@ -26,6 +26,11 @@ abstract class UserEvent extends Event {
 	private const MAX_EVENTS_PER_MINUTE = 30;
 
 	/**
+	 * The transient that counts user events: [minute, count].
+	 */
+	private const RATE_TRANSIENT = 'scanfully_user_events_rate';
+
+	/**
 	 * The ID, display name and roles of a user.
 	 *
 	 * @param \WP_User $user The user.
@@ -35,7 +40,7 @@ abstract class UserEvent extends Event {
 	protected static function describe_user( \WP_User $user ): array {
 		return [
 			'id'    => (int) $user->ID,
-			'name'  => self::display_name( $user ),
+			'name'  => self::safe_display_name( $user ),
 			'roles' => self::role_list( $user->roles ),
 		];
 	}
@@ -59,23 +64,67 @@ abstract class UserEvent extends Event {
 	}
 
 	/**
-	 * The user's display name. A display name that is an email address
-	 * (common when people sign up with their email as their username) is
-	 * replaced by their first and last name, or left empty.
+	 * Capabilities that make an account more than a plain sign-up: an account
+	 * with any of them can edit content, manage users or change the site.
+	 */
+	private const ELEVATED_CAPABILITIES = [
+		'edit_posts',
+		'list_users',
+		'edit_users',
+		'promote_users',
+		'manage_options',
+		'install_plugins',
+	];
+
+	/**
+	 * Whether a user can do more than a plain sign-up (a subscriber or a
+	 * shop customer) can, whatever role that takes.
 	 *
 	 * @param \WP_User $user The user.
 	 *
-	 * @return string
+	 * @return bool
 	 */
-	private static function display_name( \WP_User $user ): string {
-		$name = trim( (string) $user->display_name );
-		if ( ! is_email( $name ) ) {
-			return $name;
+	protected static function has_elevated_capabilities( \WP_User $user ): bool {
+		foreach ( self::ELEVATED_CAPABILITIES as $capability ) {
+			if ( user_can( $user, $capability ) ) {
+				return true;
+			}
 		}
 
-		$name = trim( $user->first_name . ' ' . $user->last_name );
+		return false;
+	}
 
-		return is_email( $name ) ? '' : $name;
+	/**
+	 * Whether a change to a user is self-service: made outside WP-CLI with
+	 * nobody signed in but (at most) the user themselves, such as a visitor
+	 * registering or a customer account created at checkout.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return bool
+	 */
+	protected static function is_self_service( int $user_id ): bool {
+		if ( defined( 'WP_CLI' ) && WP_CLI ) {
+			return false;
+		}
+
+		$current_user_id = get_current_user_id();
+
+		return 0 === $current_user_id || $user_id === $current_user_id;
+	}
+
+	/**
+	 * Whether a new account is a plain sign-up: self-service and without any
+	 * elevated capability. A sign-up that ends up with one (for instance
+	 * because the default role for new users was set to Administrator) is
+	 * never a plain sign-up.
+	 *
+	 * @param \WP_User $user The user.
+	 *
+	 * @return bool
+	 */
+	protected static function is_plain_sign_up( \WP_User $user ): bool {
+		return self::is_self_service( (int) $user->ID ) && ! self::has_elevated_capabilities( $user );
 	}
 
 	/**
@@ -90,13 +139,16 @@ abstract class UserEvent extends Event {
 			return false;
 		}
 
-		$bucket = 'scanfully_user_events_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count  = (int) get_transient( $bucket );
+		// One transient holding the current minute and its count, instead of
+		// a new transient every minute.
+		$minute = (int) floor( time() / MINUTE_IN_SECONDS );
+		$state  = get_transient( self::RATE_TRANSIENT );
+		$count  = is_array( $state ) && (int) ( $state[0] ?? -1 ) === $minute ? (int) ( $state[1] ?? 0 ) : 0;
 		if ( $count >= $limit ) {
 			return true;
 		}
 
-		set_transient( $bucket, $count + 1, 2 * MINUTE_IN_SECONDS );
+		set_transient( self::RATE_TRANSIENT, [ $minute, $count + 1 ], 2 * MINUTE_IN_SECONDS );
 
 		return false;
 	}

@@ -51,8 +51,9 @@ final class UserEventsTest extends TestCase {
 		$this->current_user_id = 1;
 
 		$defaults = [
-			'creating_user' => false,
-			'fired'         => [],
+			'creating_user'    => false,
+			'created_user_ids' => [],
+			'fired'            => [],
 		];
 		foreach ( $defaults as $property => $value ) {
 			$reset = new ReflectionProperty( UserRoleChanged::class, $property );
@@ -62,7 +63,10 @@ final class UserEventsTest extends TestCase {
 
 		Functions\when( 'get_userdata' )->alias( fn( int $id ) => $this->users[ $id ] ?? false );
 		Functions\when( 'get_current_user_id' )->alias( fn() => $this->current_user_id );
-		Functions\when( 'get_option' )->justReturn( 'subscriber' );
+		// Roles that can edit content or manage the site.
+		Functions\when( 'user_can' )->alias(
+			static fn( $user, string $capability ) => [] !== array_intersect( (array) $user->roles, [ 'administrator', 'editor', 'author', 'contributor', 'shop_manager' ] )
+		);
 		Functions\when( 'is_email' )->alias( static fn( $email ) => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) );
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => array_key_exists( $key, $this->transients ) ? $this->transients[ $key ] : false );
 		Functions\when( 'set_transient' )->alias(
@@ -150,11 +154,37 @@ final class UserEventsTest extends TestCase {
 		];
 	}
 
-	public function test_a_sign_up_with_another_role_is_reported(): void {
+	/**
+	 * @dataProvider provide_elevated_sign_ups
+	 *
+	 * @param array<int, string> $roles Roles of the new user.
+	 */
+	public function test_a_sign_up_that_can_edit_or_manage_the_site_is_reported( array $roles ): void {
 		$this->current_user_id = 0;
-		$this->add_user( 11, 'Suspicious', [ 'administrator' ] );
+		$this->add_user( 11, 'Suspicious', $roles );
 
 		$this->assertTrue( ( new UserCreated() )->should_fire( [ 11 ] ) );
+	}
+
+	/**
+	 * Sign-ups with these roles are reported whatever the default role for
+	 * new users is; with registration open and the default role set to
+	 * Administrator, every sign-up is an administrator.
+	 *
+	 * @return array<string, array{array<int, string>}>
+	 */
+	public function provide_elevated_sign_ups(): array {
+		return [
+			'default role set to administrator' => [ [ 'administrator' ] ],
+			'default role set to editor'        => [ [ 'editor' ] ],
+			'shop manager'                      => [ [ 'shop_manager' ] ],
+		];
+	}
+
+	public function test_a_user_created_by_someone_else_is_reported_whatever_the_role(): void {
+		$this->add_user( 22, 'New subscriber', [ 'subscriber' ] );
+
+		$this->assertTrue( ( new UserCreated() )->should_fire( [ 22 ] ) );
 	}
 
 	public function test_sites_can_report_sign_ups_with_a_filter(): void {
@@ -176,7 +206,7 @@ final class UserEventsTest extends TestCase {
 		$this->assertFalse( ( new UserCreated() )->should_fire( [ 13 ] ) );
 	}
 
-	public function test_user_events_are_capped_per_minute(): void {
+	public function test_user_events_are_capped_per_minute_in_one_transient(): void {
 		Filters\expectApplied( 'scanfully_user_events_per_minute' )->andReturn( 2 );
 		$this->add_user( 14, 'A', [ 'editor' ] );
 
@@ -184,6 +214,11 @@ final class UserEventsTest extends TestCase {
 		$this->assertTrue( $event->should_fire( [ 14 ] ) );
 		$this->assertTrue( $event->should_fire( [ 14 ] ) );
 		$this->assertFalse( $event->should_fire( [ 14 ] ) );
+		$this->assertSame( [ 'scanfully_user_events_rate' ], array_keys( $this->transients ) );
+
+		// A new minute starts a new count in the same transient.
+		$this->transients['scanfully_user_events_rate'] = [ (int) floor( time() / MINUTE_IN_SECONDS ) - 1, 2 ];
+		$this->assertTrue( $event->should_fire( [ 14 ] ) );
 	}
 
 	public function test_a_deleted_user_is_reported_with_id_name_and_roles(): void {
@@ -242,8 +277,36 @@ final class UserEventsTest extends TestCase {
 		UserRoleChanged::note_user_insert( [], false );
 		$this->assertFalse( $event->should_fire( [ 19, 'subscriber', [] ] ), 'While the user is created.' );
 
-		UserRoleChanged::note_user_registered();
-		$this->assertTrue( $event->should_fire( [ 19, 'subscriber', [] ] ), 'A role given later to a user without one.' );
+		UserRoleChanged::note_user_registered( 19 );
+		$this->assertTrue( $event->should_fire( [ 19, 'subscriber', [] ] ), 'A role given later by someone signed in.' );
+	}
+
+	public function test_a_role_set_right_after_a_plain_sign_up_is_not_a_role_change(): void {
+		$this->current_user_id = 0;
+		$this->add_user( 23, 'New customer', [ 'customer' ] );
+		$event = new UserRoleChanged();
+
+		// Another plugin's user_register handler, or multisite adding the user to the site.
+		UserRoleChanged::note_user_registered( 23 );
+
+		$this->assertFalse( $event->should_fire( [ 23, 'customer', [ 'subscriber' ] ] ) );
+	}
+
+	public function test_a_role_set_right_after_a_sign_up_that_gives_elevated_rights_is_reported(): void {
+		$this->current_user_id = 0;
+		$this->add_user( 24, 'Promoted on sign-up', [ 'administrator' ] );
+		$event = new UserRoleChanged();
+
+		UserRoleChanged::note_user_registered( 24 );
+
+		$this->assertTrue( $event->should_fire( [ 24, 'administrator', [ 'subscriber' ] ] ) );
+	}
+
+	public function test_a_role_change_of_an_older_user_without_anyone_signed_in_is_reported(): void {
+		$this->current_user_id = 0;
+		$this->add_user( 25, 'Cron change', [ 'customer' ] );
+
+		$this->assertTrue( ( new UserRoleChanged() )->should_fire( [ 25, 'customer', [ 'subscriber' ] ] ) );
 	}
 
 	public function test_a_role_change_while_a_user_is_updated_is_reported(): void {

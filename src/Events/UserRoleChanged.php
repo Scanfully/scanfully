@@ -27,6 +27,16 @@ class UserRoleChanged extends UserEvent {
 	private static bool $creating_user = false;
 
 	/**
+	 * Users created in this request, by ID. Other plugins (on
+	 * `user_register`) and multisite (adding the new user to the site) often
+	 * set the role of a new user right after it is created; for a plain
+	 * sign-up that is part of signing up, not a role change.
+	 *
+	 * @var array<int, bool>
+	 */
+	private static array $created_user_ids = [];
+
+	/**
 	 * Role changes already reported in this request.
 	 *
 	 * @var array<string, bool>
@@ -40,7 +50,7 @@ class UserRoleChanged extends UserEvent {
 		parent::__construct( 'UserRoleChanged', 'set_user_role', 10, 3 );
 
 		add_filter( 'wp_pre_insert_user_data', [ self::class, 'note_user_insert' ], 10, 2 );
-		add_action( 'user_register', [ self::class, 'note_user_registered' ], 0, 0 );
+		add_action( 'user_register', [ self::class, 'note_user_registered' ], 0, 1 );
 	}
 
 	/**
@@ -58,12 +68,17 @@ class UserRoleChanged extends UserEvent {
 	}
 
 	/**
-	 * The new user is in place; role changes from now on are real changes.
+	 * The new user is in place: remember it was created in this request.
+	 *
+	 * @param mixed $user_id The new user's ID.
 	 *
 	 * @return void
 	 */
-	public static function note_user_registered(): void {
+	public static function note_user_registered( $user_id = 0 ): void {
 		self::$creating_user = false;
+		if ( is_numeric( $user_id ) && (int) $user_id > 0 ) {
+			self::$created_user_ids[ (int) $user_id ] = true;
+		}
 	}
 
 	/**
@@ -122,7 +137,18 @@ class UserRoleChanged extends UserEvent {
 			return false;
 		}
 
-		if ( ! get_userdata( $user_id ) instanceof \WP_User || self::is_rate_limited() ) {
+		$user = get_userdata( $user_id );
+		if ( ! $user instanceof \WP_User ) {
+			return false;
+		}
+
+		// A role set right after a plain sign-up, by another plugin or by
+		// multisite adding the new user to the site.
+		if ( isset( self::$created_user_ids[ $user_id ] ) && self::is_plain_sign_up( $user ) ) {
+			return false;
+		}
+
+		if ( self::is_rate_limited() ) {
 			return false;
 		}
 

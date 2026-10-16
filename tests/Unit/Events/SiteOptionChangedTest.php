@@ -48,6 +48,13 @@ final class SiteOptionChangedTest extends TestCase {
 		$this->assertSame( '0', $body['new'] );
 	}
 
+	public function test_blog_public_keeps_values_other_than_0_and_1(): void {
+		$body = ( new SiteOptionChanged( 'blog_public' ) )->get_post_body( [ '1', -2 ] );
+
+		$this->assertSame( '1', $body['old'] );
+		$this->assertSame( '-2', $body['new'] );
+	}
+
 	/**
 	 * @dataProvider provide_unchanged_values
 	 *
@@ -93,6 +100,7 @@ final class SiteOptionChangedTest extends TestCase {
 			'registration opened'        => [ 'users_can_register', '0', 1 ],
 			'default role'               => [ 'default_role', 'subscriber', 'administrator' ],
 			'search engines discouraged' => [ 'blog_public', '1', 0 ],
+			'privacy plugin level'       => [ 'blog_public', '1', 2 ],
 		];
 	}
 

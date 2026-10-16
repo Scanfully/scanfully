@@ -55,41 +55,19 @@ class UserCreated extends UserEvent {
 
 		/**
 		 * Filters whether a new user is reported to Scanfully. By default,
-		 * sign-ups (a visitor registering, a customer account created at
-		 * checkout) aren't: only users created by someone signed in or with
-		 * WP-CLI, and new users with any other role.
+		 * plain sign-ups (a visitor registering, a customer account created
+		 * at checkout) aren't. Users created by someone else who is signed
+		 * in or with WP-CLI are, and so is every new account that can edit
+		 * content, manage users or change the site, whatever the default
+		 * role for new users is.
 		 *
 		 * @param bool     $should_fire Whether to report the new user.
 		 * @param \WP_User $user        The new user.
 		 */
-		if ( ! apply_filters( 'scanfully_user_created_should_fire', ! self::is_sign_up( $user ), $user ) ) {
+		if ( ! apply_filters( 'scanfully_user_created_should_fire', ! self::is_plain_sign_up( $user ), $user ) ) {
 			return false;
 		}
 
 		return ! self::is_rate_limited();
-	}
-
-	/**
-	 * Whether the user signed up themselves: created without someone else
-	 * signed in, outside WP-CLI, with no role but the default role for new
-	 * users or WooCommerce's customer role.
-	 *
-	 * @param \WP_User $user The new user.
-	 *
-	 * @return bool
-	 */
-	private static function is_sign_up( \WP_User $user ): bool {
-		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			return false;
-		}
-
-		$creator = get_current_user_id();
-		if ( 0 !== $creator && (int) $user->ID !== $creator ) {
-			return false;
-		}
-
-		$sign_up_roles = [ (string) get_option( 'default_role' ), 'customer' ];
-
-		return [] === array_diff( self::role_list( $user->roles ), $sign_up_roles );
 	}
 }

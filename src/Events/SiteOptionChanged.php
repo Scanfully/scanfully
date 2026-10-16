@@ -31,15 +31,6 @@ class SiteOptionChanged extends Event {
 	];
 
 	/**
-	 * Options that hold a yes or no. WordPress stores them as '1' or '0' but
-	 * saves them as integers, so '0' and 0 must count as the same value.
-	 */
-	private const BOOLEAN_OPTIONS = [
-		'users_can_register',
-		'blog_public',
-	];
-
-	/**
 	 * The option this instance listens to.
 	 *
 	 * @var string
@@ -98,8 +89,15 @@ class SiteOptionChanged extends Event {
 	 * @return string
 	 */
 	private function to_string( $value ): string {
-		if ( in_array( $this->option, self::BOOLEAN_OPTIONS, true ) ) {
+		// WordPress stores these as strings but saves them as integers, so
+		// '0' and 0 must count as the same value.
+		if ( 'users_can_register' === $this->option ) {
 			return ! empty( $value ) ? '1' : '0';
+		}
+		// 1 and 0 in core; privacy plugins use other numbers such as 2, -1
+		// and -2, which must not collapse to '1'.
+		if ( 'blog_public' === $this->option ) {
+			return is_scalar( $value ) ? (string) (int) $value : '0';
 		}
 		if ( is_scalar( $value ) ) {
 			return (string) $value;
