@@ -147,6 +147,11 @@ class Main {
 		Events\Controller::register( new Events\ThemeUpdate() ); // when a plugin is updated.
 		Events\Controller::register( new Events\PluginUpdateFailed() ); // when a plugin update fails.
 		Events\Controller::register( new Events\ThemeUpdateFailed() ); // when a theme update fails.
+		Events\Controller::register( new Events\PluginInstalled() ); // when a plugin is installed.
+		Events\Controller::register( new Events\PluginDeleted() ); // when a plugin is deleted.
+		Events\Controller::register( new Events\ThemeInstalled() ); // when a theme is installed.
+		Events\Controller::register( new Events\ThemeDeleted() ); // when a theme is deleted.
+		Events\Controller::register( new Events\ThemeSwitched() ); // when another theme is activated.
 		Events\Controller::register( new Events\PermalinksChanged() ); // when the permalink structure is changed.
 		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
