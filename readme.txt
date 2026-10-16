@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -205,6 +205,11 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.8.1: October 16, 2026 =
+* Added: WooCommerce checkout monitoring can buy subscription and variable subscription products; subscriptions created by a test order are cancelled right away without sending emails and removed with the test order
+* Removed: development-only files from the plugin package
+* Fixed: subscriptions created by WooCommerce checkout tests showing in the Subscriptions admin list and its status counts
 
 = 1.8.0: October 13, 2026 =
 * Added: site data includes each plugin's latest version from WordPress's own update check, so Scanfully can show which plugins have an update

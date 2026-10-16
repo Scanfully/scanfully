@@ -303,10 +303,37 @@ class Controller {
 	}
 
 	/**
+	 * Product types a test can buy, in the order the automatic pick tries
+	 * them. Subscription products come last, and only while WooCommerce
+	 * Subscriptions is active: a test order for one also creates a
+	 * subscription, which the plugin then has to cancel and clean up.
+	 *
+	 * @return string[]
+	 */
+	private static function product_types(): array {
+		$types = [ 'simple', 'variable' ];
+		if ( class_exists( '\WC_Subscriptions_Product' ) ) {
+			$types[] = 'subscription';
+			$types[] = 'variable-subscription';
+		}
+		return $types;
+	}
+
+	/**
+	 * Whether products of the type are bought through a variation.
+	 *
+	 * @param string $type Product type.
+	 * @return bool
+	 */
+	private static function is_variable_type( string $type ): bool {
+		return 'variable' === $type || 'variable-subscription' === $type;
+	}
+
+	/**
 	 * Pick the default product URL the orchestrator should start the scan
 	 * at: in stock, paid (`price > 0`), published; simple products first,
-	 * variable products as fallback. Used when the user has not chosen a
-	 * product in the Scanfully dashboard.
+	 * then variable and subscription products (see product_types()). Used
+	 * when the user has not chosen a product in the Scanfully dashboard.
 	 *
 	 * @return string Empty string when no eligible product exists.
 	 */
@@ -319,8 +346,8 @@ class Controller {
 	}
 
 	/**
-	 * Pick the eligible product object: simple products first, falling back
-	 * to variable products when no eligible simple product exists.
+	 * Pick the eligible product object: simple products first, then the
+	 * other types in the order of product_types().
 	 *
 	 * @return \WC_Product|null
 	 */
@@ -331,8 +358,8 @@ class Controller {
 
 		// Simple products first; variable products only when no eligible
 		// simple product exists (their variation resolution adds moving
-		// parts to the scan).
-		foreach ( [ 'simple', 'variable' ] as $type ) {
+		// parts to the scan), subscription products last.
+		foreach ( self::product_types() as $type ) {
 			$product = self::pick_product_of_type( $type );
 			if ( null !== $product ) {
 				return $product;
@@ -347,7 +374,7 @@ class Controller {
 	 * ascending so the same product is picked deterministically across
 	 * repeated scans on the same shop.
 	 *
-	 * @param string $type Product type ('simple' or 'variable').
+	 * @param string $type Product type, one of product_types().
 	 * @return \WC_Product|null
 	 */
 	private static function pick_product_of_type( string $type ): ?\WC_Product {
@@ -386,10 +413,10 @@ class Controller {
 
 	/**
 	 * Whether the product is probe-eligible: in stock, paid (`price > 0`),
-	 * has a permalink, purchasable (variable).
+	 * has a permalink, purchasable (variable types).
 	 *
 	 * @param \WC_Product $product Product to check.
-	 * @param string      $type    Product type ('simple' or 'variable').
+	 * @param string      $type    Product type, one of product_types().
 	 * @return bool
 	 */
 	private static function is_eligible_product( \WC_Product $product, string $type ): bool {
@@ -402,7 +429,7 @@ class Controller {
 		if ( '' === (string) $product->get_permalink() ) {
 			return false;
 		}
-		if ( 'variable' === $type && ( ! $product->is_purchasable() || ! $product->is_in_stock() ) ) {
+		if ( self::is_variable_type( $type ) && ( ! $product->is_purchasable() || ! $product->is_in_stock() ) ) {
 			return false;
 		}
 		return true;
@@ -410,8 +437,9 @@ class Controller {
 
 	/**
 	 * Search probe-eligible products for the dashboard product select.
-	 * Empty term returns the first eligible products (simple before
-	 * variable). Uses WooCommerce's own product search for term matching.
+	 * Empty term returns the first eligible products, by type in the order
+	 * of product_types(). Uses WooCommerce's own product search for term
+	 * matching.
 	 *
 	 * @param string $term  Search term (may be empty).
 	 * @param int    $limit Maximum number of results.
@@ -445,7 +473,7 @@ class Controller {
 					continue;
 				}
 				$type = $product->get_type();
-				if ( ! in_array( $type, [ 'simple', 'variable' ], true ) ) {
+				if ( ! in_array( $type, self::product_types(), true ) ) {
 					continue;
 				}
 				if ( ! $product->is_in_stock() || ! self::is_eligible_product( $product, $type ) ) {
@@ -456,7 +484,7 @@ class Controller {
 			return $results;
 		}
 
-		foreach ( [ 'simple', 'variable' ] as $type ) {
+		foreach ( self::product_types() as $type ) {
 			if ( count( $results ) >= $limit ) {
 				break;
 			}

@@ -1,7 +1,8 @@
 <?php
 /**
- * Probe order cleanup — permanently deletes Scanfully probe orders after a
- * retention period so test data does not accumulate in the shop.
+ * Probe order cleanup — permanently deletes Scanfully probe orders, and the
+ * subscriptions they created, after a retention period so test data does
+ * not accumulate in the shop.
  *
  * @package Scanfully
  */
@@ -15,6 +16,10 @@ namespace Scanfully\WooCheckout;
  * check ends, so the cleanup only ever deletes cancelled orders. A probe
  * order left pending (for example because the scan broke before payment) is
  * cancelled first, after a grace period, and deleted on a later run.
+ *
+ * With WooCommerce Subscriptions active, the subscriptions probe orders
+ * created (tagged the same way) go through the same steps, before the
+ * orders.
  */
 class Cleanup {
 
@@ -40,6 +45,11 @@ class Cleanup {
 	private const MAX_BATCHES = 10;
 
 	/**
+	 * Order type of WooCommerce Subscriptions' subscriptions.
+	 */
+	private const SUBSCRIPTION_TYPE = 'shop_subscription';
+
+	/**
 	 * Cancel stale pending probe orders, then delete cancelled probe orders
 	 * older than the retention period. Runs on the recurring daily schedule.
 	 *
@@ -50,21 +60,27 @@ class Cleanup {
 			return;
 		}
 
-		self::cancel_stale_pending_orders();
-		self::delete_old_cancelled_orders();
+		if ( function_exists( 'wcs_get_subscriptions_for_order' ) ) {
+			self::cancel_stale_pending_orders( self::SUBSCRIPTION_TYPE );
+			self::delete_old_cancelled_orders( self::SUBSCRIPTION_TYPE );
+		}
+		self::cancel_stale_pending_orders( 'shop_order' );
+		self::delete_old_cancelled_orders( 'shop_order' );
 	}
 
 	/**
 	 * Cancel probe orders that are still pending after the grace period.
 	 * This only changes their status; deleting happens on a later run.
 	 *
+	 * @param string $type Order type: shop_order or shop_subscription.
+	 *
 	 * @return void
 	 */
-	private static function cancel_stale_pending_orders(): void {
+	private static function cancel_stale_pending_orders( string $type ): void {
 		$cutoff = time() - self::PENDING_GRACE_PERIOD;
 
 		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
-			$orders = self::find_probe_orders( 'pending', $cutoff );
+			$orders = self::find_probe_orders( $type, 'pending', $cutoff );
 
 			foreach ( $orders as $order ) {
 				$order->update_status( 'cancelled', __( 'Scanfully probe order. Cancelled by the probe order cleanup.', 'scanfully' ) );
@@ -80,9 +96,11 @@ class Cleanup {
 	 * Permanently delete cancelled probe orders older than the retention
 	 * period.
 	 *
+	 * @param string $type Order type: shop_order or shop_subscription.
+	 *
 	 * @return void
 	 */
-	private static function delete_old_cancelled_orders(): void {
+	private static function delete_old_cancelled_orders( string $type ): void {
 		$retention_days = (int) apply_filters( 'scanfully_woocheckout_probe_order_retention_days', self::RETENTION_DAYS );
 		if ( $retention_days < 1 ) {
 			$retention_days = 1;
@@ -90,7 +108,7 @@ class Cleanup {
 		$cutoff = time() - ( $retention_days * DAY_IN_SECONDS );
 
 		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
-			$orders = self::find_probe_orders( 'cancelled', $cutoff );
+			$orders = self::find_probe_orders( $type, 'cancelled', $cutoff );
 
 			foreach ( $orders as $order ) {
 				$order->delete( true );
@@ -103,19 +121,22 @@ class Cleanup {
 	}
 
 	/**
-	 * Find probe orders with a status, created before a cutoff.
+	 * Find probe orders (or probe subscriptions) with a status, created
+	 * before a cutoff.
 	 *
 	 * Every result is checked again in PHP (see is_probe_order()), so a meta
 	 * filter that is ignored, for example by a custom order data store, can
 	 * never hand a real order to the caller.
 	 *
+	 * @param string $type   Order type: shop_order or shop_subscription.
 	 * @param string $status Order status without the `wc-` prefix.
 	 * @param int    $cutoff Only orders created before this Unix timestamp.
 	 *
 	 * @return \WC_Order[]
 	 */
-	private static function find_probe_orders( string $status, int $cutoff ): array {
+	private static function find_probe_orders( string $type, string $status, int $cutoff ): array {
 		$args = [
+			'type'         => $type,
 			'limit'        => self::BATCH_SIZE,
 			'date_created' => '<' . $cutoff,
 			'status'       => [ $status ],

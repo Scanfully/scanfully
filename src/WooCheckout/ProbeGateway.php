@@ -51,6 +51,11 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		add_filter( 'woocommerce_email_recipient_new_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_email_recipient_customer_processing_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_email_recipient_customer_on_hold_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
+		// WooCommerce Subscriptions: the subscription a probe order creates
+		// is cancelled right away, which would otherwise email the shop.
+		add_filter( 'woocommerce_email_recipient_cancelled_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
+		add_filter( 'woocommerce_email_recipient_expired_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
+		add_filter( 'woocommerce_email_recipient_suspended_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_can_reduce_order_stock', [ self::class, 'skip_stock_reduction_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_webhook_should_deliver', [ self::class, 'skip_webhooks_for_probe' ], 10, 3 );
 
@@ -58,6 +63,9 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		// checkout), so they can be found even if payment never runs.
 		add_action( 'woocommerce_checkout_create_order', [ self::class, 'tag_new_probe_order' ] );
 		add_action( 'woocommerce_store_api_checkout_update_order_meta', [ self::class, 'tag_new_probe_order' ] );
+		// WooCommerce Subscriptions creates the subscriptions of an order at
+		// checkout, before payment; tag them the same way.
+		add_action( 'woocommerce_checkout_subscription_created', [ self::class, 'tag_new_probe_order' ] );
 	}
 
 	/**
@@ -158,7 +166,9 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	 *
 	 * The scan ends at the stub PSP, so the order is cancelled right away.
 	 * Cancelling releases the stock WooCommerce reserved at checkout, and
-	 * pending -> cancelled sends no email.
+	 * pending -> cancelled sends no email. Subscriptions the order created
+	 * (WooCommerce Subscriptions) are tagged before and cancelled after, so
+	 * their emails stay suppressed and the cleanup deletes them too.
 	 *
 	 * @param int $order_id Order id.
 	 *
@@ -174,8 +184,18 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		}
 
 		self::tag_probe_order( $order );
+		$subscriptions = self::order_subscriptions( $order );
+		foreach ( $subscriptions as $subscription ) {
+			self::tag_probe_order( $subscription );
+			$subscription->save_meta_data();
+		}
+
 		$order->set_status( 'cancelled', __( 'Scanfully probe order. Cancelled automatically at the end of the checkout check.', 'scanfully' ) );
 		$order->save();
+
+		foreach ( $subscriptions as $subscription ) {
+			self::cancel_subscription( $subscription );
+		}
 
 		$redirect = add_query_arg(
 			[
@@ -189,6 +209,53 @@ class ProbeGateway extends \WC_Payment_Gateway {
 			'result'   => 'success',
 			'redirect' => $redirect,
 		];
+	}
+
+	/**
+	 * The subscriptions WooCommerce Subscriptions created for an order at
+	 * checkout; none when the plugin is not active.
+	 *
+	 * @param \WC_Order $order The parent order.
+	 *
+	 * @return \WC_Order[]
+	 */
+	private static function order_subscriptions( \WC_Order $order ): array {
+		if ( ! function_exists( 'wcs_get_subscriptions_for_order' ) ) {
+			return [];
+		}
+		$subscriptions = wcs_get_subscriptions_for_order( $order, [ 'order_type' => 'parent' ] );
+		if ( ! is_array( $subscriptions ) ) {
+			return [];
+		}
+		return array_values(
+			array_filter(
+				$subscriptions,
+				static function ( $subscription ) {
+					return $subscription instanceof \WC_Order;
+				}
+			)
+		);
+	}
+
+	/**
+	 * Cancel a probe subscription, unless WooCommerce Subscriptions already
+	 * did when the parent order was cancelled.
+	 *
+	 * @param \WC_Order $subscription The subscription.
+	 *
+	 * @return void
+	 */
+	private static function cancel_subscription( \WC_Order $subscription ): void {
+		if ( $subscription->has_status( 'cancelled' ) ) {
+			return;
+		}
+		try {
+			$subscription->update_status( 'cancelled', __( 'Scanfully probe subscription. Cancelled automatically at the end of the checkout check.', 'scanfully' ) );
+		} catch ( \Exception $e ) {
+			// A status Subscriptions will not move to cancelled; the cleanup
+			// cancels it later.
+			return;
+		}
 	}
 
 	/**
@@ -222,8 +289,9 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	}
 
 	/**
-	 * Keep probe orders out of WooCommerce webhooks (order.created and the
-	 * like), so ERP, marketing and accounting integrations never see them.
+	 * Keep probe orders and their subscriptions out of WooCommerce webhooks
+	 * (order.created, subscription.created and the like), so ERP, marketing
+	 * and accounting integrations never see them.
 	 *
 	 * @param bool        $should_deliver Whether the webhook should be delivered.
 	 * @param \WC_Webhook $webhook        The webhook.
@@ -232,7 +300,7 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	 * @return bool
 	 */
 	public static function skip_webhooks_for_probe( $should_deliver, $webhook, $arg ) {
-		if ( ! $should_deliver || ! $webhook instanceof \WC_Webhook || 'order' !== $webhook->get_resource() || ! is_numeric( $arg ) ) {
+		if ( ! $should_deliver || ! $webhook instanceof \WC_Webhook || ! in_array( $webhook->get_resource(), [ 'order', 'subscription' ], true ) || ! is_numeric( $arg ) ) {
 			return $should_deliver;
 		}
 
