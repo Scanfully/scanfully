@@ -206,6 +206,11 @@ Scanfully is designed to keep monitoring work away from frontend page loads. The
 
 == Changelog ==
 
+= 1.8.1: October 16, 2026 =
+* Added: WooCommerce checkout monitoring can buy subscription and variable subscription products; subscriptions created by a test order are cancelled right away without sending emails and removed with the test order
+* Removed: development-only files from the plugin package
+* Fixed: subscriptions created by WooCommerce checkout tests showing in the Subscriptions admin list and its status counts
+
 = 1.8.0: October 13, 2026 =
 * Added: site data includes each plugin's latest version from WordPress's own update check, so Scanfully can show which plugins have an update
 * Changed: help center and notification channels links now point to docs.scanfully.com
