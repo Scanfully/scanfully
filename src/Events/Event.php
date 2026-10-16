@@ -83,8 +83,54 @@ abstract class Event {
 
 		return [
 			'id'   => $current_user->ID,
-			'name' => $current_user->display_name,
+			'name' => self::safe_display_name( $current_user ),
 		];
+	}
+
+	/**
+	 * A user's display name, safe to send. WordPress defaults the display
+	 * name to the login, which is often an email address; an email address
+	 * is replaced by the user's first and last name, or left empty, so no
+	 * email address leaves the site.
+	 *
+	 * @param object $user The user (a WP_User).
+	 *
+	 * @return string
+	 */
+	protected static function safe_display_name( object $user ): string {
+		$name = trim( (string) ( $user->display_name ?? '' ) );
+		if ( ! self::looks_like_email( $name ) ) {
+			return $name;
+		}
+
+		$name = trim( ( $user->first_name ?? '' ) . ' ' . ( $user->last_name ?? '' ) );
+
+		return self::looks_like_email( $name ) ? '' : $name;
+	}
+
+	/**
+	 * Plain text from a value WordPress stores or returns HTML-encoded, such
+	 * as the site title (`Barry&#039;s Shop`) or a theme name read through
+	 * WP_Theme (`Tom &amp; Jerry`), so a name is spelled the same in every
+	 * event.
+	 *
+	 * @param mixed $value The value.
+	 *
+	 * @return string
+	 */
+	protected static function plain_text( $value ): string {
+		return html_entity_decode( (string) $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/**
+	 * Whether a string is an email address.
+	 *
+	 * @param string $value The string.
+	 *
+	 * @return bool
+	 */
+	private static function looks_like_email( string $value ): bool {
+		return false !== strpos( $value, '@' ) && false !== is_email( $value );
 	}
 
 

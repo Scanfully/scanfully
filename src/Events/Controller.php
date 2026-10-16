@@ -126,6 +126,285 @@ class Controller {
 	public static function setup_custom_events(): void {
 		self::plugin_update_event();
 		self::theme_update_event();
+		self::update_failed_events();
+	}
+
+	/**
+	 * Plugins and themes whose failed update was already reported in this
+	 * request, keyed `plugin:<basename>` or `theme:<stylesheet>`, so an
+	 * automatic update that fails while installing isn't reported twice.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $reported_failures = [];
+
+	/**
+	 * Failed plugin, theme and core update events.
+	 *
+	 * Two sources, because neither sees every failure:
+	 * - `upgrader_install_package_result` sees a plugin or theme update that
+	 *   fails while the package is installed (an incompatible package, files
+	 *   that can't be copied), for manual, WP-CLI and automatic updates. It
+	 *   doesn't see failures before that, such as a download that fails.
+	 * - `automatic_updates_complete` has the result of every automatic update,
+	 *   including download failures, fatal error rollbacks and core updates.
+	 *   A failed manual core update has no hook with its result, so only
+	 *   automatic core updates are reported.
+	 *
+	 * @return void
+	 */
+	private static function update_failed_events(): void {
+		add_filter( 'upgrader_package_options', [ self::class, 'remember_update_item' ], 99, 1 );
+		add_filter( 'upgrader_install_package_result', [ self::class, 'install_package_failed' ], 99, 2 );
+		add_action( 'automatic_updates_complete', [ self::class, 'automatic_updates_failed' ], 10, 1 );
+	}
+
+	/**
+	 * Keep the name and the version on offer of a plugin or theme that is
+	 * about to be updated in the upgrader's hook extras: once a failed update
+	 * has removed the old files, they can no longer be read.
+	 *
+	 * @param mixed $options The upgrader package options.
+	 *
+	 * @return mixed
+	 */
+	public static function remember_update_item( $options ) {
+		if ( ! is_array( $options ) || ! isset( $options['hook_extra'] ) || ! is_array( $options['hook_extra'] ) ) {
+			return $options;
+		}
+
+		if ( isset( $options['hook_extra']['plugin'] ) ) {
+			$plugin = (string) $options['hook_extra']['plugin'];
+			$data   = get_file_data( WP_PLUGIN_DIR . '/' . $plugin, [ 'Name' => 'Plugin Name' ] );
+			$offers = get_site_transient( 'update_plugins' );
+
+			$options['hook_extra']['scanfully_old_name']    = (string) ( $data['Name'] ?? '' );
+			$options['hook_extra']['scanfully_new_version'] = (string) ( $offers->response[ $plugin ]->new_version ?? '' );
+		} elseif ( isset( $options['hook_extra']['theme'] ) ) {
+			$theme  = (string) $options['hook_extra']['theme'];
+			$data   = get_file_data( get_theme_root( $theme ) . '/' . $theme . '/style.css', [ 'Name' => 'Theme Name' ] );
+			$offers = get_site_transient( 'update_themes' );
+
+			$options['hook_extra']['scanfully_old_name']    = (string) ( $data['Name'] ?? '' );
+			$options['hook_extra']['scanfully_new_version'] = (string) ( $offers->response[ $theme ]['new_version'] ?? '' );
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Report a plugin or theme update that failed while installing the
+	 * package. Scanfully's own failed updates are reported too: the old
+	 * version stays in place, so the event can still be sent.
+	 *
+	 * @param mixed $result     The install result.
+	 * @param mixed $hook_extra The upgrader hook extras.
+	 *
+	 * @return mixed The install result, unchanged.
+	 */
+	public static function install_package_failed( $result, $hook_extra ) {
+		if ( ! is_wp_error( $result ) || ! is_array( $hook_extra ) ) {
+			return $result;
+		}
+
+		foreach ( [ 'plugin', 'theme' ] as $type ) {
+			if ( ! isset( $hook_extra[ $type ] ) ) {
+				continue;
+			}
+
+			$slug = (string) $hook_extra[ $type ];
+			$name = (string) ( $hook_extra['scanfully_old_name'] ?? '' );
+
+			self::$reported_failures[ $type . ':' . $slug ] = true;
+
+			do_action(
+				'scanfully_' . $type . '_update_failed',
+				[
+					'name'        => '' !== $name ? $name : $slug,
+					'slug'        => $slug,
+					'version'     => (string) ( $hook_extra['scanfully_old_version'] ?? '' ),
+					'new_version' => (string) ( $hook_extra['scanfully_new_version'] ?? '' ),
+					'error'       => self::failure_message( $result ),
+				]
+			);
+			break;
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Report the automatic updates that failed.
+	 *
+	 * @param mixed $update_results The results per type ('core', 'plugin',
+	 *                              'theme', 'translation'), each a list of
+	 *                              objects with item, result, name and
+	 *                              messages.
+	 *
+	 * @return void
+	 */
+	public static function automatic_updates_failed( $update_results ): void {
+		if ( ! is_array( $update_results ) ) {
+			return;
+		}
+
+		foreach ( [ 'plugin', 'theme' ] as $type ) {
+			foreach ( (array) ( $update_results[ $type ] ?? [] ) as $update ) {
+				// WordPress itself only counts `true` as a successful plugin or theme update.
+				if ( ! is_object( $update ) || true === ( $update->result ?? null ) || ! is_object( $update->item ?? null ) ) {
+					continue;
+				}
+
+				$slug = (string) ( $update->item->$type ?? '' );
+				if ( '' === $slug || isset( self::$reported_failures[ $type . ':' . $slug ] ) ) {
+					continue;
+				}
+				self::$reported_failures[ $type . ':' . $slug ] = true;
+
+				// The automatic updater reads names through get_plugin_data()
+				// and WP_Theme, which return them HTML-encoded.
+				$name = html_entity_decode( (string) ( $update->name ?? '' ), ENT_QUOTES, 'UTF-8' );
+				do_action(
+					'scanfully_' . $type . '_update_failed',
+					[
+						'name'        => '' !== $name ? $name : $slug,
+						'slug'        => $slug,
+						'version'     => (string) ( $update->item->current_version ?? '' ),
+						'new_version' => (string) ( $update->item->new_version ?? '' ),
+						'error'       => self::failure_message( $update->result ?? null, (array) ( $update->messages ?? [] ) ),
+					]
+				);
+			}
+		}
+
+		foreach ( (array) ( $update_results['core'] ?? [] ) as $update ) {
+			// A core update returns the new version on success.
+			if ( ! is_object( $update ) || ( ! empty( $update->result ) && ! is_wp_error( $update->result ) ) ) {
+				continue;
+			}
+
+			$item = is_object( $update->item ?? null ) ? $update->item : new \stdClass();
+			do_action(
+				'scanfully_core_update_failed',
+				[
+					'version'     => (string) ( $item->current ?? $item->version ?? '' ),
+					'old_version' => (string) get_bloginfo( 'version' ),
+					'error'       => self::failure_message( $update->result ?? null, (array) ( $update->messages ?? [] ) ),
+				]
+			);
+		}
+	}
+
+	/**
+	 * The error message of a failed update as plain text: the message of a
+	 * WP_Error (with its detail, such as the reason a download failed), or
+	 * else the last message the upgrader showed. Empty when there is none.
+	 *
+	 * @param mixed $result   The update result.
+	 * @param array $messages The upgrader's messages.
+	 *
+	 * @return string
+	 */
+	private static function failure_message( $result, array $messages = [] ): string {
+		$message = '';
+		if ( is_wp_error( $result ) ) {
+			$message = $result->get_error_message();
+			$detail  = $result->get_error_data();
+			if ( is_string( $detail ) && '' !== $detail ) {
+				$message .= ' ' . $detail;
+			}
+		} else {
+			foreach ( array_reverse( $messages ) as $line ) {
+				if ( is_string( $line ) && '' !== trim( $line ) ) {
+					$message = $line;
+					break;
+				}
+			}
+		}
+
+		return trim( self::strip_paths( html_entity_decode( wp_strip_all_tags( $message ), ENT_QUOTES, 'UTF-8' ) ) );
+	}
+
+	/**
+	 * Remove absolute server paths from an error message. WordPress puts the
+	 * full path in the error data of file errors (such as "Could not create
+	 * directory." or "Destination folder already exists."). Paths under a
+	 * known WordPress directory become relative (`wp-content/plugins/akismet/`);
+	 * any other absolute path keeps only its last part (`…/akismet.zip`).
+	 * URLs are left alone.
+	 *
+	 * @param string $message The message.
+	 *
+	 * @return string
+	 */
+	private static function strip_paths( string $message ): string {
+		foreach ( self::path_roots() as $root => $label ) {
+			$quoted = preg_quote( $root, '#' );
+			// The root followed by a separator, then the root on its own.
+			$message = (string) preg_replace( '#' . $quoted . '[/\\\\]#', '' === $label ? '' : $label . '/', $message );
+			$message = (string) preg_replace( '#' . $quoted . '(?=[\s\'"<>(),;:]|\.(?:\s|$)|$)#', '' === $label ? './' : $label, $message );
+		}
+
+		// Any other absolute path: Unix (not part of a URL), then Windows.
+		$message = (string) preg_replace( '#(?<![\w:/.~\-])/(?:[^\s\'"<>/\\\\]+/)+([^\s\'"<>/\\\\]*)#', '…/$1', $message );
+		$message = (string) preg_replace( '#(?<![\w:])[A-Za-z]:[/\\\\](?:[^\s\'"<>/\\\\]+[/\\\\])*([^\s\'"<>/\\\\]*)#', '…/$1', $message );
+
+		return $message;
+	}
+
+	/**
+	 * The known WordPress directories and the relative name each one gets in
+	 * an error message, longest path first, without a trailing separator.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function path_roots(): array {
+		global $wp_filesystem;
+
+		$candidates = [
+			[ WP_PLUGIN_DIR, 'wp-content/plugins' ],
+			[ ABSPATH, '' ],
+		];
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$candidates[] = [ WP_CONTENT_DIR, 'wp-content' ];
+		}
+		if ( function_exists( 'get_theme_root' ) ) {
+			$candidates[] = [ get_theme_root(), 'wp-content/themes' ];
+		}
+		if ( function_exists( 'get_temp_dir' ) ) {
+			$candidates[] = [ get_temp_dir(), 'tmp' ];
+		}
+		// The file system WordPress writes through (FTP, SSH) can see the
+		// site under other paths.
+		if ( is_object( $wp_filesystem ) ) {
+			if ( method_exists( $wp_filesystem, 'wp_plugins_dir' ) ) {
+				$candidates[] = [ $wp_filesystem->wp_plugins_dir(), 'wp-content/plugins' ];
+			}
+			if ( method_exists( $wp_filesystem, 'wp_content_dir' ) ) {
+				$candidates[] = [ $wp_filesystem->wp_content_dir(), 'wp-content' ];
+			}
+			if ( method_exists( $wp_filesystem, 'abspath' ) ) {
+				$candidates[] = [ $wp_filesystem->abspath(), '' ];
+			}
+		}
+
+		$roots = [];
+		foreach ( $candidates as [ $path, $label ] ) {
+			$path = rtrim( (string) $path, '/\\' );
+			// A root of "/" (an FTP account that starts in the site) would
+			// match everything.
+			if ( strlen( $path ) > 1 && ! isset( $roots[ $path ] ) ) {
+				$roots[ $path ] = $label;
+			}
+		}
+		uksort(
+			$roots,
+			static function ( string $a, string $b ): int {
+				return strlen( $b ) - strlen( $a );
+			}
+		);
+
+		return $roots;
 	}
 
 	/**
