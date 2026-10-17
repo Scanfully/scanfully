@@ -165,6 +165,8 @@ class Main {
 		Events\Controller::register( new Events\AppPasswordFirstUsed() ); // when an application password of a user with elevated rights is used for the first time.
 		Events\Controller::register( new Events\PasswordChanged() ); // when the password of a user with elevated rights is changed.
 		Events\Controller::register( new Events\EmailChanged() ); // when the email address of a user with elevated rights is changed.
+		Events\Controller::register( new Events\SuperAdminGranted() ); // when a user is made super admin (multisite).
+		Events\Controller::register( new Events\SuperAdminRevoked() ); // when a user is no longer super admin (multisite).
 		foreach ( Events\SiteOptionChanged::OPTIONS as $option ) {
 			Events\Controller::register( new Events\SiteOptionChanged( $option ) ); // when a key setting is changed.
 		}

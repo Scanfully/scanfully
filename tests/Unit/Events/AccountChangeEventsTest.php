@@ -13,11 +13,16 @@ use Mockery;
 use ReflectionProperty;
 use Scanfully\Events\EmailChanged;
 use Scanfully\Events\PasswordChanged;
+use Scanfully\Events\SuperAdminGranted;
+use Scanfully\Events\SuperAdminRevoked;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Events\PasswordChanged
  * @covers \Scanfully\Events\EmailChanged
+ * @covers \Scanfully\Events\SuperAdminEvent
+ * @covers \Scanfully\Events\SuperAdminGranted
+ * @covers \Scanfully\Events\SuperAdminRevoked
  */
 final class AccountChangeEventsTest extends TestCase {
 
@@ -325,6 +330,43 @@ final class AccountChangeEventsTest extends TestCase {
 		new EmailChanged();
 
 		$this->fire( 'profile_update', 5, $this->before( 5, [ 'user_email' => 'old@scanfully.com' ] ), [] );
+
+		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_granting_and_revoking_super_admin_is_reported_with_the_account(): void {
+		new SuperAdminGranted();
+		new SuperAdminRevoked();
+
+		$this->fire( 'granted_super_admin', 4 );
+		$this->fire( 'revoked_super_admin', 4 );
+
+		$this->assertSame( [ 'SuperAdminGranted', 'SuperAdminRevoked' ], $this->types() );
+		$expected = [
+			'id'    => 4,
+			'name'  => 'Bob',
+			'email' => 'bob@scanfully.com',
+			'roles' => [ 'administrator' ],
+		];
+		$this->assertSame( $expected, $this->scheduled[0]['data'] );
+		$this->assertSame( $expected, $this->scheduled[1]['data'] );
+		$this->assertSame( 'Admin', $this->scheduled[0]['user']['name'], 'The actor is who made the change.' );
+	}
+
+	public function test_a_revoke_is_reported_even_when_the_account_has_no_role_on_the_site(): void {
+		new SuperAdminRevoked();
+
+		// Without super admin rights the account has nothing left on this site.
+		$this->fire( 'revoked_super_admin', 5 );
+
+		$this->assertSame( [ 'SuperAdminRevoked' ], $this->types() );
+		$this->assertSame( 'sue@scanfully.com', $this->scheduled[0]['data']['email'] );
+	}
+
+	public function test_an_unknown_user_is_not_reported(): void {
+		new SuperAdminGranted();
+
+		$this->fire( 'granted_super_admin', 999 );
 
 		$this->assertSame( [], $this->scheduled );
 	}
