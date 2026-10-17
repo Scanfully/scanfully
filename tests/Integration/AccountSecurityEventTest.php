@@ -112,6 +112,20 @@ final class AccountSecurityEventTest extends TestCase {
 	}
 
 	/**
+	 * Start what counts as a new request for the password events: the users
+	 * created so far were created in an earlier request.
+	 *
+	 * @return void
+	 */
+	private function new_request(): void {
+		\Scanfully\Events\PasswordChanged::flush();
+		as_unschedule_all_actions( '', [], 'scanfully' );
+		$created = new \ReflectionProperty( \Scanfully\Events\PasswordChanged::class, 'created' );
+		$created->setAccessible( true );
+		$created->setValue( null, [] );
+	}
+
+	/**
 	 * Create an application password.
 	 *
 	 * @param int $user_id The user ID.
@@ -198,5 +212,69 @@ final class AccountSecurityEventTest extends TestCase {
 		$this->assertSame( $item['uuid'], $events[0][1]['app_id'] );
 		$this->assertSame( '203.0.113.9', $events[0][1]['ip'] );
 		$this->assertStringNotContainsString( $password, (string) wp_json_encode( $events ), 'Never the password.' );
+	}
+
+	public function test_password_changes_are_reported_with_how_they_were_made(): void {
+		$profile    = $this->create_user( 'administrator' );
+		$reset      = $this->create_user( 'administrator' );
+		$direct     = $this->create_user( 'editor' );
+		$subscriber = $this->create_user( 'subscriber' );
+		$this->new_request();
+
+		wp_update_user(
+			[
+				'ID'        => $profile,
+				'user_pass' => 'Profile-' . wp_generate_password(),
+			]
+		);
+		reset_password( get_userdata( $reset ), 'Reset-' . wp_generate_password() );
+		wp_set_password( 'Direct-' . wp_generate_password(), $direct );
+		wp_set_password( 'Direct-' . wp_generate_password(), $subscriber );
+		$this->assertSame( [], $this->queued_types(), 'Nothing is sent before the end of the request.' );
+		\Scanfully\Events\PasswordChanged::flush();
+
+		$events = $this->queued();
+		$this->assertSame( [ 'PasswordChanged', 'PasswordChanged', 'PasswordChanged' ], array_column( $events, 0 ) );
+		$this->assertSame( [ $profile, $reset, $direct ], array_column( array_column( $events, 1 ), 'id' ) );
+		$this->assertSame( [ 'profile', 'reset', 'other' ], array_column( array_column( $events, 1 ), 'via' ) );
+		$encoded = (string) wp_json_encode( $events );
+		$this->assertStringNotContainsString( 'Profile-', $encoded, 'Never the password.' );
+		$this->assertStringNotContainsString( '$', $encoded, 'Never the hash.' );
+	}
+
+	public function test_the_password_of_a_new_user_is_not_a_change(): void {
+		$this->new_request();
+		as_unschedule_all_actions( '', [], 'scanfully' );
+		$id = wp_insert_user(
+			[
+				'user_login' => 'scanfully-' . strtolower( wp_generate_password( 8, false ) ),
+				'user_pass'  => wp_generate_password(),
+				'role'       => 'administrator',
+			]
+		);
+		$this->assertIsInt( $id );
+		$this->users[] = $id;
+		wp_set_password( wp_generate_password(), $id );
+		\Scanfully\Events\PasswordChanged::flush();
+
+		$this->assertSame( [ 'UserCreated' ], $this->queued_types() );
+	}
+
+	public function test_logging_in_is_not_a_password_change(): void {
+		$admin    = $this->create_user( 'administrator' );
+		$password = 'Login-' . wp_generate_password();
+		wp_set_password( $password, $admin );
+		$this->new_request();
+		// Store the password with an old hash, so logging in rehashes it.
+		global $wpdb;
+		$wpdb->update( $wpdb->users, [ 'user_pass' => md5( $password ) ], [ 'ID' => $admin ] ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Test setup.
+		clean_user_cache( $admin );
+
+		$user = wp_authenticate( get_userdata( $admin )->user_login, $password );
+		\Scanfully\Events\PasswordChanged::flush();
+
+		$this->assertInstanceOf( \WP_User::class, $user );
+		$this->assertNotSame( md5( $password ), get_userdata( $admin )->user_pass, 'WordPress stored a newer hash.' );
+		$this->assertSame( [], $this->queued_types() );
 	}
 }

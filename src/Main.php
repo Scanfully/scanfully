@@ -163,6 +163,7 @@ class Main {
 		Events\Controller::register( new Events\AppPasswordCreated() ); // when an application password is created for a user with elevated rights.
 		Events\Controller::register( new Events\AppPasswordRevoked() ); // when an application password of a user with elevated rights is revoked.
 		Events\Controller::register( new Events\AppPasswordFirstUsed() ); // when an application password of a user with elevated rights is used for the first time.
+		Events\Controller::register( new Events\PasswordChanged() ); // when the password of a user with elevated rights is changed.
 		foreach ( Events\SiteOptionChanged::OPTIONS as $option ) {
 			Events\Controller::register( new Events\SiteOptionChanged( $option ) ); // when a key setting is changed.
 		}
