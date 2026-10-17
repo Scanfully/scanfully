@@ -11,11 +11,13 @@ use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Scanfully\Events\AppPasswordCreated;
+use Scanfully\Events\AppPasswordRevoked;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Events\AppPasswordEvent
  * @covers \Scanfully\Events\AppPasswordCreated
+ * @covers \Scanfully\Events\AppPasswordRevoked
  */
 final class AppPasswordEventsTest extends TestCase {
 
@@ -150,6 +152,7 @@ final class AppPasswordEventsTest extends TestCase {
 	private function event_for( string $hook ): object {
 		$events = [
 			'wp_create_application_password' => AppPasswordCreated::class,
+			'wp_delete_application_password' => AppPasswordRevoked::class,
 		];
 
 		return new $events[ $hook ]();
@@ -181,6 +184,37 @@ final class AppPasswordEventsTest extends TestCase {
 	public function test_a_new_application_password_of_another_account_is_not_reported(): void {
 		$this->run_listener( 'wp_create_application_password', 5, $this->item(), 'abcd efgh ijkl mnop qrst uvwx', [] );
 		$this->run_listener( 'wp_create_application_password', 999, $this->item(), 'abcd efgh ijkl mnop qrst uvwx', [] );
+
+		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_a_revoked_application_password_is_reported_with_when_it_was_last_used(): void {
+		$this->run_listener( 'wp_delete_application_password', 4, $this->item( [ 'last_used' => 1759492800 ] ) );
+
+		$this->assertSame( 'AppPasswordRevoked', $this->scheduled[0]['type'] );
+		$this->assertSame(
+			[
+				'id'        => 4,
+				'name'      => 'Bob',
+				'email'     => 'bob@scanfully.com',
+				'roles'     => [ 'administrator' ],
+				'app_name'  => 'Zapier',
+				'app_id'    => '6f8f1c2e-7a5b-4c3d-9e1f-2a3b4c5d6e7f',
+				'last_used' => '2025-10-03T12:00:00Z',
+			],
+			$this->scheduled[0]['data']
+		);
+		$this->assertStringNotContainsString( 'hashed-password', (string) json_encode( $this->scheduled ), 'Never the hash.' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
+	}
+
+	public function test_a_never_used_application_password_has_an_empty_last_used(): void {
+		$this->run_listener( 'wp_delete_application_password', 4, $this->item() );
+
+		$this->assertSame( '', $this->scheduled[0]['data']['last_used'] );
+	}
+
+	public function test_a_revoked_application_password_of_another_account_is_not_reported(): void {
+		$this->run_listener( 'wp_delete_application_password', 5, $this->item() );
 
 		$this->assertSame( [], $this->scheduled );
 	}

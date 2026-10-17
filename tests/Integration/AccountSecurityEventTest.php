@@ -139,4 +139,20 @@ final class AccountSecurityEventTest extends TestCase {
 		$this->assertSame( $item['uuid'], $events[0][1]['app_id'] );
 		$this->assertStringNotContainsString( $password, (string) wp_json_encode( $events ), 'Never the password.' );
 	}
+
+	public function test_revoking_application_passwords_is_reported_once_per_password(): void {
+		$admin = $this->create_user( 'administrator' );
+		$first = $this->create_app_password( $admin )[1];
+		$this->create_app_password( $admin );
+		as_unschedule_all_actions( '', [], 'scanfully' );
+
+		\WP_Application_Passwords::delete_application_password( $admin, $first['uuid'] );
+		\WP_Application_Passwords::delete_all_application_passwords( $admin );
+
+		$events = $this->queued();
+		$this->assertSame( [ 'AppPasswordRevoked', 'AppPasswordRevoked' ], array_column( $events, 0 ) );
+		$this->assertSame( $first['uuid'], $events[0][1]['app_id'] );
+		$this->assertNotSame( $first['uuid'], $events[1][1]['app_id'] );
+		$this->assertSame( '', $events[0][1]['last_used'] );
+	}
 }
