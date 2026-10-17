@@ -31,7 +31,11 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		// drops any gateway that does not declare them when the cart has a
 		// subscription and manual renewals are disabled. The probe never
 		// charges a real PSP; it only needs to stay visible on checkout.
-		$this->supports = [ 'products', 'subscriptions', 'multiple_subscriptions' ];
+		// subscription_cancellation: Subscriptions only moves a subscription
+		// to cancelled when its gateway declares this. Without it, the
+		// subscriptions a probe order creates stay pending, both here and in
+		// the cleanup. There is no PSP to notify, so cancelling is always fine.
+		$this->supports = [ 'products', 'subscriptions', 'multiple_subscriptions', 'subscription_cancellation' ];
 
 		// Always enabled at the gateway settings level; availability is
 		// gated dynamically by ProbeGateway::filter_available_gateways().
