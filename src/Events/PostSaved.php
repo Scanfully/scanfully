@@ -7,8 +7,19 @@
 
 namespace Scanfully\Events;
 
+use Scanfully\Events\PostChanges\Collector;
+use Scanfully\Events\PostChanges\Stash;
+
 /**
- * Class ActivatedPlugin
+ * Class PostSaved
+ *
+ * A post was saved and something changed: it was created, its status
+ * changed, or its title, slug, content, custom fields, terms or other
+ * fields changed. The Collector notes the changes while the post is saved
+ * and reports each changed post once, at the end of the request; a save
+ * that changes nothing is not reported. The background job
+ * (PostChanges\Builder) works out the content diff and names and sends the
+ * event.
  *
  * @package Scanfully\Events
  */
@@ -18,13 +29,15 @@ class PostSaved extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PostSaved', 'wp_after_insert_post', 10, 4 );
+		parent::__construct( 'PostSaved', Collector::ACTION, 10, 5 );
+
+		Collector::setup();
 	}
 
 	/**
 	 * Get the post body
 	 *
-	 * @param  array $data The data to send.
+	 * @param  array $data The data passed to the action: post ID, post, update, post before, changes.
 	 *
 	 * @return array
 	 */
@@ -33,14 +46,102 @@ class PostSaved extends Event {
 		$post    = $data[1];
 		// $update      = $data[2];
 		$post_before = $data[3];
+		$changes     = $data[4] ?? [];
 
-		return [
+		$body = [
 			'id'          => $post_id,
 			'title'       => $post->post_title,
 			'post_status' => $post->post_status,
 			'post_before' => self::summarize_post( $post_before ),
 			'post'        => self::summarize_post( $post ),
 		];
+
+		if ( is_array( $changes ) && [] !== $changes ) {
+			$body['changes'] = $changes;
+		}
+
+		return $body;
+	}
+
+	/**
+	 * Schedule the background job that works out what changed and sends
+	 * the event. What doesn't fit in the job's arguments (the content of a
+	 * post without revisions, many changed fields) is stored for the job.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user who made the change.
+	 * @param array  $data The event data.
+	 *
+	 * @return void
+	 */
+	protected function schedule( string $type, array $user, array $data ): void {
+		$stash = '';
+		if ( isset( $data['changes'] ) && ( isset( $data['changes']['content']['stash'] ) || self::args_length( $type, $user, $data ) > self::MAX_ARGS_LENGTH ) ) {
+			$stash           = Stash::put( [ 'changes' => $data['changes'] ] );
+			$data['changes'] = '' !== $stash ? [ 'stashed' => true ] : self::without_stashed_content( $data['changes'] );
+		}
+
+		$args = self::fit_args(
+			[
+				'type'  => $type,
+				'user'  => $user,
+				'data'  => $data,
+				'stash' => $stash,
+			]
+		);
+
+		as_schedule_single_action( time(), Controller::ACTION_BUILD_POST_EVENT, $args, 'scanfully' );
+	}
+
+	/**
+	 * The length of a job's arguments as JSON.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user.
+	 * @param array  $data The event data.
+	 *
+	 * @return int
+	 */
+	private static function args_length( string $type, array $user, array $data ): int {
+		return strlen(
+			(string) wp_json_encode(
+				[
+					'type' => $type,
+					'user' => $user,
+					'data' => $data,
+				]
+			)
+		);
+	}
+
+	/**
+	 * Changes without the content to compare, for when it could not be
+	 * stored: the content is only reported as changed.
+	 *
+	 * @param array $changes The changes.
+	 *
+	 * @return array
+	 */
+	private static function without_stashed_content( array $changes ): array {
+		if ( isset( $changes['content']['stash'] ) ) {
+			$changes['content'] = [ 'unavailable' => true ];
+		}
+
+		return $changes;
+	}
+
+	/**
+	 * A user's name as events report it (never an email address); '' when
+	 * the user doesn't exist.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return string
+	 */
+	public static function author_name( int $user_id ): string {
+		$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+
+		return $user instanceof \WP_User ? self::safe_display_name( $user ) : '';
 	}
 
 	/**
@@ -88,26 +189,11 @@ class PostSaved extends Event {
 		}
 
 		// Never send the password itself, only whether the post has one.
-		$password                 = is_object( $post ) ? ( $post->post_password ?? '' ) : ( $post['post_password'] ?? '' );
+		$password                = is_object( $post ) ? ( $post->post_password ?? '' ) : ( $post['post_password'] ?? '' );
 		$summary['has_password'] = '' !== (string) $password;
 
 		return $summary;
 	}
-
-	/**
-	 * Track post ID and status pairs that have already had an event scheduled
-	 * in this request, to prevent duplicate events when wp_after_insert_post
-	 * fires multiple times for the same save.
-	 *
-	 * @var array<string, bool>
-	 */
-	private static array $fired_ids = [];
-
-	/**
-	 * Transient TTL in seconds used to deduplicate rapid cross-request saves
-	 * (e.g. Gutenberg firing two REST API saves in quick succession).
-	 */
-	private const DEDUP_TTL = 5;
 
 	/**
 	 * Default maximum number of post events per minute, so bulk edits and
@@ -182,33 +268,9 @@ class PostSaved extends Event {
 			return false;
 		}
 
-		$post_id = (int) $data[0];
-
-		// Duplicates are tracked per post and status: a save that changes the
-		// status (draft, then publish) is always reported, while repeated
-		// saves with the same status collapse into one event.
-		$dedup_key = $post_id . '_' . $post->post_status;
-
-		// Prevent duplicate events for the same save within a single request.
-		if ( isset( self::$fired_ids[ $dedup_key ] ) ) {
-			return false;
-		}
-
-		// Prevent duplicate events across rapid successive requests (e.g. Gutenberg's
-		// publish flow can fire two REST saves within a second of each other).
-		$transient_key = 'scanfully_post_event_' . $dedup_key;
-		if ( get_transient( $transient_key ) ) {
-			return false;
-		}
-
-		if ( self::is_rate_limited() ) {
-			return false;
-		}
-
-		set_transient( $transient_key, 1, self::DEDUP_TTL );
-		self::$fired_ids[ $dedup_key ] = true;
-
-		return true;
+		// Repeated saves need no deduplication here: the Collector reports a
+		// post once per request, and only when something changed.
+		return ! self::is_rate_limited();
 	}
 
 	/**

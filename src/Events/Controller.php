@@ -23,6 +23,12 @@ class Controller {
 	public const ACTION_SEND_EVENT = 'scanfully_send_event';
 
 	/**
+	 * Action Scheduler hook name for working out what changed in a saved
+	 * post and sending it (PostChanges\Builder).
+	 */
+	public const ACTION_BUILD_POST_EVENT = 'scanfully_build_post_event';
+
+	/**
 	 * The events
 	 *
 	 * @var Event[]
@@ -56,6 +62,7 @@ class Controller {
 	 */
 	public static function register_send_callback(): void {
 		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 4 );
+		add_action( self::ACTION_BUILD_POST_EVENT, [ PostChanges\Builder::class, 'build' ], 10, 5 );
 	}
 
 	/**
@@ -66,7 +73,7 @@ class Controller {
 	/**
 	 * Seconds between retries of a failed event.
 	 */
-	private const SEND_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
+	public const SEND_RETRY_DELAY = 5 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Action Scheduler callback: send a scheduled event to the API.
@@ -85,6 +92,31 @@ class Controller {
 	 * @throws \RuntimeException When the API did not accept the event.
 	 */
 	public static function send_event( string $type, array $user, array $data, int $attempt = 0 ): void {
+		self::deliver(
+			$type,
+			$user,
+			$data,
+			$attempt,
+			static function () use ( $type, $user, $data, $attempt ): void {
+				as_schedule_single_action( time() + self::SEND_RETRY_DELAY, self::ACTION_SEND_EVENT, [ $type, $user, $data, $attempt + 1 ], 'scanfully' );
+			}
+		);
+	}
+
+	/**
+	 * Send an event to the API. On a temporary failure with retries left,
+	 * `$retry` schedules the next attempt; every failure then throws.
+	 *
+	 * @param  string   $type    The event type.
+	 * @param  array    $user    The user data.
+	 * @param  array    $data    The event data.
+	 * @param  int      $attempt Retry number; 0 for the first attempt.
+	 * @param  callable $retry   Schedules the next attempt.
+	 *
+	 * @return void
+	 * @throws \RuntimeException When the API did not accept the event.
+	 */
+	public static function deliver( string $type, array $user, array $data, int $attempt, callable $retry ): void {
 		$options = Options\Controller::get_options();
 		if ( ! $options->is_connected ) {
 			return;
@@ -105,7 +137,7 @@ class Controller {
 
 		$temporary = null === $status || 401 === $status || 429 === $status || $status >= 500;
 		if ( $temporary && $attempt < self::MAX_SEND_RETRIES ) {
-			as_schedule_single_action( time() + self::SEND_RETRY_DELAY, self::ACTION_SEND_EVENT, [ $type, $user, $data, $attempt + 1 ], 'scanfully' );
+			$retry();
 		}
 
 		throw new \RuntimeException(

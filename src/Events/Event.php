@@ -170,15 +170,28 @@ abstract class Event {
 			return;
 		}
 
-		// Schedule the API request as a background job so it does not block the current request.
+		$this->schedule( $this->type, $this->get_user( $args ), $this->get_post_body( $args ) );
+	}
+
+	/**
+	 * Schedule the API request as a background job so it does not block the
+	 * current request.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user who made the change.
+	 * @param array  $data The event data.
+	 *
+	 * @return void
+	 */
+	protected function schedule( string $type, array $user, array $data ): void {
 		as_schedule_single_action(
 			time(),
 			Controller::ACTION_SEND_EVENT,
 			self::fit_args(
 				[
-					'type' => $this->type,
-					'user' => $this->get_user( $args ),
-					'data' => $this->get_post_body( $args ),
+					'type' => $type,
+					'user' => $user,
+					'data' => $data,
 				]
 			),
 			'scanfully'
@@ -189,7 +202,7 @@ abstract class Event {
 	 * Action Scheduler rejects jobs whose arguments are longer than this, when
 	 * encoded as JSON; the event would be lost.
 	 */
-	private const MAX_ARGS_LENGTH = 8000;
+	protected const MAX_ARGS_LENGTH = 8000;
 
 	/**
 	 * Keep the job arguments within Action Scheduler's size limit: shorten
@@ -200,7 +213,7 @@ abstract class Event {
 	 *
 	 * @return array
 	 */
-	private static function fit_args( array $args ): array {
+	protected static function fit_args( array $args ): array {
 		foreach ( [ 0, 1000, 200 ] as $max_length ) {
 			if ( $max_length > 0 ) {
 				$args['data'] = self::shorten_strings( $args['data'], $max_length );

@@ -11,6 +11,7 @@ namespace Scanfully\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
 use Scanfully\Events\Controller as EventsController;
+use Scanfully\Events\PostChanges\Collector;
 
 /**
  * Verifies which post saves queue a timeline event.
@@ -32,6 +33,7 @@ final class PostEventTest extends TestCase {
 		}
 		update_option( 'scanfully_connect_is_connected', 'yes' );
 		as_unschedule_all_actions( '', [], 'scanfully' );
+		Collector::reset();
 	}
 
 	protected function tearDown(): void {
@@ -61,11 +63,13 @@ final class PostEventTest extends TestCase {
 				'post_status' => $status,
 			]
 		);
+		// The post is reported at the end of the request.
+		Collector::flush();
 
 		return count(
 			as_get_scheduled_actions(
 				[
-					'hook'     => EventsController::ACTION_SEND_EVENT,
+					'hook'     => EventsController::ACTION_BUILD_POST_EVENT,
 					'group'    => 'scanfully',
 					'status'   => \ActionScheduler_Store::STATUS_PENDING,
 					'per_page' => -1,
