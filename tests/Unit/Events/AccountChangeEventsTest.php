@@ -11,11 +11,13 @@ use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use ReflectionProperty;
+use Scanfully\Events\EmailChanged;
 use Scanfully\Events\PasswordChanged;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Events\PasswordChanged
+ * @covers \Scanfully\Events\EmailChanged
  */
 final class AccountChangeEventsTest extends TestCase {
 
@@ -76,6 +78,7 @@ final class AccountChangeEventsTest extends TestCase {
 			}
 		);
 		Functions\when( 'get_option' )->justReturn( 'yes' );
+		Functions\when( 'wp_unslash' )->alias( 'stripslashes' );
 		Functions\when( 'wp_get_current_user' )->justReturn(
 			(object) [
 				'ID'           => 1,
@@ -286,6 +289,42 @@ final class AccountChangeEventsTest extends TestCase {
 		$this->fire( 'wp_set_password', 'new-plain-password', 5, $this->users[5] );
 		$this->fire( 'profile_update', 5, $this->before( 5, [ 'user_pass' => '$wp$2y$10$old-hash' ] ), [] );
 		$this->end_request();
+
+		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_a_changed_email_address_is_reported_with_the_old_and_new_address(): void {
+		new EmailChanged();
+
+		// WordPress slashes the old address before profile_update.
+		$this->fire( 'profile_update', 4, $this->before( 4, [ 'user_email' => "o\\'brien@scanfully.com" ] ), [] );
+
+		$this->assertSame( [ 'EmailChanged' ], $this->types() );
+		$this->assertSame( 'Admin', $this->scheduled[0]['user']['name'], 'The actor is who made the change.' );
+		$this->assertSame(
+			[
+				'id'        => 4,
+				'name'      => 'Bob',
+				'email'     => 'bob@scanfully.com',
+				'roles'     => [ 'administrator' ],
+				'old_email' => "o'brien@scanfully.com",
+			],
+			$this->scheduled[0]['data']
+		);
+	}
+
+	public function test_a_profile_update_that_keeps_the_email_address_is_not_reported(): void {
+		new EmailChanged();
+
+		$this->fire( 'profile_update', 4, $this->before( 4, [ 'display_name' => 'Robert' ] ), [] );
+
+		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_a_changed_email_address_of_an_account_without_elevated_rights_is_not_reported(): void {
+		new EmailChanged();
+
+		$this->fire( 'profile_update', 5, $this->before( 5, [ 'user_email' => 'old@scanfully.com' ] ), [] );
 
 		$this->assertSame( [], $this->scheduled );
 	}

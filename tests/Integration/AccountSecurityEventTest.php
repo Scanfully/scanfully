@@ -277,4 +277,35 @@ final class AccountSecurityEventTest extends TestCase {
 		$this->assertNotSame( md5( $password ), get_userdata( $admin )->user_pass, 'WordPress stored a newer hash.' );
 		$this->assertSame( [], $this->queued_types() );
 	}
+
+	public function test_an_email_change_is_reported_for_elevated_accounts_only(): void {
+		$admin      = $this->create_user( 'administrator' );
+		$subscriber = $this->create_user( 'subscriber' );
+		$old_email  = get_userdata( $admin )->user_email;
+		$new_email  = "o'brien-" . strtolower( wp_generate_password( 6, false ) ) . '@scanfully.com';
+
+		wp_update_user(
+			[
+				'ID'         => $admin,
+				'user_email' => $new_email,
+			]
+		);
+		wp_update_user(
+			[
+				'ID'         => $subscriber,
+				'user_email' => 'new-' . get_userdata( $subscriber )->user_email,
+			]
+		);
+		wp_update_user(
+			[
+				'ID'           => $admin,
+				'display_name' => 'Renamed',
+			]
+		);
+
+		$events = $this->queued();
+		$this->assertSame( [ 'EmailChanged' ], array_column( $events, 0 ) );
+		$this->assertSame( $new_email, $events[0][1]['email'] );
+		$this->assertSame( $old_email, $events[0][1]['old_email'] );
+	}
 }
