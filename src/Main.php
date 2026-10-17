@@ -153,7 +153,14 @@ class Main {
 		Events\Controller::register( new Events\ThemeDeleted() ); // when a theme is deleted.
 		Events\Controller::register( new Events\ThemeSwitched() ); // when another theme is activated.
 		Events\Controller::register( new Events\PermalinksChanged() ); // when the permalink structure is changed.
-		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
+		Events\Controller::register( new Events\PostSaved() ); // when a post is created or changed.
+		Events\Controller::register( new Events\PostDeleted() ); // when a post is deleted permanently.
+		Events\Controller::register( new Events\PostBulkAction() ); // when many posts get the same action in one request.
+		Events\Controller::register( new Events\TermCreated() ); // when a category, tag or other term is created.
+		Events\Controller::register( new Events\TermChanged() ); // when a term's name, slug, parent or description changes.
+		Events\Controller::register( new Events\TermDeleted() ); // when a term is deleted.
+		Events\Controller::register( new Events\TermBulkAction() ); // when many terms get the same action in one request.
+		Events\TermChanges\Collector::setup();
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
 		Events\Controller::register( new Events\CoreUpdateFailed() ); // when an automatic core update fails.
 		Events\Controller::register( new Events\UserCreated() ); // when a user is created.

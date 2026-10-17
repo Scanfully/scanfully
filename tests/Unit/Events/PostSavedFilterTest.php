@@ -1,6 +1,6 @@
 <?php
 /**
- * PostSaved filtering and rate limit unit tests.
+ * PostSaved filtering unit tests.
  *
  * @package Scanfully\Tests\Unit\Events
  */
@@ -155,14 +155,6 @@ final class PostSavedFilterTest extends TestCase {
 		Filters\expectApplied( 'scanfully_post_saved_should_fire' )->andReturn( false );
 
 		$this->assertFalse( $this->fires( 'post' ) );
-	}
-
-	public function test_saves_are_capped_per_minute(): void {
-		Filters\expectApplied( 'scanfully_post_saved_events_per_minute' )->andReturn( 2 );
-
-		$this->assertTrue( $this->fires( 'post', 'publish', 1 ) );
-		$this->assertTrue( $this->fires( 'post', 'publish', 2 ) );
-		$this->assertFalse( $this->fires( 'post', 'publish', 3 ) );
 	}
 
 	/**

@@ -7,13 +7,21 @@
 
 namespace Scanfully\Events\PostChanges;
 
+use Scanfully\Events\Content\Report;
+use Scanfully\Events\Content\Summary;
+use Scanfully\Events\ContentEvent;
+use Scanfully\Events\PostDeleted;
+use Scanfully\Events\PostSaved;
+
 /**
  * Class Collector
  *
- * Notes what changes in the posts saved during a request, and at the end of
- * the request reports each saved post that changed (the `PostSaved` event
- * listens to `scanfully_post_changed`). A save that changes nothing tracked
- * is not reported.
+ * Notes what changes in the posts saved during a request, and the posts
+ * deleted permanently, and at the end of the request reports each one that
+ * changed (the `PostSaved` event listens to `scanfully_post_changed`,
+ * `PostDeleted` to its content event). A save that changes nothing tracked
+ * is not reported. When many posts get the same action in one request, they
+ * are reported as one summary row (Content\Report).
  *
  * Everything here must stay cheap, because it runs while a post is saved:
  * it compares values WordPress already has in memory, and keeps what the
@@ -33,9 +41,22 @@ final class Collector {
 	public const ACTION = 'scanfully_post_changed';
 
 	/**
-	 * The most posts noted in one request (bulk edits, long WP-CLI runs).
+	 * The most posts noted in full in one request. Past them (a bulk edit
+	 * of hundreds of posts, a long WP-CLI run), a saved post is only counted
+	 * for the summary row, without a copy of the post.
 	 */
 	private const MAX_POSTS = 100;
+
+	/**
+	 * The most posts counted or deleted in one request.
+	 */
+	private const MAX_ITEMS = 20000;
+
+	/**
+	 * The most posts whose custom fields or terms are noted before they are
+	 * saved.
+	 */
+	private const MAX_PENDING = 2 * self::MAX_POSTS;
 
 	/**
 	 * The most custom fields noted per post.
@@ -97,6 +118,31 @@ final class Collector {
 	private static array $earlier_revisions = [];
 
 	/**
+	 * Posts saved in this request past the first MAX_POSTS, as summary
+	 * items, by ID.
+	 *
+	 * @var array<int, array<string, mixed>>
+	 */
+	private static array $counted = [];
+
+	/**
+	 * Posts deleted permanently in this request, by ID: what the event
+	 * reports, noted while the post still existed, and whether the delete
+	 * went through.
+	 *
+	 * @var array<int, array{title: string, post_type: string, post_status: string, expired: bool, done: bool}>
+	 */
+	private static array $deleted = [];
+
+	/**
+	 * Term taxonomy IDs added to the posts the last flush reported, so a
+	 * term created for one of them isn't reported again on its own.
+	 *
+	 * @var array<int, bool>
+	 */
+	private static array $added_terms = [];
+
+	/**
 	 * Whether the hooks are added.
 	 *
 	 * @var bool
@@ -119,6 +165,8 @@ final class Collector {
 		add_action( 'added_post_meta', [ self::class, 'note_meta_added' ], 10, 4 );
 		add_action( 'delete_post_meta', [ self::class, 'note_meta_deleted' ], 10, 4 );
 		add_action( 'set_object_terms', [ self::class, 'note_terms' ], 10, 6 );
+		add_action( 'before_delete_post', [ self::class, 'note_deleting' ], 10, 2 );
+		add_action( 'deleted_post', [ self::class, 'note_deleted' ], 10, 1 );
 		add_action( '_wp_put_post_revision', [ self::class, 'note_revision' ], 10, 2 );
 		add_filter( 'wp_save_post_revision_check_for_changes', [ self::class, 'note_earlier_revision' ], PHP_INT_MAX, 3 );
 		add_action( 'shutdown', [ self::class, 'flush' ], 0, 0 );
@@ -135,6 +183,18 @@ final class Collector {
 		self::$terms             = [];
 		self::$revisions         = [];
 		self::$earlier_revisions = [];
+		self::$counted           = [];
+		self::$deleted           = [];
+		self::$added_terms       = [];
+	}
+
+	/**
+	 * Term taxonomy IDs added to the posts the last flush reported.
+	 *
+	 * @return array<int, bool>
+	 */
+	public static function added_terms(): array {
+		return self::$added_terms;
 	}
 
 	/**
@@ -169,6 +229,7 @@ final class Collector {
 		}
 
 		if ( count( self::$saved ) >= self::MAX_POSTS ) {
+			self::count_saved( $post_id, $post, (bool) $update, is_object( $post_before ) ? $post_before : null );
 			return;
 		}
 
@@ -177,6 +238,97 @@ final class Collector {
 			'after'  => clone $post,
 			'update' => (bool) $update,
 		];
+	}
+
+	/**
+	 * A post saved past the first MAX_POSTS of the request: only counted for
+	 * its summary row, from what this save changed. Its custom fields and
+	 * terms were noted before the save; later changes to it in the request
+	 * are not counted.
+	 *
+	 * @param int         $post_id The post ID.
+	 * @param object      $post    The post.
+	 * @param bool        $update  Whether an existing post was updated.
+	 * @param object|null $before  The post before the save.
+	 *
+	 * @return void
+	 */
+	private static function count_saved( int $post_id, object $post, bool $update, ?object $before ): void {
+		$fields = self::$fields[ $post_id ] ?? [];
+		$terms  = self::$terms[ $post_id ] ?? [];
+		unset( self::$fields[ $post_id ], self::$terms[ $post_id ], self::$revisions[ $post_id ], self::$earlier_revisions[ $post_id ] );
+
+		if ( isset( self::$counted[ $post_id ] ) || count( self::$counted ) >= self::MAX_ITEMS || ! PostSaved::is_reported( $post ) ) {
+			return;
+		}
+
+		$created = self::is_new( $update, $before );
+		$changes = $created || null === $before ? [] : self::changes( $before, $post, $fields, $terms, null );
+		if ( null === $changes ) {
+			return;
+		}
+
+		self::$counted[ $post_id ] = self::saved_item( $post_id, $post, $before, $changes, $created );
+	}
+
+	/**
+	 * Whether a save made the post: a new post, or the auto-draft the editor
+	 * opened first.
+	 *
+	 * @param bool        $update Whether an existing post was updated.
+	 * @param object|null $before The post before the save.
+	 *
+	 * @return bool
+	 */
+	private static function is_new( bool $update, ?object $before ): bool {
+		return ! $update || null === $before || 'auto-draft' === ( $before->post_status ?? '' );
+	}
+
+	/**
+	 * `before_delete_post`: a post is about to be deleted permanently. What
+	 * the event reports is read from the post WordPress passes; nothing is
+	 * looked up.
+	 *
+	 * @param mixed $post_id The post ID.
+	 * @param mixed $post    The post.
+	 *
+	 * @return void
+	 */
+	public static function note_deleting( $post_id, $post = null ): void {
+		$post_id = (int) $post_id;
+		if ( $post_id < 1 || ! is_object( $post ) || isset( self::$deleted[ $post_id ] ) || count( self::$deleted ) >= self::MAX_ITEMS ) {
+			return;
+		}
+
+		// What the save hooks noted about the post is no longer a change.
+		unset( self::$fields[ $post_id ], self::$terms[ $post_id ] );
+
+		if ( ! PostDeleted::is_reported( $post ) ) {
+			return;
+		}
+
+		self::$deleted[ $post_id ] = [
+			'title'       => (string) ( $post->post_title ?? '' ),
+			'post_type'   => (string) $post->post_type,
+			'post_status' => (string) $post->post_status,
+			// WordPress empties the trash in the `wp_scheduled_delete` cron job.
+			'expired'     => doing_action( 'wp_scheduled_delete' ),
+			'done'        => false,
+		];
+	}
+
+	/**
+	 * `deleted_post`: the post is gone.
+	 *
+	 * @param mixed $post_id The post ID.
+	 *
+	 * @return void
+	 */
+	public static function note_deleted( $post_id ): void {
+		$post_id = (int) $post_id;
+		if ( isset( self::$deleted[ $post_id ] ) ) {
+			self::$deleted[ $post_id ]['done'] = true;
+		}
 	}
 
 	/**
@@ -236,12 +388,12 @@ final class Collector {
 	 * @return void
 	 */
 	private static function note_field( int $post_id, string $key, bool $exists, $value, bool $existed ): void {
-		if ( $post_id < 1 || self::importing() || ! Fields::is_counted( $key ) ) {
+		if ( $post_id < 1 || self::importing() || ! Fields::is_counted( $key ) || self::is_settled( $post_id ) ) {
 			return;
 		}
 
 		if ( ! isset( self::$fields[ $post_id ][ $key ] ) ) {
-			if ( ! isset( self::$fields[ $post_id ] ) && count( self::$fields ) >= self::MAX_POSTS ) {
+			if ( ! isset( self::$fields[ $post_id ] ) && count( self::$fields ) >= self::MAX_PENDING ) {
 				return;
 			}
 			if ( count( self::$fields[ $post_id ] ?? [] ) >= self::MAX_FIELDS ) {
@@ -263,6 +415,19 @@ final class Collector {
 		self::$fields[ $post_id ][ $key ]['exists']   = $exists;
 		self::$fields[ $post_id ][ $key ]['new']      = $exists ? Fields::describe( $value ) : null;
 		self::$fields[ $post_id ][ $key ]['new_hash'] = $exists ? Fields::fingerprint( $value ) : '';
+	}
+
+	/**
+	 * Whether nothing more is noted about a post in this request: it is
+	 * being deleted (WordPress removes its fields one by one), or it was
+	 * already counted for a summary row.
+	 *
+	 * @param int $post_id The post ID.
+	 *
+	 * @return bool
+	 */
+	private static function is_settled( int $post_id ): bool {
+		return isset( self::$deleted[ $post_id ] ) || isset( self::$counted[ $post_id ] );
 	}
 
 	/**
@@ -303,7 +468,7 @@ final class Collector {
 	public static function note_terms( $object_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids ): void {
 		$post_id  = (int) $object_id;
 		$taxonomy = (string) $taxonomy;
-		if ( $post_id < 1 || self::importing() || ! self::is_counted_taxonomy( $taxonomy ) ) {
+		if ( $post_id < 1 || self::importing() || self::is_settled( $post_id ) || ! self::is_counted_taxonomy( $taxonomy ) ) {
 			return;
 		}
 
@@ -314,7 +479,7 @@ final class Collector {
 		}
 
 		if ( ! isset( self::$terms[ $post_id ][ $taxonomy ] ) ) {
-			if ( ! isset( self::$terms[ $post_id ] ) && count( self::$terms ) >= self::MAX_POSTS ) {
+			if ( ! isset( self::$terms[ $post_id ] ) && count( self::$terms ) >= self::MAX_PENDING ) {
 				return;
 			}
 			self::$terms[ $post_id ][ $taxonomy ] = [
@@ -398,7 +563,8 @@ final class Collector {
 	}
 
 	/**
-	 * Report each saved post that changed, once, at the end of the request.
+	 * Report each saved post that changed and each deleted post, once, at
+	 * the end of the request.
 	 *
 	 * @return void
 	 */
@@ -407,20 +573,156 @@ final class Collector {
 		$fields    = self::$fields;
 		$terms     = self::$terms;
 		$revisions = self::$revisions;
+		$counted   = self::$counted;
+		$deleted   = self::$deleted;
 		self::reset();
 
+		$items   = [];
+		$created = [];
 		foreach ( $saved as $post_id => $save ) {
-			$before  = $save['before'];
-			$after   = $save['after'];
-			$created = ! $save['update'] || null === $before || 'auto-draft' === ( $before->post_status ?? '' );
-
-			$changes = $created ? [] : self::changes( $before, $after, $fields[ $post_id ] ?? [], $terms[ $post_id ] ?? [], $revisions[ $post_id ] ?? null );
-			if ( ! $created && null === $changes ) {
+			$before = $save['before'];
+			$after  = $save['after'];
+			$new    = self::is_new( $save['update'], $before );
+			if ( $new ) {
+				$created[ $post_id ] = true;
+			}
+			// A deleted post's saves are not reported: only its delete, or
+			// nothing when it was also made in this request.
+			if ( isset( $deleted[ $post_id ] ) || ! PostSaved::is_reported( $after ) ) {
 				continue;
 			}
 
-			do_action( 'scanfully_post_changed', $post_id, $after, $save['update'], $before, $changes ?? [] );
+			$changes = $new || null === $before ? [] : self::changes( $before, $after, $fields[ $post_id ] ?? [], $terms[ $post_id ] ?? [], $revisions[ $post_id ] ?? null );
+			if ( null === $changes ) {
+				continue;
+			}
+
+			$item          = self::saved_item( $post_id, $after, $before, $changes, $new );
+			$item['event'] = [
+				'hook' => self::ACTION,
+				'args' => [ $post_id, $after, $save['update'], $before, $changes ],
+			];
+			$items[]       = $item;
 		}
+
+		foreach ( $counted as $post_id => $item ) {
+			if ( 'created' === $item['action'] ) {
+				$created[ $post_id ] = true;
+			}
+			if ( ! isset( $deleted[ $post_id ] ) ) {
+				$items[] = $item;
+			}
+		}
+
+		foreach ( $deleted as $post_id => $delete ) {
+			if ( $delete['done'] && ! isset( $created[ $post_id ] ) ) {
+				$items[] = self::deleted_item( $post_id, $delete );
+			}
+		}
+
+		foreach ( $items as $item ) {
+			foreach ( (array) ( $item['terms'] ?? [] ) as $set ) {
+				foreach ( (array) ( $set['added'] ?? [] ) as $tt_id ) {
+					self::$added_terms[ (int) $tt_id ] = true;
+				}
+			}
+		}
+
+		Report::send( Report::KIND_POST, $items );
+	}
+
+	/**
+	 * A saved post as a summary item (see Content\Summary).
+	 *
+	 * @param int                  $post_id The post ID.
+	 * @param object               $after   The post after its saves.
+	 * @param object|null          $before  The post before.
+	 * @param array<string, mixed> $changes What changed (empty for a new post or a status change only).
+	 * @param bool                 $created Whether the post was made in this request.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function saved_item( int $post_id, object $after, ?object $before, array $changes, bool $created ): array {
+		$item = [
+			'action' => $created ? 'created' : self::action( (string) ( $before->post_status ?? '' ), (string) ( $after->post_status ?? '' ) ),
+			'group'  => (string) ( $after->post_type ?? '' ),
+			'id'     => $post_id,
+			'title'  => Summary::title( (string) ( $after->post_title ?? '' ) ),
+		];
+		if ( [] !== $changes ) {
+			$item['changed'] = array_keys( $changes );
+		}
+		if ( isset( $changes['terms'] ) ) {
+			$item['terms'] = $changes['terms'];
+		}
+
+		return $item;
+	}
+
+	/**
+	 * What a save did to an existing post, by its status before and after.
+	 *
+	 * @param string $from The status before.
+	 * @param string $to   The status after.
+	 *
+	 * @return string
+	 */
+	private static function action( string $from, string $to ): string {
+		if ( $from === $to ) {
+			return 'updated';
+		}
+		if ( 'trash' === $to ) {
+			return 'trashed';
+		}
+		if ( 'trash' === $from ) {
+			return 'restored';
+		}
+
+		switch ( $to ) {
+			case 'publish':
+				return 'published';
+			case 'draft':
+				return 'drafted';
+			case 'private':
+				return 'privated';
+			default:
+				return 'updated';
+		}
+	}
+
+	/**
+	 * A deleted post as a summary item, with its own `PostDeleted` event.
+	 *
+	 * @param int                  $post_id The post ID.
+	 * @param array<string, mixed> $delete  What was noted before the delete.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function deleted_item( int $post_id, array $delete ): array {
+		$object = get_post_type_object( $delete['post_type'] );
+		$data   = [
+			'id'          => $post_id,
+			'title'       => $delete['title'],
+			'post_type'   => $delete['post_type'],
+			'type_label'  => is_object( $object ) && isset( $object->labels->singular_name ) ? Summary::title( (string) $object->labels->singular_name ) : $delete['post_type'],
+			'post_status' => $delete['post_status'],
+		];
+		if ( $delete['expired'] ) {
+			$data['expired']    = true;
+			$data['trash_days'] = defined( 'EMPTY_TRASH_DAYS' ) ? (int) EMPTY_TRASH_DAYS : 30;
+		}
+
+		return [
+			'action'  => 'deleted',
+			'group'   => $delete['post_type'],
+			'id'      => $post_id,
+			'title'   => Summary::title( $delete['title'] ),
+			'expired' => $delete['expired'],
+			'event'   => [
+				'hook' => ContentEvent::hook( 'PostDeleted' ),
+				'args' => [ $data ],
+			],
+		];
 	}
 
 	/**

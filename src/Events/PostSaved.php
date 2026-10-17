@@ -196,13 +196,6 @@ class PostSaved extends Event {
 	}
 
 	/**
-	 * Default maximum number of post events per minute, so bulk edits and
-	 * similar mass saves can't queue thousands of jobs. Filterable via
-	 * `scanfully_post_saved_events_per_minute`.
-	 */
-	private const MAX_EVENTS_PER_MINUTE = 30;
-
-	/**
 	 * Internal post types that are saved in the background and never
 	 * represent content an editor changed.
 	 */
@@ -229,7 +222,25 @@ class PostSaved extends Event {
 	 * @return bool
 	 */
 	public function should_fire( array $data ): bool {
+		$post = $data[1] ?? null;
 
+		// Repeated saves need no deduplication here: the Collector reports a
+		// post once per request, and only when something changed. The
+		// per-minute cap and bulk actions are handled when it reports
+		// (Content\Report).
+		return is_object( $post ) && self::is_reported( $post );
+	}
+
+	/**
+	 * Whether a save of a post is reported: not an autosave, Heartbeat or
+	 * import, a status and post type that are activity, and not excluded by
+	 * the `scanfully_post_saved_should_fire` filter.
+	 *
+	 * @param object $post The saved post.
+	 *
+	 * @return bool
+	 */
+	public static function is_reported( object $post ): bool {
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return false;
 		}
@@ -246,8 +257,7 @@ class PostSaved extends Event {
 			return false;
 		}
 
-		$post = $data[1] ?? null;
-		if ( ! is_object( $post ) || ! isset( $post->post_status, $post->post_type ) ) {
+		if ( ! isset( $post->post_status, $post->post_type ) ) {
 			return false;
 		}
 
@@ -266,13 +276,7 @@ class PostSaved extends Event {
 		 * @param bool   $should_fire Whether to report the save.
 		 * @param object $post        The saved post.
 		 */
-		if ( ! apply_filters( 'scanfully_post_saved_should_fire', true, $post ) ) {
-			return false;
-		}
-
-		// Repeated saves need no deduplication here: the Collector reports a
-		// post once per request, and only when something changed.
-		return ! self::is_rate_limited();
+		return (bool) apply_filters( 'scanfully_post_saved_should_fire', true, $post );
 	}
 
 	/**
@@ -286,7 +290,7 @@ class PostSaved extends Event {
 	 *
 	 * @return bool
 	 */
-	private static function is_tracked_post_type( string $post_type ): bool {
+	public static function is_tracked_post_type( string $post_type ): bool {
 		if ( in_array( $post_type, self::IGNORED_POST_TYPES, true ) ) {
 			return false;
 		}
@@ -298,28 +302,5 @@ class PostSaved extends Event {
 		$type_object = get_post_type_object( $post_type );
 
 		return is_object( $type_object ) && ! empty( $type_object->show_ui );
-	}
-
-	/**
-	 * Count this event against the per-minute cap. Returns true when the cap
-	 * is reached and the event should be dropped.
-	 *
-	 * @return bool
-	 */
-	private static function is_rate_limited(): bool {
-		$limit = (int) apply_filters( 'scanfully_post_saved_events_per_minute', self::MAX_EVENTS_PER_MINUTE );
-		if ( $limit < 1 ) {
-			return false;
-		}
-
-		$bucket = 'scanfully_post_events_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count  = (int) get_transient( $bucket );
-		if ( $count >= $limit ) {
-			return true;
-		}
-
-		set_transient( $bucket, $count + 1, 2 * MINUTE_IN_SECONDS );
-
-		return false;
 	}
 }

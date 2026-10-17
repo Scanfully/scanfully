@@ -29,6 +29,18 @@ class Controller {
 	public const ACTION_BUILD_POST_EVENT = 'scanfully_build_post_event';
 
 	/**
+	 * Action Scheduler hook name for naming and sending a content event: a
+	 * permanent delete, a term change or a summary row (Content\Builder).
+	 */
+	public const ACTION_BUILD_CONTENT_EVENT = 'scanfully_build_content_event';
+
+	/**
+	 * Action Scheduler hook name for reporting the posts or terms changed
+	 * over a minute's cap as summary rows (Content\Overflow).
+	 */
+	public const ACTION_SEND_OVERFLOW = 'scanfully_send_content_overflow';
+
+	/**
 	 * The events
 	 *
 	 * @var Event[]
@@ -63,6 +75,8 @@ class Controller {
 	public static function register_send_callback(): void {
 		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 4 );
 		add_action( self::ACTION_BUILD_POST_EVENT, [ PostChanges\Builder::class, 'build' ], 10, 5 );
+		add_action( self::ACTION_BUILD_CONTENT_EVENT, [ Content\Builder::class, 'build' ], 10, 5 );
+		add_action( self::ACTION_SEND_OVERFLOW, [ Content\Overflow::class, 'send' ], 10, 2 );
 	}
 
 	/**

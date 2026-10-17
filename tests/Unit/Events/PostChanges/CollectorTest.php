@@ -9,12 +9,14 @@ namespace Scanfully\Tests\Unit\Events\PostChanges;
 
 use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
+use Scanfully\Events\ContentEvent;
 use Scanfully\Events\PostChanges\Collector;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Events\PostChanges\Collector
  * @covers \Scanfully\Events\PostChanges\Fields
+ * @covers \Scanfully\Events\PostDeleted
  */
 final class CollectorTest extends TestCase {
 
@@ -33,6 +35,13 @@ final class CollectorTest extends TestCase {
 	private array $reported = [];
 
 	/**
+	 * Content events reported: type and data.
+	 *
+	 * @var array<int, array{type: string, data: array<string, mixed>}>
+	 */
+	private array $content = [];
+
+	/**
 	 * How many revisions WordPress keeps.
 	 *
 	 * @var int
@@ -48,11 +57,36 @@ final class CollectorTest extends TestCase {
 		Functions\when( 'wp_json_encode' )->alias( static fn( $data ) => json_encode( $data ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
 		Functions\when( 'get_taxonomy' )->alias( static fn( $name ) => in_array( $name, [ 'category', 'post_tag' ], true ) ? (object) [ 'show_ui' => true ] : (object) [ 'show_ui' => false ] );
 		Functions\when( 'wp_revisions_to_keep' )->alias( fn() => $this->revisions_to_keep );
+		// What the report needs: a connected site, post types with a screen, room in the per-minute cap.
+		Functions\when( 'get_option' )->justReturn( 'yes' );
+		Functions\when( 'wp_doing_ajax' )->justReturn( false );
+		Functions\when( 'get_post_type_object' )->alias(
+			static fn( string $type ) => (object) [
+				'show_ui' => in_array( $type, [ 'post', 'page' ], true ),
+				'labels'  => (object) [
+					'name'          => 'page' === $type ? 'Pages' : 'Posts',
+					'singular_name' => 'page' === $type ? 'Page' : 'Post',
+				],
+			]
+		);
+		Functions\when( 'get_transient' )->justReturn( false );
+		Functions\when( 'set_transient' )->justReturn( true );
 		Actions\expectDone( Collector::ACTION )->zeroOrMoreTimes()->whenHappen(
 			function ( ...$args ) {
 				$this->reported[] = $args;
 			}
 		);
+		$this->content = [];
+		foreach ( [ 'PostDeleted', 'PostBulkAction' ] as $type ) {
+			Actions\expectDone( ContentEvent::hook( $type ) )->zeroOrMoreTimes()->whenHappen(
+				function ( $data ) use ( $type ) {
+					$this->content[] = [
+						'type' => $type,
+						'data' => $data,
+					];
+				}
+			);
+		}
 	}
 
 	protected function tearDown(): void {
@@ -517,6 +551,184 @@ final class CollectorTest extends TestCase {
 			],
 			$this->reported[0][4]['content'] ?? null
 		);
+	}
+
+	/**
+	 * Delete post 7 (or another) the way wp_delete_post() calls the hooks.
+	 *
+	 * @param array<string, mixed> $fields The post's fields.
+	 * @param bool                 $done   Whether the delete went through.
+	 *
+	 * @return void
+	 */
+	private function delete( array $fields = [], bool $done = true ): void {
+		$post = $this->post( $fields );
+		Collector::note_deleting( $post->ID, $post );
+		if ( $done ) {
+			Collector::note_deleted( $post->ID );
+		}
+	}
+
+	public function test_a_permanent_delete_is_reported_with_its_title_type_and_status(): void {
+		$this->delete( [ 'post_status' => 'trash' ] );
+		Collector::flush();
+
+		$this->assertSame(
+			[
+				[
+					'type' => 'PostDeleted',
+					'data' => [
+						'id'          => 7,
+						'title'       => 'About',
+						'post_type'   => 'page',
+						'type_label'  => 'Page',
+						'post_status' => 'trash',
+					],
+				],
+			],
+			$this->content
+		);
+	}
+
+	public function test_a_delete_that_did_not_go_through_is_not_reported(): void {
+		$this->delete( [], false );
+		Collector::flush();
+
+		$this->assertSame( [], $this->content );
+	}
+
+	public function test_the_trash_wordpress_empties_itself_is_marked_as_expired(): void {
+		Actions\expectDone( 'wp_scheduled_delete' )->once()->whenHappen(
+			function () {
+				$this->delete( [ 'post_status' => 'trash' ] );
+			}
+		);
+		do_action( 'wp_scheduled_delete' );
+		Collector::flush();
+
+		$this->assertTrue( $this->content[0]['data']['expired'] ?? null );
+		$this->assertSame( 30, $this->content[0]['data']['trash_days'] ?? null );
+	}
+
+	public function test_auto_drafts_and_types_without_a_screen_are_not_reported_when_deleted(): void {
+		$this->delete( [ 'post_status' => 'auto-draft' ] );
+		$this->delete(
+			[
+				'ID'        => 8,
+				'post_type' => 'revision',
+			]
+		);
+		Collector::flush();
+
+		$this->assertSame( [], $this->content );
+	}
+
+	public function test_a_post_trashed_and_deleted_in_one_request_is_only_reported_as_deleted(): void {
+		Collector::note_saved( 7, $this->post( [ 'post_status' => 'trash' ] ), true, $this->post() );
+		$this->delete( [ 'post_status' => 'trash' ] );
+		Collector::flush();
+
+		$this->assertSame( [], $this->reported );
+		$this->assertSame( [ 'PostDeleted' ], array_column( $this->content, 'type' ) );
+	}
+
+	public function test_a_post_made_and_deleted_in_one_request_is_not_reported(): void {
+		Collector::note_saved( 7, $this->post( [ 'post_status' => 'draft' ] ), false, null );
+		$this->delete( [ 'post_status' => 'draft' ] );
+		Collector::flush();
+
+		$this->assertSame( [], $this->reported );
+		$this->assertSame( [], $this->content );
+	}
+
+	public function test_fields_removed_while_a_post_is_deleted_are_not_noted(): void {
+		$this->meta_cache[7] = [ 'subtitle' => [ 'Old' ] ];
+		Collector::note_deleting( 7, $this->post() );
+		Collector::note_meta_deleted( [ 1 ], 7, 'subtitle', 'Old' );
+		Collector::note_saved( 7, $this->post(), true, $this->post() );
+		Collector::flush();
+
+		$this->assertSame( [], $this->reported );
+	}
+
+	public function test_many_posts_moved_to_the_trash_are_one_row_with_every_post(): void {
+		for ( $id = 1; $id <= 11; $id++ ) {
+			Collector::note_saved(
+				$id,
+				$this->post(
+					[
+						'ID'          => $id,
+						'post_title'  => 'Page ' . $id,
+						'post_status' => 'trash',
+					]
+				),
+				true,
+				$this->post( [ 'ID' => $id ] )
+			);
+		}
+		Collector::flush();
+
+		$this->assertSame( [], $this->reported );
+		$this->assertSame( [ 'PostBulkAction' ], array_column( $this->content, 'type' ) );
+		$data = $this->content[0]['data'];
+		$this->assertSame( [ 'trashed', 'page', 'Pages', 11 ], [ $data['action'], $data['post_type'], $data['type_label'], $data['count'] ] );
+		$this->assertSame( 'Page 11', $data['posts'][10]['title'] );
+	}
+
+	public function test_a_few_posts_keep_rows_of_their_own(): void {
+		for ( $id = 1; $id <= 3; $id++ ) {
+			Collector::note_saved( $id, $this->post( [ 'post_status' => 'trash' ] ), true, $this->post() );
+		}
+		Collector::flush();
+
+		$this->assertCount( 3, $this->reported );
+		$this->assertSame( [], $this->content );
+	}
+
+	public function test_a_bulk_edit_row_says_which_terms_were_added(): void {
+		for ( $id = 1; $id <= 12; $id++ ) {
+			Collector::note_terms( $id, [ 'news' ], [ 12 ], 'category', true, [ 1 ] );
+			Collector::note_saved( $id, $this->post( [ 'ID' => $id ] ), true, $this->post( [ 'ID' => $id ] ) );
+		}
+		Collector::flush();
+
+		$data = $this->content[0]['data'] ?? [];
+		$this->assertSame( 'updated', $data['action'] ?? null );
+		$this->assertSame( [ 'terms' => 12 ], $data['changed'] ?? null );
+		$this->assertSame(
+			[
+				'category' => [
+					'added'   => [ 12 ],
+					'removed' => [],
+				],
+			],
+			$data['terms'] ?? null
+		);
+		$this->assertSame( [ 12 => true ], Collector::added_terms() );
+	}
+
+	public function test_posts_past_the_first_hundred_are_counted_into_the_row(): void {
+		for ( $id = 1; $id <= 150; $id++ ) {
+			Collector::note_saved( $id, $this->post( [ 'post_title' => 'Renamed ' . $id ] ), true, $this->post() );
+		}
+		// The same post saved again past the cap is counted once.
+		Collector::note_saved( 150, $this->post( [ 'post_title' => 'Again' ] ), true, $this->post() );
+		Collector::flush();
+
+		$data = $this->content[0]['data'] ?? [];
+		$this->assertSame( 150, $data['count'] ?? null );
+		$this->assertSame( [ 'title' => 150 ], $data['changed'] ?? null );
+		$this->assertSame( 'Renamed 150', $data['posts'][149]['title'] ?? null );
+	}
+
+	public function test_posts_past_the_first_hundred_that_changed_nothing_are_not_counted(): void {
+		for ( $id = 1; $id <= 120; $id++ ) {
+			Collector::note_saved( $id, $this->post(), true, $this->post() );
+		}
+		Collector::flush();
+
+		$this->assertSame( [], $this->content );
+		$this->assertSame( [], $this->reported );
 	}
 
 	/**

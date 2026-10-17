@@ -36,6 +36,25 @@ namespace {
 		}
 	}
 
+	if ( ! class_exists( 'WP_Term' ) ) {
+		/**
+		 * Stub of WordPress' term, which copies the fields it is given.
+		 */
+		#[AllowDynamicProperties]
+		final class WP_Term {
+			/**
+			 * Constructor.
+			 *
+			 * @param object $term The term fields.
+			 */
+			public function __construct( $term ) {
+				foreach ( get_object_vars( $term ) as $key => $value ) {
+					$this->$key = $value;
+				}
+			}
+		}
+	}
+
 	if ( ! class_exists( 'WP_REST_Request' ) ) {
 		/**
 		 * Stub of WordPress' REST request, limited to headers.

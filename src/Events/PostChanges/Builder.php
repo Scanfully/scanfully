@@ -372,7 +372,7 @@ final class Builder {
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
-	private static function terms( array $terms ): array {
+	public static function terms( array $terms ): array {
 		$changes = [];
 		foreach ( $terms as $taxonomy => $set ) {
 			$taxonomy = (string) $taxonomy;
