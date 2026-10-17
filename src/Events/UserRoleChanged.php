@@ -95,13 +95,18 @@ class UserRoleChanged extends UserEvent {
 			return [];
 		}
 
-		$role = (string) ( $data[1] ?? '' );
+		$role      = (string) ( $data[1] ?? '' );
+		$old_roles = self::role_list( $data[2] ?? [] );
+
+		// Elevated after the change, or before it: an administrator who is
+		// demoted still shows who it was.
+		$elevated = self::has_elevated_capabilities( $user ) || self::roles_have_elevated_capabilities( $old_roles );
 
 		return array_merge(
-			self::describe_user( $user ),
+			self::describe_user( $user, $elevated ),
 			[
 				'roles'     => self::role_list( '' !== $role ? [ $role ] : [] ),
-				'old_roles' => self::role_list( $data[2] ?? [] ),
+				'old_roles' => $old_roles,
 			]
 		);
 	}

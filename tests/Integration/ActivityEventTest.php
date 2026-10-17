@@ -144,6 +144,7 @@ final class ActivityEventTest extends TestCase {
 					[
 						'id'    => $id,
 						'name'  => 'Scanfully Test',
+						'email' => get_userdata( $id )->user_email,
 						'roles' => [ 'editor' ],
 					],
 				],
@@ -187,6 +188,54 @@ final class ActivityEventTest extends TestCase {
 		$this->assertSame( [], $this->queued_types() );
 	}
 
+	/**
+	 * Sign a new user with this role in through wp_signon(), as the login
+	 * form does.
+	 *
+	 * @param string $role The role.
+	 *
+	 * @return int The user ID.
+	 */
+	private function sign_in_new_user( string $role ): int {
+		$id       = $this->create_user( $role );
+		$password = wp_generate_password();
+		wp_set_password( $password, $id );
+		as_unschedule_all_actions( '', [], 'scanfully' );
+		wp_set_current_user( 0 );
+
+		add_filter( 'send_auth_cookies', '__return_false' );
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+		$user                   = wp_signon(
+			[
+				'user_login'    => get_userdata( $id )->user_login,
+				'user_password' => $password,
+			]
+		);
+		unset( $_SERVER['REMOTE_ADDR'] );
+		remove_filter( 'send_auth_cookies', '__return_false' );
+
+		$this->assertInstanceOf( \WP_User::class, $user );
+
+		return $id;
+	}
+
+	public function test_an_administrator_logging_in_is_reported(): void {
+		$id = $this->sign_in_new_user( 'administrator' );
+
+		$events = $this->queued();
+		$this->assertSame( [ 'UserLogin' ], array_column( $events, 0 ) );
+		$this->assertSame( $id, $events[0][1]['id'] );
+		$this->assertSame( get_userdata( $id )->user_email, $events[0][1]['email'] );
+		$this->assertSame( [ 'administrator' ], $events[0][1]['roles'] );
+		$this->assertSame( '203.0.113.9', $events[0][1]['ip'] );
+	}
+
+	public function test_a_subscriber_logging_in_is_not_reported(): void {
+		$this->sign_in_new_user( 'subscriber' );
+
+		$this->assertSame( [], $this->queued_types() );
+	}
+
 	public function test_changing_and_deleting_a_user_is_reported(): void {
 		$id = $this->create_user( 'editor' );
 		as_unschedule_all_actions( '', [], 'scanfully' );
@@ -206,9 +255,13 @@ final class ActivityEventTest extends TestCase {
 		$this->assertSame( [ 'editor' ], $events[0][1]['old_roles'] );
 		$this->assertSame( [ 'administrator' ], $events[1][1]['roles'] );
 
-		$encoded = (string) wp_json_encode( $events );
-		$this->assertStringNotContainsString( '@scanfully.com', $encoded, 'Never the email address.' );
-		$this->assertStringNotContainsString( 'scanfully-', $encoded, 'Never the login.' );
+		// An account with elevated rights carries its email address, and
+		// nothing else from the account beyond its name and roles.
+		$email = $events[0][1]['email'];
+		$this->assertStringEndsWith( '@scanfully.com', $email );
+		$this->assertSame( $email, $events[1][1]['email'] );
+		unset( $events[0][1]['email'], $events[1][1]['email'] );
+		$this->assertStringNotContainsString( 'scanfully-', (string) wp_json_encode( $events ), 'Never the login.' );
 	}
 
 	public function test_a_key_setting_change_is_reported_and_a_type_only_change_is_not(): void {

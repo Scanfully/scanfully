@@ -74,17 +74,33 @@ abstract class Event {
 	}
 
 	/**
-	 * Get the current user
+	 * Get the user who made the change: the signed-in user, unless the event
+	 * names its own actor.
+	 *
+	 * @param array $args The arguments passed to the action.
 	 *
 	 * @return array
 	 */
-	private function get_user(): array {
-		$current_user = wp_get_current_user();
+	private function get_user( array $args ): array {
+		$current_user = $this->get_actor( $args ) ?? wp_get_current_user();
 
 		return [
-			'id'   => $current_user->ID,
+			'id'   => (int) ( $current_user->ID ?? 0 ),
 			'name' => self::safe_display_name( $current_user ),
 		];
+	}
+
+	/**
+	 * The user who made the change, when that isn't the signed-in user (for
+	 * a login, WordPress hasn't set the signed-in user yet). Null to use the
+	 * signed-in user.
+	 *
+	 * @param array $args The arguments passed to the action.
+	 *
+	 * @return object|null
+	 */
+	protected function get_actor( array $args ): ?object {
+		return null;
 	}
 
 	/**
@@ -161,7 +177,7 @@ abstract class Event {
 			self::fit_args(
 				[
 					'type' => $this->type,
-					'user' => $this->get_user(),
+					'user' => $this->get_user( $args ),
 					'data' => $this->get_post_body( $args ),
 				]
 			),
