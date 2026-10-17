@@ -217,6 +217,8 @@ class PostSaved extends Event {
 		'user_request',
 		'acf-field',
 		'acf-field-group',
+		// SEOPress logs every request for a missing URL as a post.
+		'seopress_404',
 	];
 
 	/**

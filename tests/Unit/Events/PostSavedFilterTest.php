@@ -30,7 +30,7 @@ final class PostSavedFilterTest extends TestCase {
 	 *
 	 * @var array<int, string>
 	 */
-	private array $ui_types = [ 'post', 'page', 'product', 'shop_order' ];
+	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404' ];
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -94,6 +94,9 @@ final class PostSavedFilterTest extends TestCase {
 			'refund'                             => [ 'shop_order_refund', 'draft' ],
 			'ACF field'                          => [ 'acf-field', 'publish' ],
 			'oEmbed cache'                       => [ 'oembed_cache', 'publish' ],
+			'SEOPress 404 record'                => [ 'seopress_404', 'publish' ],
+			'SEOPress 404 record as a draft'     => [ 'seopress_404', 'draft' ],
+			'trashed SEOPress 404 record'        => [ 'seopress_404', 'trash' ],
 			'custom type without an admin screen' => [ 'my_internal_type', 'publish' ],
 			'pending review status'              => [ 'post', 'pending' ],
 		];
