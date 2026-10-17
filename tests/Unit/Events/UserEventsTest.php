@@ -25,6 +25,11 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 final class UserEventsTest extends TestCase {
 
 	/**
+	 * Roles that can edit content or manage the site in these tests.
+	 */
+	private const ELEVATED_ROLES = [ 'administrator', 'editor', 'author', 'contributor', 'shop_manager' ];
+
+	/**
 	 * Users by ID.
 	 *
 	 * @var array<int, \WP_User>
@@ -65,7 +70,14 @@ final class UserEventsTest extends TestCase {
 		Functions\when( 'get_current_user_id' )->alias( fn() => $this->current_user_id );
 		// Roles that can edit content or manage the site.
 		Functions\when( 'user_can' )->alias(
-			static fn( $user ) => [] !== array_intersect( (array) $user->roles, [ 'administrator', 'editor', 'author', 'contributor', 'shop_manager' ] )
+			static fn( $user ) => [] !== array_intersect( (array) $user->roles, self::ELEVATED_ROLES )
+		);
+		Functions\when( 'get_role' )->alias(
+			static function ( string $name ) {
+				$role = Mockery::mock( 'WP_Role' );
+				$role->shouldReceive( 'has_cap' )->andReturn( in_array( $name, self::ELEVATED_ROLES, true ) );
+				return $role;
+			}
 		);
 		Functions\when( 'is_email' )->alias( static fn( $email ) => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) );
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => array_key_exists( $key, $this->transients ) ? $this->transients[ $key ] : false );
@@ -101,7 +113,7 @@ final class UserEventsTest extends TestCase {
 		return $user;
 	}
 
-	public function test_a_new_user_is_reported_with_id_name_and_roles_only(): void {
+	public function test_a_new_user_with_elevated_rights_is_reported_with_the_email_address(): void {
 		$this->add_user( 7, 'Jane Editor', [ 'editor' ] );
 
 		$event = new UserCreated();
@@ -112,13 +124,28 @@ final class UserEventsTest extends TestCase {
 			[
 				'id'    => 7,
 				'name'  => 'Jane Editor',
+				'email' => 'user7@scanfully.com',
 				'roles' => [ 'editor' ],
 			],
 			$body
 		);
-		$encoded = (string) json_encode( $body ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
-		$this->assertStringNotContainsString( '@', $encoded );
-		$this->assertStringNotContainsString( 'login-7', $encoded );
+		$this->assertStringNotContainsString( 'login-7', (string) json_encode( $body ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
+	}
+
+	public function test_a_new_user_without_elevated_rights_is_reported_without_the_email_address(): void {
+		$this->add_user( 28, 'New subscriber', [ 'subscriber' ] );
+
+		$body = ( new UserCreated() )->get_post_body( [ 28 ] );
+
+		$this->assertSame(
+			[
+				'id'    => 28,
+				'name'  => 'New subscriber',
+				'roles' => [ 'subscriber' ],
+			],
+			$body
+		);
+		$this->assertStringNotContainsString( '@', (string) json_encode( $body ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
 	}
 
 	public function test_a_display_name_that_is_an_email_address_is_not_sent(): void {
@@ -223,6 +250,7 @@ final class UserEventsTest extends TestCase {
 
 	public function test_a_deleted_user_is_reported_with_id_name_and_roles(): void {
 		$this->add_user( 15, 'Old Admin', [ 'administrator' ] );
+		$this->add_user( 29, 'Old Customer', [ 'customer' ] );
 
 		$event = new UserDeleted();
 
@@ -231,10 +259,12 @@ final class UserEventsTest extends TestCase {
 			[
 				'id'    => 15,
 				'name'  => 'Old Admin',
+				'email' => 'user15@scanfully.com',
 				'roles' => [ 'administrator' ],
 			],
 			$event->get_post_body( [ 15, null ] )
 		);
+		$this->assertArrayNotHasKey( 'email', $event->get_post_body( [ 29, null ] ), 'No email address for an account without elevated rights.' );
 		$this->assertFalse( $event->should_fire( [ 999, null ] ), 'An unknown user.' );
 	}
 
@@ -249,6 +279,7 @@ final class UserEventsTest extends TestCase {
 			[
 				'id'        => 16,
 				'name'      => 'Promoted',
+				'email'     => 'user16@scanfully.com',
 				'roles'     => [ 'administrator' ],
 				'old_roles' => [ 'editor' ],
 			],
@@ -335,6 +366,56 @@ final class UserEventsTest extends TestCase {
 
 		$this->assertSame( [ 'x' => 1 ], UserRoleChanged::note_user_insert( [ 'x' => 1 ], true ), 'The user data must be returned unchanged.' );
 		$this->assertTrue( ( new UserRoleChanged() )->should_fire( [ 20, 'subscriber', [ 'administrator' ] ] ) );
+	}
+
+	/**
+	 * @dataProvider provide_role_change_emails
+	 *
+	 * @param string             $role       The new role.
+	 * @param array<int, string> $old_roles  The roles before.
+	 * @param bool               $with_email Whether the email address is sent.
+	 */
+	public function test_a_role_change_has_the_email_address_when_elevated_before_or_after( string $role, array $old_roles, bool $with_email ): void {
+		$this->add_user( 30, 'Changed', [ $role ] );
+
+		$body = ( new UserRoleChanged() )->get_post_body( [ 30, $role, $old_roles ] );
+
+		$this->assertSame( $with_email, array_key_exists( 'email', $body ) );
+	}
+
+	/**
+	 * @return array<string, array{string, array<int, string>, bool}>
+	 */
+	public function provide_role_change_emails(): array {
+		return [
+			'promoted to administrator'  => [ 'administrator', [ 'subscriber' ], true ],
+			'administrator demoted'      => [ 'subscriber', [ 'administrator' ], true ],
+			'subscriber made a customer' => [ 'customer', [ 'subscriber' ], false ],
+		];
+	}
+
+	public function test_the_actor_name_stays_scrubbed_when_the_subject_has_an_email_address(): void {
+		$scheduled = [];
+		Functions\when( 'get_option' )->justReturn( 'yes' );
+		Functions\when( 'wp_get_current_user' )->justReturn(
+			(object) [
+				'ID'           => 1,
+				'display_name' => 'admin@scanfully.com',
+			]
+		);
+		Functions\when( 'wp_json_encode' )->alias( static fn( $data ) => json_encode( $data ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
+		Functions\when( 'as_schedule_single_action' )->alias(
+			static function ( $timestamp, $hook, $args ) use ( &$scheduled ) {
+				$scheduled[] = $args;
+				return 1;
+			}
+		);
+		$this->add_user( 31, 'New Admin', [ 'administrator' ] );
+
+		( new UserCreated() )->listener_callback( 31 );
+
+		$this->assertSame( '', $scheduled[0]['user']['name'] );
+		$this->assertSame( 'user31@scanfully.com', $scheduled[0]['data']['email'] );
 	}
 
 	public function test_removing_every_role_is_reported_with_an_empty_role_list(): void {

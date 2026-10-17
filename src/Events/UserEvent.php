@@ -10,10 +10,15 @@ namespace Scanfully\Events;
 /**
  * Class UserEvent
  *
- * Base for the user created, deleted and role changed events. These only
- * ever send a user's ID, display name and roles, and never an email
- * address. The display name may be the same as the login: WordPress uses
- * the login as the display name unless the user picks another one.
+ * Base for the user created, deleted, role changed and login events. These
+ * send the ID, display name and roles of the account the event is about.
+ * They add that account's email address only when it has elevated rights
+ * (any capability in ELEVATED_CAPABILITIES; for a role change, after the
+ * change or before it, so an administrator who is demoted still shows who
+ * it was). No other email address is ever sent: never for an account
+ * without elevated rights, never for another account, and never in the
+ * actor's name. The display name may be the same as the login: WordPress
+ * uses the login as the display name unless the user picks another one.
  *
  * @package Scanfully\Events
  */
@@ -32,18 +37,26 @@ abstract class UserEvent extends Event {
 	private const RATE_TRANSIENT = 'scanfully_user_events_rate';
 
 	/**
-	 * The ID, display name and roles of a user.
+	 * The ID, display name and roles of a user, with the email address when
+	 * the account has elevated rights.
 	 *
-	 * @param \WP_User $user The user.
+	 * @param \WP_User  $user     The user.
+	 * @param bool|null $elevated Whether the account counts as elevated; null
+	 *                            to check its current capabilities.
 	 *
-	 * @return array{id: int, name: string, roles: array<int, string>}
+	 * @return array<string, mixed>
 	 */
-	protected static function describe_user( \WP_User $user ): array {
-		return [
-			'id'    => (int) $user->ID,
-			'name'  => self::safe_display_name( $user ),
-			'roles' => self::role_list( $user->roles ),
+	protected static function describe_user( \WP_User $user, ?bool $elevated = null ): array {
+		$data = [
+			'id'   => (int) $user->ID,
+			'name' => self::safe_display_name( $user ),
 		];
+		if ( $elevated ?? self::has_elevated_capabilities( $user ) ) {
+			$data['email'] = (string) $user->user_email;
+		}
+		$data['roles'] = self::role_list( $user->roles );
+
+		return $data;
 	}
 
 	/**
@@ -89,6 +102,29 @@ abstract class UserEvent extends Event {
 		foreach ( self::ELEVATED_CAPABILITIES as $capability ) {
 			if ( user_can( $user, $capability ) ) { // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Core capabilities from ELEVATED_CAPABILITIES.
 				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether any of these roles has elevated rights.
+	 *
+	 * @param array<int, string> $roles Role names.
+	 *
+	 * @return bool
+	 */
+	protected static function roles_have_elevated_capabilities( array $roles ): bool {
+		foreach ( $roles as $role_name ) {
+			$role = get_role( $role_name );
+			if ( ! $role instanceof \WP_Role ) {
+				continue;
+			}
+			foreach ( self::ELEVATED_CAPABILITIES as $capability ) {
+				if ( $role->has_cap( $capability ) ) {
+					return true;
+				}
 			}
 		}
 
