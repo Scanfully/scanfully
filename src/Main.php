@@ -160,6 +160,7 @@ class Main {
 		Events\Controller::register( new Events\UserDeleted() ); // when a user is deleted.
 		Events\Controller::register( new Events\UserRoleChanged() ); // when a user's role is changed.
 		Events\Controller::register( new Events\UserLogin() ); // when a user with elevated rights logs in.
+		Events\Controller::register( new Events\AppPasswordCreated() ); // when an application password is created for a user with elevated rights.
 		foreach ( Events\SiteOptionChanged::OPTIONS as $option ) {
 			Events\Controller::register( new Events\SiteOptionChanged( $option ) ); // when a key setting is changed.
 		}
