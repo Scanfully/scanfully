@@ -10,19 +10,22 @@ namespace Scanfully\Events\Content;
 /**
  * Class Summary
  *
- * Turns many changed posts or terms into summary rows (`PostBulkAction`,
- * `TermBulkAction`): one row per action and post type (or taxonomy), with
- * every post or term in it, so each one can still be found in Scanfully.
+ * Turns many changed posts, terms or files into summary rows
+ * (`PostBulkAction`, `TermBulkAction`, `MediaBulkAction`): one row per
+ * action and post type (or taxonomy), with every post, term or file in it,
+ * so each one can still be found in Scanfully.
  *
- * An item is one post or term a request changed:
+ * An item is one post, term or file that changed:
  * - `action`: what happened (`created`, `updated`, `published`, `drafted`,
  *   `privated`, `trashed`, `restored`, `deleted` for posts; `created`,
- *   `changed`, `deleted` for terms);
- * - `group`: the post type or taxonomy;
- * - `id` and `title` (a term's name);
+ *   `changed`, `deleted` for terms; `uploaded`, `changed`, `attached`,
+ *   `detached`, `trashed`, `restored`, `deleted` for files);
+ * - `group`: the post type or taxonomy (`attachment` for files);
+ * - `id` and `title` (a term's name), and a file's `name`;
  * - optional `changed` (the parts that changed), `terms` (term taxonomy IDs
  *   added and removed, per taxonomy), `posts` (posts that had a deleted
- *   term), `expired` (WordPress emptied the trash itself);
+ *   term), `parent` (the post a file was attached to), `expired`
+ *   (WordPress emptied the trash itself);
  * - `event`: how to report it on its own (`hook`, `args`), when the request
  *   still has everything for that.
  *
@@ -36,6 +39,15 @@ final class Summary {
 	 * size the API accepts for these events.
 	 */
 	public const MAX_ITEMS_PER_ROW = 2000;
+
+	/**
+	 * The summary row's event type per kind of item.
+	 */
+	private const TYPES = [
+		Report::KIND_POST  => 'PostBulkAction',
+		Report::KIND_TERM  => 'TermBulkAction',
+		Report::KIND_MEDIA => 'MediaBulkAction',
+	];
 
 	/**
 	 * The longest title or name kept in a summary row.
@@ -83,7 +95,7 @@ final class Summary {
 	 * The summary rows of one group: the event type, its data and the
 	 * items in it.
 	 *
-	 * @param string                           $kind     Report::KIND_POST or Report::KIND_TERM.
+	 * @param string                           $kind     Report::KIND_POST, Report::KIND_TERM or Report::KIND_MEDIA.
 	 * @param array<int, array<string, mixed>> $items    The items of the group.
 	 * @param bool                             $overflow Whether these were over the per-minute cap.
 	 *
@@ -97,7 +109,16 @@ final class Summary {
 		$chunks = array_chunk( $items, self::MAX_ITEMS_PER_ROW );
 		$rows   = [];
 		foreach ( $chunks as $index => $chunk ) {
-			$data = Report::KIND_TERM === $kind ? self::term_row( $chunk ) : self::post_row( $chunk );
+			switch ( $kind ) {
+				case Report::KIND_TERM:
+					$data = self::term_row( $chunk );
+					break;
+				case Report::KIND_MEDIA:
+					$data = self::media_row( $chunk );
+					break;
+				default:
+					$data = self::post_row( $chunk );
+			}
 			if ( count( $chunks ) > 1 ) {
 				$data['part']  = $index + 1;
 				$data['parts'] = count( $chunks );
@@ -108,7 +129,7 @@ final class Summary {
 			}
 
 			$rows[] = [
-				'type'  => Report::KIND_TERM === $kind ? 'TermBulkAction' : 'PostBulkAction',
+				'type'  => self::TYPES[ $kind ] ?? 'PostBulkAction',
 				'data'  => $data,
 				'items' => $chunk,
 			];
@@ -182,6 +203,47 @@ final class Summary {
 
 		if ( 'deleted' === $data['action'] ) {
 			$data['posts'] = array_sum( array_map( static fn( array $item ): int => (int) ( $item['posts'] ?? 0 ), $items ) );
+		}
+
+		return $data;
+	}
+
+	/**
+	 * The data of a row about files.
+	 *
+	 * @param array<int, array<string, mixed>> $items The files.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function media_row( array $items ): array {
+		$first = $items[0];
+		$data  = [
+			'action' => (string) $first['action'],
+			'count'  => count( $items ),
+			'files'  => array_map(
+				static fn( array $item ): array => [
+					'id'    => (int) $item['id'],
+					'name'  => (string) ( $item['name'] ?? '' ),
+					'title' => (string) $item['title'],
+				],
+				$items
+			),
+		];
+
+		$changed = self::changed( $items );
+		if ( [] !== $changed ) {
+			$data['changed'] = $changed;
+		}
+
+		// Files attached to one post at once, as the media library does.
+		$parents = array_unique( array_map( static fn( array $item ): int => (int) ( $item['parent']['id'] ?? 0 ), $items ) );
+		if ( 'attached' === $data['action'] && 1 === count( $parents ) && isset( $first['parent'] ) ) {
+			$data['parent'] = $first['parent'];
+		}
+
+		if ( ! empty( $first['expired'] ) ) {
+			$data['expired']    = true;
+			$data['trash_days'] = defined( 'EMPTY_TRASH_DAYS' ) ? (int) EMPTY_TRASH_DAYS : 30;
 		}
 
 		return $data;

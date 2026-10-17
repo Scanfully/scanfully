@@ -33,6 +33,13 @@ final class Report {
 	public const KIND_TERM = 'term';
 
 	/**
+	 * Items about files in the media library. They are not reported per
+	 * request but per minute (MediaChanges\Batch), which uses the same
+	 * summary rows.
+	 */
+	public const KIND_MEDIA = 'media';
+
+	/**
 	 * Default number of posts (or terms) of one action and type that still
 	 * get rows of their own; more become one summary row. Filterable via
 	 * `scanfully_activity_bulk_threshold`.

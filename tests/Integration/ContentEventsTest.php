@@ -362,6 +362,8 @@ final class ContentEventsTest extends TestCase {
 		$ids = $this->make_posts( 5 );
 		remove_all_filters( 'scanfully_post_saved_events_per_minute' );
 		delete_transient( 'scanfully_post_events_' . (int) floor( time() / MINUTE_IN_SECONDS ) );
+		// An earlier run in this minute left the marker of a job setUp() unscheduled.
+		delete_transient( 'scanfully_minute_overflow_post_' . (int) floor( time() / MINUTE_IN_SECONDS ) . '_job' );
 		add_filter( 'scanfully_post_saved_events_per_minute', static fn() => 2 );
 
 		// Five requests, each renaming one post.

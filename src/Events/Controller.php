@@ -41,6 +41,12 @@ class Controller {
 	public const ACTION_SEND_OVERFLOW = 'scanfully_send_content_overflow';
 
 	/**
+	 * Action Scheduler hook name for reporting a minute of media library
+	 * changes (MediaChanges\Batch).
+	 */
+	public const ACTION_SEND_MEDIA = 'scanfully_send_media_changes';
+
+	/**
 	 * The events
 	 *
 	 * @var Event[]
@@ -77,6 +83,7 @@ class Controller {
 		add_action( self::ACTION_BUILD_POST_EVENT, [ PostChanges\Builder::class, 'build' ], 10, 5 );
 		add_action( self::ACTION_BUILD_CONTENT_EVENT, [ Content\Builder::class, 'build' ], 10, 5 );
 		add_action( self::ACTION_SEND_OVERFLOW, [ Content\Overflow::class, 'send' ], 10, 2 );
+		add_action( self::ACTION_SEND_MEDIA, [ MediaChanges\Batch::class, 'send' ], 10, 1 );
 	}
 
 	/**

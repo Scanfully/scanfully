@@ -161,6 +161,11 @@ class Main {
 		Events\Controller::register( new Events\TermDeleted() ); // when a term is deleted.
 		Events\Controller::register( new Events\TermBulkAction() ); // when many terms get the same action in one request.
 		Events\TermChanges\Collector::setup();
+		Events\Controller::register( new Events\MediaUploaded() ); // when a file is added to the media library.
+		Events\Controller::register( new Events\MediaChanged() ); // when a file's details, file, image or post change.
+		Events\Controller::register( new Events\MediaDeleted() ); // when a file is deleted permanently.
+		Events\Controller::register( new Events\MediaBulkAction() ); // when many files get the same action within a minute.
+		Events\MediaChanges\Collector::setup();
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
 		Events\Controller::register( new Events\CoreUpdateFailed() ); // when an automatic core update fails.
 		Events\Controller::register( new Events\UserCreated() ); // when a user is created.

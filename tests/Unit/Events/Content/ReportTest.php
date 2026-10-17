@@ -19,6 +19,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 /**
  * @covers \Scanfully\Events\Content\Report
  * @covers \Scanfully\Events\Content\Overflow
+ * @covers \Scanfully\Events\Content\MinuteStore
  * @covers \Scanfully\Events\ContentEvent
  */
 final class ReportTest extends TestCase {
@@ -58,10 +59,18 @@ final class ReportTest extends TestCase {
 	 */
 	private int $uuids = 0;
 
+	/**
+	 * The options table the minute store writes to.
+	 *
+	 * @var FakeOptionsTable
+	 */
+	private FakeOptionsTable $table;
+
 	protected function setUp(): void {
 		parent::setUp();
 
 		Functions\when( 'get_option' )->alias( fn() => $this->connected );
+		$this->table = FakeOptionsTable::install();
 		Functions\when( 'get_post_type_object' )->justReturn( (object) [ 'labels' => (object) [ 'name' => 'Posts' ] ] );
 		Functions\when( 'wp_json_encode' )->alias( static fn( $data ) => json_encode( $data ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
 		Functions\when( 'wp_generate_uuid4' )->alias( fn() => sprintf( '%08x-0000-4000-8000-000000000000', ++$this->uuids ) );
@@ -194,7 +203,7 @@ final class ReportTest extends TestCase {
 
 		[ $kind, $bucket ] = $jobs[0]['args'];
 		$this->assertSame( Report::KIND_POST, $kind );
-		$this->assertCount( 2, $this->transients[ 'scanfully_content_overflow_post_' . $bucket ], 'Both requests kept what they could not send.' );
+		$this->assertCount( 2, $this->table->names( 'scanfully_minute_overflow_post_' . $bucket . '_' ), 'Both requests kept what they could not send, each in an option of its own.' );
 
 		Overflow::send( $kind, $bucket );
 
@@ -211,7 +220,8 @@ final class ReportTest extends TestCase {
 		$data = $builds[0]['args']['data'];
 		$this->assertTrue( $data['overflow'] );
 		$this->assertSame( [ 3, 10, 11 ], array_column( $data['posts'], 'id' ) );
-		$this->assertArrayNotHasKey( 'scanfully_content_overflow_post_' . $bucket, $this->transients );
+		$this->assertSame( [], $this->table->rows );
+		$this->assertArrayNotHasKey( 'scanfully_minute_overflow_post_' . $bucket . '_job', $this->transients );
 	}
 
 	public function test_a_summary_row_too_long_for_the_job_is_stored_for_it(): void {

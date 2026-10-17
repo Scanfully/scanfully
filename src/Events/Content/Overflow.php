@@ -9,35 +9,22 @@ namespace Scanfully\Events\Content;
 
 use Scanfully\Events\ContentEvent;
 use Scanfully\Events\Controller;
-use Scanfully\Events\PostChanges\Stash;
 
 /**
  * Class Overflow
  *
  * Posts and terms changed while the per-minute cap was reached. Each
- * request stores what it couldn't send; a minute later one job reports all
- * of it as summary rows, per person, action and type, so nothing is
- * dropped silently.
+ * request stores what it couldn't send in the MinuteStore; a minute later
+ * one job reports all of it as summary rows, per person, action and type,
+ * so nothing is dropped silently.
  *
  * @package Scanfully\Events\Content
  */
 final class Overflow {
 
 	/**
-	 * Prefix of the transient that lists a minute's stored requests.
-	 */
-	private const PREFIX = 'scanfully_content_overflow_';
-
-	/**
-	 * Seconds after the end of the minute that the job runs, so requests
-	 * that end late in the minute are still in it.
-	 */
-	private const DELAY = 30;
-
-	/**
-	 * Store what a request couldn't send for this minute's job: one stash
-	 * with its items, and its key in the minute's list. The first request
-	 * of the minute schedules the job.
+	 * Store what a request couldn't send for this minute's job. The first
+	 * request of the minute schedules the job.
 	 *
 	 * @param string                           $kind  Report::KIND_POST or Report::KIND_TERM.
 	 * @param array<int, array<string, mixed>> $items The items.
@@ -54,26 +41,15 @@ final class Overflow {
 			$items
 		);
 
-		$stash = Stash::put(
+		MinuteStore::add(
+			self::store_kind( $kind ),
 			[
 				'user'  => $user,
 				'items' => $items,
-			]
+			],
+			Controller::ACTION_SEND_OVERFLOW,
+			[ $kind ]
 		);
-		if ( '' === $stash ) {
-			return;
-		}
-
-		$bucket = (int) floor( time() / MINUTE_IN_SECONDS );
-		$key    = self::PREFIX . $kind . '_' . $bucket;
-		$stored = get_transient( $key );
-		$list   = is_array( $stored ) ? $stored : [];
-		if ( [] === $list ) {
-			as_schedule_single_action( ( $bucket + 1 ) * MINUTE_IN_SECONDS + self::DELAY, Controller::ACTION_SEND_OVERFLOW, [ $kind, $bucket ], 'scanfully' );
-		}
-		$list[] = $stash;
-
-		set_transient( $key, $list, HOUR_IN_SECONDS );
 	}
 
 	/**
@@ -86,18 +62,9 @@ final class Overflow {
 	 * @return void
 	 */
 	public static function send( string $kind, int $bucket ): void {
-		$key    = self::PREFIX . $kind . '_' . $bucket;
-		$stored = get_transient( $key );
-		delete_transient( $key );
-		if ( ! is_array( $stored ) ) {
-			return;
-		}
-
 		$by_user = [];
-		foreach ( $stored as $stash ) {
-			$entry = Stash::get( (string) $stash );
-			Stash::delete( (string) $stash );
-			if ( ! is_array( $entry ) || ! is_array( $entry['items'] ?? null ) ) {
+		foreach ( MinuteStore::take( self::store_kind( $kind ), $bucket ) as $entry ) {
+			if ( ! is_array( $entry['items'] ?? null ) ) {
 				continue;
 			}
 
@@ -120,5 +87,16 @@ final class Overflow {
 				}
 			}
 		}
+	}
+
+	/**
+	 * The MinuteStore kind of a kind of item.
+	 *
+	 * @param string $kind Report::KIND_POST or Report::KIND_TERM.
+	 *
+	 * @return string
+	 */
+	private static function store_kind( string $kind ): string {
+		return 'overflow_' . ( Report::KIND_TERM === $kind ? Report::KIND_TERM : Report::KIND_POST );
 	}
 }
