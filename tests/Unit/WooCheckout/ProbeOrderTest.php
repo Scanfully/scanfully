@@ -116,6 +116,39 @@ final class ProbeOrderTest extends TestCase {
 		$this->assertSame( 'success', $result['result'] );
 	}
 
+	public function test_a_subscription_already_cancelled_with_its_order_is_not_cancelled_again(): void {
+		$order = Mockery::mock( 'WC_Order' );
+		$order->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$order->shouldReceive( 'set_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+		$order->shouldReceive( 'save' )->once();
+
+		// Loaded before the order is saved: still pending, only tagged.
+		$stale = Mockery::mock( 'WC_Order' );
+		$stale->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$stale->shouldReceive( 'save_meta_data' )->once();
+		$stale->shouldNotReceive( 'update_status' );
+
+		// Loaded after: Subscriptions cancelled it along with the order.
+		$fresh = Mockery::mock( 'WC_Order' );
+		$fresh->shouldReceive( 'has_status' )->with( 'cancelled' )->andReturn( true );
+		$fresh->shouldNotReceive( 'update_status' );
+
+		$loads = 0;
+		Functions\when( 'wcs_get_subscriptions_for_order' )->alias(
+			static function () use ( $stale, $fresh, &$loads ) {
+				++$loads;
+				return [ 101 => 1 === $loads ? $stale : $fresh ];
+			}
+		);
+		Functions\when( 'wc_get_order' )->justReturn( $order );
+		Functions\when( 'home_url' )->justReturn( 'https://shop.test/' );
+		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url ) => $url . '?' . http_build_query( $args ) );
+
+		( new ProbeGateway() )->process_payment( 12 );
+
+		$this->assertSame( 2, $loads, 'The subscriptions are read again after the order is saved.' );
+	}
+
 	public function test_emails_about_probe_subscriptions_are_suppressed(): void {
 		$subscription = $this->order();
 
