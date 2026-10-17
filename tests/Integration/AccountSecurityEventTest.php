@@ -155,4 +155,48 @@ final class AccountSecurityEventTest extends TestCase {
 		$this->assertNotSame( $first['uuid'], $events[1][1]['app_id'] );
 		$this->assertSame( '', $events[0][1]['last_used'] );
 	}
+
+	/**
+	 * Sign a request in with an application password through HTTP Basic
+	 * authentication, as a REST request does.
+	 *
+	 * @param int    $user_id  The user ID.
+	 * @param string $password The application password.
+	 *
+	 * @return int The authenticated user ID, or 0.
+	 */
+	private function sign_request_in( int $user_id, string $password ): int {
+		$api_request = '__return_true';
+		add_filter( 'application_password_is_api_request', $api_request );
+		add_filter( 'wp_is_application_passwords_available', $api_request );
+		$_SERVER['PHP_AUTH_USER'] = get_userdata( $user_id )->user_login;
+		$_SERVER['PHP_AUTH_PW']   = $password;
+		$_SERVER['REMOTE_ADDR']   = '203.0.113.9';
+
+		$authenticated = apply_filters( 'determine_current_user', false );
+
+		unset( $_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'], $_SERVER['REMOTE_ADDR'] );
+		remove_filter( 'application_password_is_api_request', $api_request );
+		remove_filter( 'wp_is_application_passwords_available', $api_request );
+
+		return (int) $authenticated;
+	}
+
+	public function test_the_first_use_of_an_application_password_is_reported_once(): void {
+		$admin               = $this->create_user( 'administrator' );
+		[ $password, $item ] = $this->create_app_password( $admin );
+		$subscriber          = $this->create_user( 'subscriber' );
+		$other_password      = $this->create_app_password( $subscriber )[0];
+		as_unschedule_all_actions( '', [], 'scanfully' );
+
+		$this->assertSame( $admin, $this->sign_request_in( $admin, $password ) );
+		$this->assertSame( $admin, $this->sign_request_in( $admin, $password ), 'A second request.' );
+		$this->assertSame( $subscriber, $this->sign_request_in( $subscriber, $other_password ) );
+
+		$events = $this->queued();
+		$this->assertSame( [ 'AppPasswordFirstUsed' ], array_column( $events, 0 ) );
+		$this->assertSame( $item['uuid'], $events[0][1]['app_id'] );
+		$this->assertSame( '203.0.113.9', $events[0][1]['ip'] );
+		$this->assertStringNotContainsString( $password, (string) wp_json_encode( $events ), 'Never the password.' );
+	}
 }

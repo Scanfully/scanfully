@@ -11,6 +11,7 @@ use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Mockery;
 use Scanfully\Events\AppPasswordCreated;
+use Scanfully\Events\AppPasswordFirstUsed;
 use Scanfully\Events\AppPasswordRevoked;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
@@ -18,6 +19,8 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
  * @covers \Scanfully\Events\AppPasswordEvent
  * @covers \Scanfully\Events\AppPasswordCreated
  * @covers \Scanfully\Events\AppPasswordRevoked
+ * @covers \Scanfully\Events\AppPasswordFirstUsed
+ * @covers \Scanfully\Events\UserEvent
  */
 final class AppPasswordEventsTest extends TestCase {
 
@@ -42,8 +45,19 @@ final class AppPasswordEventsTest extends TestCase {
 	 */
 	private array $scheduled = [];
 
+	/**
+	 * $_SERVER before the test.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private array $server = [];
+
 	protected function setUp(): void {
 		parent::setUp();
+		$this->server = $_SERVER;
+		unset( $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT'], $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_X_REAL_IP'], $_SERVER['HTTP_X_FORWARDED_FOR'] );
+		Functions\when( 'wp_unslash' )->returnArg();
+		Functions\when( 'sanitize_text_field' )->alias( static fn( $value ) => trim( (string) $value ) );
 
 		$this->add_user( 4, 'Bob', [ 'administrator' ] );
 		$this->add_user( 5, 'Sue', [ 'subscriber' ] );
@@ -72,6 +86,11 @@ final class AppPasswordEventsTest extends TestCase {
 				return 1;
 			}
 		);
+	}
+
+	protected function tearDown(): void {
+		$_SERVER = $this->server;
+		parent::tearDown();
 	}
 
 	/**
@@ -151,8 +170,9 @@ final class AppPasswordEventsTest extends TestCase {
 	 */
 	private function event_for( string $hook ): object {
 		$events = [
-			'wp_create_application_password' => AppPasswordCreated::class,
-			'wp_delete_application_password' => AppPasswordRevoked::class,
+			'wp_create_application_password'        => AppPasswordCreated::class,
+			'wp_delete_application_password'        => AppPasswordRevoked::class,
+			'application_password_did_authenticate' => AppPasswordFirstUsed::class,
 		];
 
 		return new $events[ $hook ]();
@@ -217,5 +237,54 @@ final class AppPasswordEventsTest extends TestCase {
 		$this->run_listener( 'wp_delete_application_password', 5, $this->item() );
 
 		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_the_first_use_of_an_application_password_is_reported_with_where_it_came_from(): void {
+		$_SERVER['REMOTE_ADDR']          = '203.0.113.9';
+		$_SERVER['HTTP_X_FORWARDED_FOR'] = '198.51.100.7';
+		$_SERVER['HTTP_USER_AGENT']      = 'Zapier';
+		Functions\expect( 'wp_get_current_user' )->never();
+
+		$this->run_listener( 'application_password_did_authenticate', $this->users[4], $this->item() );
+
+		$this->assertSame( 'AppPasswordFirstUsed', $this->scheduled[0]['type'] );
+		$this->assertSame(
+			[
+				'id'   => 4,
+				'name' => 'Bob',
+			],
+			$this->scheduled[0]['user'],
+			'The actor is the authenticated user.'
+		);
+		$this->assertSame(
+			[
+				'id'            => 4,
+				'name'          => 'Bob',
+				'email'         => 'bob@scanfully.com',
+				'roles'         => [ 'administrator' ],
+				'app_name'      => 'Zapier',
+				'app_id'        => '6f8f1c2e-7a5b-4c3d-9e1f-2a3b4c5d6e7f',
+				'ip'            => '203.0.113.9',
+				'forwarded_for' => '198.51.100.7',
+				'user_agent'    => 'Zapier',
+			],
+			$this->scheduled[0]['data']
+		);
+	}
+
+	public function test_a_later_use_returns_before_any_other_work(): void {
+		Functions\expect( 'get_option' )->never();
+		Functions\expect( 'user_can' )->never();
+
+		$this->run_listener( 'application_password_did_authenticate', $this->users[4], $this->item( [ 'last_used' => 1759492800 ] ) );
+
+		$this->assertSame( [], $this->scheduled );
+	}
+
+	public function test_the_first_use_by_another_account_is_not_reported(): void {
+		$this->run_listener( 'application_password_did_authenticate', $this->users[5], $this->item() );
+
+		$this->assertSame( [], $this->scheduled );
+		$this->assertFalse( ( new AppPasswordFirstUsed() )->should_fire( [ null, $this->item() ] ) );
 	}
 }
