@@ -532,6 +532,26 @@ final class MediaEventsTest extends TestCase {
 		$this->assertSame( 'trash', $events[0]['data']['changes']['status']['old'] ?? null );
 	}
 
+	public function test_a_file_trashed_and_deleted_by_someone_else_before_the_job_keeps_its_name(): void {
+		self::start_of_minute();
+		$id = $this->upload( 'brochure.jpg' );
+		$this->forget();
+
+		wp_trash_post( $id );
+		$this->end_request();
+		// Someone else deletes it before the minute's job runs.
+		wp_set_current_user( 0 );
+		wp_delete_attachment( $id, true );
+		$this->end_request();
+		wp_set_current_user( 1 );
+		$events = array_column( $this->run_jobs(), 'data', 'type' );
+
+		$this->assertSame( [ 'MediaChanged', 'MediaDeleted' ], array_keys( $events ) );
+		$trashed = $events['MediaChanged'];
+		$this->assertSame( [ 'brochure.jpg', 'brochure', 'image/jpeg' ], [ $trashed['name'], $trashed['title'], $trashed['mime_type'] ] );
+		$this->assertSame( 'trash', $trashed['changes']['status']['new'] );
+	}
+
 	public function test_deleting_a_featured_image_says_how_many_posts_had_it(): void {
 		self::start_of_minute();
 		$id    = $this->upload( 'header.jpg' );

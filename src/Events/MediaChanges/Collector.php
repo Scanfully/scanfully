@@ -80,7 +80,9 @@ final class Collector {
 	 * - `image`: edited in the image editor (`edits`, `target`) or restored;
 	 * - `replaced`: the file replaced through a replace plugin (`old`, `new`);
 	 * - `deleted`: deleted permanently (`done` once it went through), with
-	 *   what the row says about it.
+	 *   what the row says about it;
+	 * - `known`: its name, title and type after its post was last saved, for
+	 *   the job should the file be deleted before it runs.
 	 *
 	 * @var array<int, array<string, mixed>>
 	 */
@@ -266,6 +268,33 @@ final class Collector {
 				self::change( $id, $field, $old, $new );
 			}
 		}
+
+		// What the job says about the file should someone delete it before
+		// the job runs, from the post WordPress passes.
+		if ( isset( self::$notes[ $id ] ) ) {
+			self::$notes[ $id ]['known'] = self::known( $id, $after );
+		}
+	}
+
+	/**
+	 * A file's name, title and type from its post and the meta cache, never
+	 * the database.
+	 *
+	 * @param int    $id   The attachment ID.
+	 * @param object $post The attachment.
+	 *
+	 * @return array{name: string, file: string, title: string, mime_type: string}
+	 */
+	private static function known( int $id, object $post ): array {
+		$file = self::cached_value( $id, self::FILE_KEY );
+		$file = is_string( $file ) ? $file : '';
+
+		return [
+			'name'      => Details::name( $file, (string) ( $post->guid ?? '' ) ),
+			'file'      => $file,
+			'title'     => self::text( (string) ( $post->post_title ?? '' ) ),
+			'mime_type' => (string) ( $post->post_mime_type ?? '' ),
+		];
 	}
 
 	/**
@@ -807,8 +836,14 @@ final class Collector {
 				$item[ $key ] = $note[ $key ];
 			}
 		}
+		if ( count( $item ) < 2 ) {
+			return null;
+		}
+		if ( isset( $note['known'] ) ) {
+			$item['known'] = $note['known'];
+		}
 
-		return count( $item ) > 1 ? $item : null;
+		return $item;
 	}
 
 	/**

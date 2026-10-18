@@ -183,6 +183,10 @@ final class Batch {
 				unset( $file['old']['file'], $file['new']['file'] );
 			}
 
+			if ( isset( $item['known'] ) ) {
+				$file['known'] = (array) $item['known'];
+			}
+
 			$files[ $id ] = $file;
 		}
 
@@ -315,8 +319,8 @@ final class Batch {
 	}
 
 	/**
-	 * A file as it is now, or, when it is gone since, as far as the notes
-	 * know it.
+	 * A file as it is now, or, when it is gone since (someone else deleted
+	 * it), as far as the notes know it.
 	 *
 	 * @param int                  $id   The attachment ID.
 	 * @param array<string, mixed> $file The merged notes.
@@ -329,14 +333,16 @@ final class Batch {
 			return $data;
 		}
 
-		$path = (string) ( $file['new']['file'] ?? $file['file'] ?? '' );
+		$known = (array) ( $file['known'] ?? [] );
+		$path  = (string) ( $file['new']['file'] ?? $file['file'] ?? $known['file'] ?? '' );
+		$name  = Details::name( $path );
 
 		return [
 			'id'        => $id,
-			'name'      => Details::name( $path ),
+			'name'      => '' !== $name ? $name : (string) ( $known['name'] ?? '' ),
 			'file'      => $path,
-			'title'     => (string) ( $file['new']['title'] ?? '' ),
-			'mime_type' => '',
+			'title'     => (string) ( $file['new']['title'] ?? $known['title'] ?? '' ),
+			'mime_type' => (string) ( $known['mime_type'] ?? '' ),
 		];
 	}
 

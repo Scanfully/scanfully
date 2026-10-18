@@ -450,6 +450,32 @@ final class BatchTest extends TestCase {
 		);
 	}
 
+	public function test_a_change_to_a_file_deleted_since_says_what_the_request_knew(): void {
+		// No attachment 7: someone else deleted it before the job ran.
+		$this->request(
+			[
+				[
+					'id'    => 7,
+					'old'   => [ 'status' => 'inherit' ],
+					'new'   => [ 'status' => 'trash' ],
+					'known' => [
+						'name'      => 'brochure.pdf',
+						'file'      => '',
+						'title'     => 'Brochure',
+						'mime_type' => 'application/pdf',
+					],
+				],
+			]
+		);
+
+		$events = $this->run_job();
+
+		$this->assertSame( [ 'MediaChanged' ], array_column( $events, 'type' ) );
+		$data = $events[0]['data'];
+		$this->assertSame( [ 'brochure.pdf', '', 'Brochure', 'application/pdf' ], [ $data['name'], $data['file'], $data['title'], $data['mime_type'] ] );
+		$this->assertSame( 'trash', $data['changes']['status']['new'] );
+	}
+
 	public function test_a_rename_and_a_replace_say_what_happened_to_the_file(): void {
 		$this->attachment( 7, '2026/10/a.webp' );
 		$this->attachment( 8, '2026/10/logo.png' );

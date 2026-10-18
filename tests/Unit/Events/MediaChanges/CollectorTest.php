@@ -152,14 +152,23 @@ final class CollectorTest extends TestCase {
 	}
 
 	public function test_a_details_save_notes_old_and_new(): void {
+		$this->meta[7] = [ '_wp_attached_file' => [ '2026/10/team-photo.jpg' ] ];
+
 		Collector::note_updated( 7, self::post( [ 'post_title' => 'Team &amp; friends' ] ), self::post() );
 
 		$this->assertSame(
 			[
 				[
-					'id'  => 7,
-					'old' => [ 'title' => 'Team photo' ],
-					'new' => [ 'title' => 'Team & friends' ],
+					'id'    => 7,
+					'old'   => [ 'title' => 'Team photo' ],
+					'new'   => [ 'title' => 'Team & friends' ],
+					// For the job, should the file be deleted before it runs.
+					'known' => [
+						'name'      => 'team-photo.jpg',
+						'file'      => '2026/10/team-photo.jpg',
+						'title'     => 'Team & friends',
+						'mime_type' => 'image/jpeg',
+					],
 				],
 			],
 			$this->end_request()
