@@ -293,6 +293,34 @@ final class SettingsEventsTest extends TestCase {
 		$this->assertStringNotContainsString( 'scanfully.com', (string) wp_json_encode( $sent ) );
 	}
 
+	public function test_update_services_saved_while_search_engines_are_discouraged_list_only_the_real_change(): void {
+		$this->given(
+			[
+				'ping_sites'  => 'http://rpc.pingomatic.com/',
+				// WordPress now reads the update services as empty.
+				'blog_public' => '0',
+			]
+		);
+		// A later request reads `blog_public` from the database as '0' (the
+		// request that saves it holds the int 0, which the filter ignores).
+		wp_cache_delete( 'alloptions', 'options' );
+		$this->assertSame( '', get_option( 'ping_sites' ) );
+
+		// Only code, REST or WP-CLI can: the Writing screen hides the field.
+		$this->save_screen( [ 'ping_sites' => "http://rpc.pingomatic.com/\nhttps://ping.scanfully.com/" ] );
+
+		$this->assertSame(
+			[
+				[
+					'option'  => 'ping_sites',
+					'added'   => [ 'https://ping.scanfully.com/' ],
+					'removed' => [],
+				],
+			],
+			$this->sent_settings()
+		);
+	}
+
 	public function test_the_post_via_email_password_is_never_sent(): void {
 		$this->given( [ 'mailserver_pass' => 'old-password' ] );
 

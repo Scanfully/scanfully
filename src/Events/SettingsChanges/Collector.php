@@ -55,11 +55,21 @@ final class Collector {
 	private static array $request_deleted = [];
 
 	/**
+	 * Per site, the update services as stored before this request's update,
+	 * while WordPress reads them as empty (see note_updating()); null when
+	 * that value wasn't cached.
+	 *
+	 * @var array<int, string|null>
+	 */
+	private static array $stored_ping_sites = [];
+
+	/**
 	 * Hook into WordPress.
 	 *
 	 * @return void
 	 */
 	public static function setup(): void {
+		add_action( 'update_option', [ self::class, 'note_updating' ], 10, 1 );
 		add_action( 'updated_option', [ self::class, 'note_updated' ], 10, 3 );
 		add_action( 'added_option', [ self::class, 'note_added' ], 10, 2 );
 		add_action( 'delete_option', [ self::class, 'note_deleting' ], 10, 1 );
@@ -72,8 +82,9 @@ final class Collector {
 	 * @return void
 	 */
 	public static function reset(): void {
-		self::$changes         = [];
-		self::$request_deleted = [];
+		self::$changes           = [];
+		self::$request_deleted   = [];
+		self::$stored_ping_sites = [];
 	}
 
 	/**
@@ -100,6 +111,51 @@ final class Collector {
 	}
 
 	/**
+	 * Whether WordPress reads the update services as empty: it does while
+	 * the site discourages search engines (privacy_ping_filter()).
+	 *
+	 * @return bool
+	 */
+	private static function hides_ping_sites(): bool {
+		return false !== has_filter( 'option_ping_sites', 'privacy_ping_filter' ) && '0' === get_option( 'blog_public' );
+	}
+
+	/**
+	 * The update services as stored, from the options cache that
+	 * get_option() filled (no query); null when they aren't cached.
+	 *
+	 * @return string|null
+	 */
+	private static function stored_ping_sites(): ?string {
+		$all   = wp_load_alloptions();
+		$value = $all['ping_sites'] ?? wp_cache_get( 'ping_sites', 'options' );
+
+		return is_string( $value ) ? $value : null;
+	}
+
+	/**
+	 * `update_option` (before the update): while WordPress reads the update
+	 * services as empty, the old value update_option() passes on is empty
+	 * too, so every service would show as added. The stored value is read
+	 * now, before the update replaces it in the cache.
+	 *
+	 * @param string $option The option name.
+	 *
+	 * @return void
+	 */
+	public static function note_updating( $option ): void {
+		if ( 'ping_sites' !== $option ) {
+			return;
+		}
+
+		// An update that changed nothing in the database left one behind.
+		unset( self::$stored_ping_sites[ get_current_blog_id() ] );
+		if ( ! self::is_quiet() && self::hides_ping_sites() ) {
+			self::$stored_ping_sites[ get_current_blog_id() ] = self::stored_ping_sites();
+		}
+	}
+
+	/**
 	 * `updated_option`: note a changed setting.
 	 *
 	 * @param string $option    The option name.
@@ -111,6 +167,16 @@ final class Collector {
 	public static function note_updated( $option, $old_value, $value ): void {
 		if ( ! is_string( $option ) || ! self::is_noted( $option ) || self::is_quiet() ) {
 			return;
+		}
+
+		$blog = get_current_blog_id();
+		if ( 'ping_sites' === $option && array_key_exists( $blog, self::$stored_ping_sites ) ) {
+			$old_value = self::$stored_ping_sites[ $blog ];
+			unset( self::$stored_ping_sites[ $blog ] );
+			if ( null === $old_value ) {
+				// What it was can't be known: no row rather than a wrong one.
+				return;
+			}
 		}
 
 		self::note( $option, $old_value, $value );
@@ -149,7 +215,8 @@ final class Collector {
 		}
 
 		if ( Settings::is_reported( $option ) ) {
-			self::note( $option, get_option( $option ), null );
+			$old_value = 'ping_sites' === $option && self::hides_ping_sites() ? self::stored_ping_sites() : get_option( $option );
+			self::note( $option, $old_value, null );
 			return;
 		}
 
