@@ -203,6 +203,8 @@ class PostSaved extends Event {
 		'revision',
 		'attachment',
 		'nav_menu_item',
+		// Block theme menus are menu events (MenuChanges).
+		'wp_navigation',
 		'wp_template',
 		'wp_template_part',
 		'oembed_cache',

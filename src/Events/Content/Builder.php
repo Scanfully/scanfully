@@ -10,7 +10,9 @@ namespace Scanfully\Events\Content;
 use Scanfully\Events\Controller;
 use Scanfully\Events\PostChanges\Builder as PostBuilder;
 use Scanfully\Events\PostChanges\Stash;
+use Scanfully\Events\MenuChanges\Builder as MenuBuilder;
 use Scanfully\Events\SettingsChanges\Settings;
+use Scanfully\Events\WidgetChanges\Builder as WidgetBuilder;
 
 /**
  * Class Builder
@@ -49,10 +51,16 @@ final class Builder {
 
 		$retrying = false;
 		try {
+			$event = self::resolve( $type, $event );
+			// Only numbers changed (a menu renumbered without a real move).
+			if ( [] === $event ) {
+				return;
+			}
+
 			Controller::deliver(
 				$type,
 				$user,
-				self::resolve( $type, $event ),
+				$event,
 				$attempt,
 				static function () use ( &$retrying, $type, $user, $data, $stash, $attempt ): void {
 					$retrying = true;
@@ -67,7 +75,7 @@ final class Builder {
 	}
 
 	/**
-	 * The event data with names added.
+	 * The event data with names added; [] when nothing is left to send.
 	 *
 	 * @param string               $type The event type.
 	 * @param array<string, mixed> $data The event data.
@@ -93,6 +101,14 @@ final class Builder {
 				break;
 			case 'SiteOptionChanged':
 				$data = Settings::resolve( $data );
+				break;
+			case 'MenuCreated':
+			case 'MenuChanged':
+			case 'MenuDeleted':
+				$data = MenuBuilder::resolve( $type, $data );
+				break;
+			case 'WidgetsChanged':
+				$data = WidgetBuilder::resolve( $data );
 				break;
 			case 'TermChanged':
 				foreach ( [ 'old', 'new' ] as $side ) {

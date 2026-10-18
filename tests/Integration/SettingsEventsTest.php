@@ -243,9 +243,9 @@ final class SettingsEventsTest extends TestCase {
 	public function test_a_save_without_changes_sends_nothing(): void {
 		$this->given(
 			[
-				'comment_moderation'  => '1',
-				'show_avatars'        => '1',
-				'users_can_register'  => '0',
+				'comment_moderation'      => '1',
+				'show_avatars'            => '1',
+				'users_can_register'      => '0',
 				'close_comments_days_old' => '14',
 			]
 		);

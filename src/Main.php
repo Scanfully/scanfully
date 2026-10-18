@@ -181,6 +181,12 @@ class Main {
 		Events\Controller::register( new Events\SuperAdminRevoked() ); // when a user is no longer super admin (multisite).
 		Events\Controller::register( new Events\SiteOptionChanged() ); // when a setting of the settings screens is changed.
 		Events\SettingsChanges\Collector::setup();
+		Events\Controller::register( new Events\MenuCreated() ); // when a navigation menu is made.
+		Events\Controller::register( new Events\MenuChanged() ); // when a navigation menu or its items change.
+		Events\Controller::register( new Events\MenuDeleted() ); // when a navigation menu is deleted.
+		Events\MenuChanges\Collector::setup();
+		Events\Controller::register( new Events\WidgetsChanged() ); // when widgets are added, changed, moved or removed.
+		Events\WidgetChanges\Collector::setup();
 
 		// custom events.
 		Events\Controller::setup_custom_events();
