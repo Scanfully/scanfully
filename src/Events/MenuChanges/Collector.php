@@ -118,6 +118,7 @@ final class Collector {
 		add_action( 'delete_term_relationships', [ self::class, 'note_item_menu' ], 10, 3 );
 		add_filter( 'pre_set_theme_mod_nav_menu_locations', [ self::class, 'note_locations' ], PHP_INT_MAX, 2 );
 		add_action( 'updated_option', [ self::class, 'note_option' ], 10, 3 );
+		add_action( 'added_option', [ self::class, 'note_option_added' ], 10, 2 );
 		add_action( 'wp_after_insert_post', [ self::class, 'note_block_saved' ], 10, 4 );
 		add_action( 'shutdown', [ self::class, 'flush' ], 1, 0 );
 	}
@@ -658,6 +659,20 @@ final class Collector {
 			];
 		}
 		self::$auto_add['new'] = $ids( $value );
+	}
+
+	/**
+	 * `added_option`: the first save of `nav_menu_options`, on a site whose
+	 * Menus screen was never saved (update_option() adds the missing
+	 * option). Before it, no menu added new pages by itself.
+	 *
+	 * @param mixed $option The option name.
+	 * @param mixed $value  The value.
+	 *
+	 * @return void
+	 */
+	public static function note_option_added( $option, $value ): void {
+		self::note_option( $option, [], $value );
 	}
 
 	/**

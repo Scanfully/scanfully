@@ -294,6 +294,34 @@ final class MenuEventsTest extends TestCase {
 		);
 	}
 
+	public function test_the_first_auto_add_pages_setting_on_a_site_is_reported(): void {
+		[ $menu_id ] = $this->make_menu( 'Main menu', [] );
+		$before      = get_option( 'nav_menu_options' );
+		// A site whose Menus screen was never saved has no such option yet:
+		// update_option() adds it.
+		delete_option( 'nav_menu_options' );
+
+		update_option( 'nav_menu_options', [ 'auto_add' => [ $menu_id ] ], false );
+		$events = $this->sent_menu_events();
+
+		if ( false === $before ) {
+			delete_option( 'nav_menu_options' );
+		} else {
+			update_option( 'nav_menu_options', $before, false );
+		}
+		Collector::reset();
+
+		$this->assertSame( [ 'MenuChanged' ], array_column( $events, 'type' ) );
+		$this->assertSame( $menu_id, $events[0]['data']['id'] );
+		$this->assertSame(
+			[
+				'old' => false,
+				'new' => true,
+			],
+			$events[0]['data']['changes']['auto_add']
+		);
+	}
+
 	public function test_a_menus_screen_save_reports_each_item_change_and_only_the_real_move(): void {
 		[ $menu_id, $items ]                  = $this->make_menu( 'Main menu', [ 'Home', 'Blog', 'Shop', 'About', 'Old' ] );
 		[ $home, $blog, $shop, $about, $old ] = $items;
