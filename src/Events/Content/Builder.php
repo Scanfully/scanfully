@@ -10,6 +10,7 @@ namespace Scanfully\Events\Content;
 use Scanfully\Events\Controller;
 use Scanfully\Events\PostChanges\Builder as PostBuilder;
 use Scanfully\Events\PostChanges\Stash;
+use Scanfully\Events\SettingsChanges\Settings;
 
 /**
  * Class Builder
@@ -89,6 +90,9 @@ final class Builder {
 				if ( isset( $data['parent']['id'] ) ) {
 					$data['parent'] = self::term( (int) $data['parent']['id'], (string) ( $data['taxonomy'] ?? '' ) );
 				}
+				break;
+			case 'SiteOptionChanged':
+				$data = Settings::resolve( $data );
 				break;
 			case 'TermChanged':
 				foreach ( [ 'old', 'new' ] as $side ) {

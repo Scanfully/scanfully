@@ -15,23 +15,51 @@ namespace Scanfully\Events\Content;
  * many posts or terms in many requests. What is over the cap is not
  * dropped: it goes to the Overflow, which reports it a minute later.
  *
+ * Settings, menus and widgets have a cap of their own; what is over it is
+ * dropped, as for user events (a person changes them a few at a time).
+ *
  * @package Scanfully\Events\Content
  */
 final class Limiter {
 
 	/**
-	 * Default number of events a minute, per kind. Filterable via
-	 * `scanfully_post_saved_events_per_minute` (posts) and
-	 * `scanfully_term_events_per_minute` (terms); 0 or less is no cap.
+	 * Settings changes (SettingsChanges\Collector).
+	 */
+	public const KIND_SETTING = 'setting';
+
+	/**
+	 * Menu changes (MenuChanges\Collector).
+	 */
+	public const KIND_MENU = 'menu';
+
+	/**
+	 * Widget changes (WidgetChanges\Collector).
+	 */
+	public const KIND_WIDGET = 'widget';
+
+	/**
+	 * Default number of events a minute, per kind; 0 or less is no cap.
 	 */
 	private const PER_MINUTE = 30;
+
+	/**
+	 * The filter of each kind's cap; posts use
+	 * `scanfully_post_saved_events_per_minute`.
+	 */
+	private const FILTERS = [
+		Report::KIND_TERM  => 'scanfully_term_events_per_minute',
+		self::KIND_SETTING => 'scanfully_settings_events_per_minute',
+		self::KIND_MENU    => 'scanfully_menu_events_per_minute',
+		self::KIND_WIDGET  => 'scanfully_widget_events_per_minute',
+	];
 
 	/**
 	 * Take room for events in this minute's cap: how many of them may be
 	 * sent now. One transient read and write per request, however many
 	 * events it has.
 	 *
-	 * @param string $kind   Report::KIND_POST or Report::KIND_TERM.
+	 * @param string $kind   Report::KIND_POST, Report::KIND_TERM or one of the
+	 *                       kinds above.
 	 * @param int    $wanted How many events the request has.
 	 *
 	 * @return int
@@ -41,9 +69,7 @@ final class Limiter {
 			return 0;
 		}
 
-		$limit = Report::KIND_TERM === $kind
-			? (int) apply_filters( 'scanfully_term_events_per_minute', self::PER_MINUTE )
-			: (int) apply_filters( 'scanfully_post_saved_events_per_minute', self::PER_MINUTE );
+		$limit = (int) apply_filters( self::FILTERS[ $kind ] ?? 'scanfully_post_saved_events_per_minute', self::PER_MINUTE ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.DynamicHooknameFound -- The filters start with scanfully_.
 		if ( $limit < 1 ) {
 			return $wanted;
 		}

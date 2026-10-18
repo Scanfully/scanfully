@@ -66,6 +66,16 @@ final class LimiterTest extends TestCase {
 		$this->assertSame( 2, Limiter::take( Report::KIND_TERM, 3 ) );
 	}
 
+	public function test_settings_menus_and_widgets_have_caps_of_their_own(): void {
+		Filters\expectApplied( 'scanfully_settings_events_per_minute' )->andReturn( 1 );
+		Filters\expectApplied( 'scanfully_menu_events_per_minute' )->andReturn( 2 );
+		Filters\expectApplied( 'scanfully_widget_events_per_minute' )->andReturn( 3 );
+
+		$this->assertSame( 1, Limiter::take( Limiter::KIND_SETTING, 5 ) );
+		$this->assertSame( 2, Limiter::take( Limiter::KIND_MENU, 5 ) );
+		$this->assertSame( 3, Limiter::take( Limiter::KIND_WIDGET, 5 ) );
+	}
+
 	public function test_no_cap_lets_everything_through_without_a_write(): void {
 		Filters\expectApplied( 'scanfully_post_saved_events_per_minute' )->andReturn( 0 );
 

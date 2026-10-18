@@ -179,9 +179,8 @@ class Main {
 		Events\Controller::register( new Events\EmailChanged() ); // when the email address of a user with elevated rights is changed.
 		Events\Controller::register( new Events\SuperAdminGranted() ); // when a user is made super admin (multisite).
 		Events\Controller::register( new Events\SuperAdminRevoked() ); // when a user is no longer super admin (multisite).
-		foreach ( Events\SiteOptionChanged::OPTIONS as $option ) {
-			Events\Controller::register( new Events\SiteOptionChanged( $option ) ); // when a key setting is changed.
-		}
+		Events\Controller::register( new Events\SiteOptionChanged() ); // when a setting of the settings screens is changed.
+		Events\SettingsChanges\Collector::setup();
 
 		// custom events.
 		Events\Controller::setup_custom_events();

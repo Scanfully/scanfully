@@ -264,32 +264,6 @@ final class ActivityEventTest extends TestCase {
 		$this->assertStringNotContainsString( 'scanfully-', (string) wp_json_encode( $events ), 'Never the login.' );
 	}
 
-	public function test_a_key_setting_change_is_reported_and_a_type_only_change_is_not(): void {
-		$this->restore_later( 'blog_public' );
-		$this->restore_later( 'users_can_register' );
-		update_option( 'blog_public', '1' );
-		update_option( 'users_can_register', '0' );
-		as_unschedule_all_actions( '', [], 'scanfully' );
-
-		// What the settings pages save.
-		update_option( 'users_can_register', sanitize_option( 'users_can_register', null ) );
-		update_option( 'blog_public', sanitize_option( 'blog_public', '0' ) );
-
-		$this->assertSame(
-			[
-				[
-					'SiteOptionChanged',
-					[
-						'option' => 'blog_public',
-						'old'    => '1',
-						'new'    => '0',
-					],
-				],
-			],
-			$this->queued()
-		);
-	}
-
 	public function test_a_permalink_change_is_reported_and_rewrite_flushes_are_not(): void {
 		$this->restore_later( 'permalink_structure' );
 		$old = (string) get_option( 'permalink_structure' );
