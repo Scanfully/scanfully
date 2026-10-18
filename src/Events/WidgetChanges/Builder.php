@@ -13,8 +13,9 @@ use Scanfully\Events\PostChanges\ContentDiff;
  * Class Builder
  *
  * The background job's part of a WidgetsChanged event: names each widget's
- * type and area, labels block widgets by their content, and compares the
- * text of text, HTML and block widgets line by line, as post content is.
+ * type and area, labels block widgets by their content, reads the title of
+ * a widget that was only moved or removed, and compares the text of text,
+ * HTML and block widgets line by line, as post content is.
  *
  * Data sent: `name` (the widget's title or type when the row is about one
  * widget, else the area when they are all in one), `area` (`id`, `name`)
@@ -91,16 +92,24 @@ final class Builder {
 	 */
 	private static function widget( array $widget ): array {
 		$type    = (string) ( $widget['type'] ?? '' );
+		$id      = (string) ( $widget['id'] ?? '' );
 		$content = $widget['_content'] ?? ( $widget['_text']['new'] ?? null );
+		$title   = isset( $widget['title'] ) ? (string) $widget['title'] : null;
+		// A widget moved or removed without a change to its settings: the
+		// request had none of them, so they are read as stored now.
 		if ( 'block' === $type && ! is_string( $content ) ) {
-			$content = self::stored_content( (string) ( $widget['id'] ?? '' ) );
+			$stored  = self::stored_instance( $type, $id );
+			$content = isset( $stored['content'] ) && is_string( $stored['content'] ) ? $stored['content'] : null;
+		} elseif ( 'block' !== $type && null === $title ) {
+			$stored = self::stored_instance( $type, $id );
+			$title  = isset( $stored['title'] ) && is_scalar( $stored['title'] ) ? (string) $stored['title'] : null;
 		}
 
 		$out = [
-			'id'         => (string) ( $widget['id'] ?? '' ),
+			'id'         => $id,
 			'type'       => $type,
 			'type_label' => 'block' === $type && is_string( $content ) ? self::block_label( $content ) : self::type_label( $type ),
-			'title'      => isset( $widget['title'] ) ? self::plain( (string) $widget['title'] ) : '',
+			'title'      => null !== $title ? self::plain( $title ) : '',
 			'action'     => (string) ( $widget['action'] ?? '' ),
 		];
 		// A block widget has no title. The dashboard shows its first line of
@@ -131,20 +140,21 @@ final class Builder {
 	}
 
 	/**
-	 * The content of a block widget as stored now; null when it is gone.
+	 * The settings of a widget as stored now; null when it is gone.
 	 *
-	 * @param string $id The widget ID (`block-3`).
+	 * @param string $type The widget's ID base (`text`).
+	 * @param string $id   The widget ID (`text-3`).
 	 *
-	 * @return string|null
+	 * @return array<string, mixed>|null
 	 */
-	private static function stored_content( string $id ): ?string {
-		if ( ! preg_match( '/^block-(\d+)$/', $id, $match ) ) {
+	private static function stored_instance( string $type, string $id ): ?array {
+		if ( '' === $type || 0 !== strpos( $id, $type . '-' ) || ! ctype_digit( substr( $id, strlen( $type ) + 1 ) ) ) {
 			return null;
 		}
-		$instances = get_option( 'widget_block' );
-		$content   = is_array( $instances ) ? ( $instances[ (int) $match[1] ]['content'] ?? null ) : null;
+		$instances = get_option( 'widget_' . $type );
+		$instance  = is_array( $instances ) ? ( $instances[ (int) substr( $id, strlen( $type ) + 1 ) ] ?? null ) : null;
 
-		return is_string( $content ) ? $content : null;
+		return is_array( $instance ) ? $instance : null;
 	}
 
 	/**

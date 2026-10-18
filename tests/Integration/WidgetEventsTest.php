@@ -269,6 +269,41 @@ final class WidgetEventsTest extends TestCase {
 		$moved = array_column( $events[0]['widgets'], null, 'id' )['search-91'];
 		$this->assertSame( 'Test sidebar', $moved['old_area']['name'] );
 		$this->assertSame( 'Test footer', $moved['area']['name'] );
+		// Their settings didn't change: the job reads the titles.
+		$this->assertSame(
+			[
+				'search-91' => 'Find',
+				'text-92'   => 'Promo',
+			],
+			array_column( $events[0]['widgets'], 'title', 'id' )
+		);
+	}
+
+	public function test_a_widget_removed_without_a_settings_change_is_named_by_its_title(): void {
+		$this->given(
+			[ 'scanfully-sidebar' => [ 'text-95' ] ],
+			[
+				'widget_text' => [
+					95 => [
+						'title' => 'Opening hours',
+						'text'  => 'Mon',
+					],
+				],
+			]
+		);
+
+		// What WP-CLI's `widget deactivate` and the classic Widgets screen's
+		// drag do: only the areas change.
+		$sidebars                        = wp_get_sidebars_widgets();
+		$sidebars['scanfully-sidebar']   = [];
+		$sidebars['wp_inactive_widgets'] = array_merge( (array) ( $sidebars['wp_inactive_widgets'] ?? [] ), [ 'text-95' ] );
+		wp_set_sidebars_widgets( $sidebars );
+
+		$events = $this->sent_widget_events();
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'removed', $events[0]['widgets'][0]['action'] );
+		$this->assertSame( 'Opening hours', $events[0]['widgets'][0]['title'] );
+		$this->assertSame( 'Opening hours', $events[0]['name'] );
 	}
 
 	public function test_loading_the_widgets_screen_reports_nothing(): void {
