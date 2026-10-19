@@ -9,7 +9,7 @@ License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
 
-Scanfully monitors your WordPress sites for downtime, performance changes, vulnerabilities, broken content, email delivery problems, DNS changes, SSL issues, and important activity.
+Scanfully monitors your WordPress sites for downtime, slowdowns, vulnerabilities, broken content, email delivery, DNS and SSL, with an activity log.
 
 == Description ==
 
@@ -51,7 +51,9 @@ Scanfully monitors different parts of your WordPress sites because site health i
 
 Scanfully records important activity from inside WordPress.
 
-This includes events such as plugin changes, theme changes, content updates, logins, and other WordPress activity.
+This includes plugin and theme updates, installs and deletions, failed updates, content changes with what changed in each post, the media library, WordPress settings, menus and widgets, the Customizer and the Site Editor, edits in the plugin and theme file editors, and changes to users.
+
+For accounts with elevated rights, it also records logins, password and email address changes, and application passwords. Failed logins are counted per hour, so Scanfully can tell you when a login attack starts.
 
 The Activity Log becomes especially useful when you compare those events with monitoring data. It helps you understand what changed before a problem appeared.
 
@@ -78,6 +80,8 @@ This helps you look beyond a single page-load number when diagnosing a slowdown.
 Scanfully collects Site Health information from WordPress and brings it into your Scanfully dashboard.
 
 You can review important WordPress health data without logging into every individual site.
+
+Scanfully also lists your must-use plugins and drop-ins, which the regular plugin list does not show, and warns you about the ones you have not marked as expected.
 
 This becomes especially useful when you manage several WordPress sites.
 
@@ -174,9 +178,9 @@ Starting with Scanfully consists of just two steps: installing and setting up th
 
 ### INSTALL SCANFULLY FOR WORDPRESS FROM WITHIN WORDPRESS
 
-1. Visit the plugins page within your dashboard and select "Add New";
+1. Visit the plugins page within your dashboard and select "Add New Plugin";
 1. Search for ‘Scanfully’;
-1. Activate Scanfully from your Plugins page;
+1. Click "Install Now", then "Activate";
 1. Go to "after activation" below.
 
 ### INSTALL SCANFULLY FOR WORDPRESS MANUALLY
@@ -193,13 +197,29 @@ Starting with Scanfully consists of just two steps: installing and setting up th
 == Frequently Asked Questions ==
 
 = How do I connect my website to Scanfully? =
-Go to Settings > Scanfully in your WordPress admin and click the "Connect" button. You will be redirected to your Scanfully dashboard to authorize the connection. Once approved, you will be redirected back to your WordPress site and the connection is complete.
+Go to Settings > Scanfully in your WordPress admin and click the "Connect your Scanfully account" button. You will be redirected to your Scanfully dashboard to authorize the connection. Once approved, you will be redirected back to your WordPress site and the connection is complete.
 
 = Where's the Scanfully settings screen? =
 Settings > Scanfully.
 
 = Does the plugin impact my page speed? =
 Scanfully is designed to keep monitoring work away from frontend page loads. The plugin collects WordPress activity and Site Health data, then sends that information to Scanfully in the background. External monitoring and data processing happen outside your WordPress site.
+
+== External services ==
+
+This plugin connects your site to Scanfully, a monitoring service at [scanfully.com](https://scanfully.com). It sends nothing until you connect your site to your Scanfully account.
+
+Once connected, the plugin sends data to the Scanfully API at api.scanfully.com in the background:
+
+* Site information and Site Health results, such as the WordPress, PHP and server versions, and the list of plugins, themes, must-use plugins and drop-ins. This is sent on connect, every 3 hours and after a plugin change.
+* The WordPress activity described above, as it happens. It includes the display name of the person who made a change, and the old and new value of a changed setting. Content and file editor changes are sent as a short diff of the lines that changed.
+* For accounts with elevated rights only: their email address with their user events, and the IP address and browser of their logins and of the first use of an application password.
+* Failed logins as counts per hour, with the accounts with elevated rights that were tried, but without IP addresses or the usernames tried.
+* When WooCommerce checkout monitoring is on: the shop details its test checkout needs, such as the product, shipping method and checkout page. Scanfully then places test orders, which the plugin cancels and removes.
+
+Email deliverability checks are on by default: the plugin sends test emails to a Scanfully address through your site's own mail setup. You can turn them off under Settings > Scanfully.
+
+Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy policy](https://scanfully.com/privacy-policy/) apply. [Is Scanfully GDPR compliant?](https://docs.scanfully.com/general/is-scanfully-gdpr-compliant/) explains what is kept and for how long.
 
 == Screenshots ==
 1. The Scanfully settings screen.
