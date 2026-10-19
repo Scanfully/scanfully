@@ -47,6 +47,12 @@ class Controller {
 	public const ACTION_SEND_MEDIA = 'scanfully_send_media_changes';
 
 	/**
+	 * Action Scheduler hook name for reporting a minute of Font Library
+	 * changes (SiteEditor\Fonts).
+	 */
+	public const ACTION_SEND_FONTS = 'scanfully_send_font_changes';
+
+	/**
 	 * The events
 	 *
 	 * @var Event[]
@@ -84,6 +90,7 @@ class Controller {
 		add_action( self::ACTION_BUILD_CONTENT_EVENT, [ Content\Builder::class, 'build' ], 10, 5 );
 		add_action( self::ACTION_SEND_OVERFLOW, [ Content\Overflow::class, 'send' ], 10, 2 );
 		add_action( self::ACTION_SEND_MEDIA, [ MediaChanges\Batch::class, 'send' ], 10, 1 );
+		add_action( self::ACTION_SEND_FONTS, [ SiteEditor\Fonts::class, 'send' ], 10, 1 );
 	}
 
 	/**

@@ -15,7 +15,7 @@ namespace Scanfully\Events\Content;
  * many posts or terms in many requests. What is over the cap is not
  * dropped: it goes to the Overflow, which reports it a minute later.
  *
- * Settings, menus, widgets and theme settings have a cap of their own; what is over it is
+ * Settings, menus, widgets, theme settings and the Site Editor have a cap of their own; what is over it is
  * dropped, as for user events (a person changes them a few at a time).
  *
  * @package Scanfully\Events\Content
@@ -43,6 +43,11 @@ final class Limiter {
 	public const KIND_THEME = 'theme';
 
 	/**
+	 * Site Editor styles and templates (SiteEditor\Collector).
+	 */
+	public const KIND_SITE_EDITOR = 'site_editor';
+
+	/**
 	 * Default number of events a minute, per kind; 0 or less is no cap.
 	 */
 	private const PER_MINUTE = 30;
@@ -57,6 +62,7 @@ final class Limiter {
 		self::KIND_MENU    => 'scanfully_menu_events_per_minute',
 		self::KIND_WIDGET  => 'scanfully_widget_events_per_minute',
 		self::KIND_THEME   => 'scanfully_theme_settings_events_per_minute',
+		self::KIND_SITE_EDITOR => 'scanfully_site_editor_events_per_minute',
 	];
 
 	/**

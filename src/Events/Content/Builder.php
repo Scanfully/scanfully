@@ -13,6 +13,7 @@ use Scanfully\Events\PostChanges\ContentDiff;
 use Scanfully\Events\PostChanges\Stash;
 use Scanfully\Events\MenuChanges\Builder as MenuBuilder;
 use Scanfully\Events\SettingsChanges\Settings;
+use Scanfully\Events\SiteEditor\Builder as SiteEditorBuilder;
 use Scanfully\Events\ThemeSettings\Builder as ThemeBuilder;
 use Scanfully\Events\WidgetChanges\Builder as WidgetBuilder;
 
@@ -58,9 +59,13 @@ final class Builder {
 			if ( [] === $event ) {
 				return;
 			}
+			// The job knows the type only now (a template's first save or
+			// delete: SiteEditor\Builder).
+			$sent_type = isset( $event['_type'] ) && is_string( $event['_type'] ) ? $event['_type'] : $type;
+			unset( $event['_type'] );
 
 			Controller::deliver(
-				$type,
+				$sent_type,
 				$user,
 				$event,
 				$attempt,
@@ -134,6 +139,11 @@ final class Builder {
 				break;
 			case 'ThemeSettingsChanged':
 				$data = ThemeBuilder::resolve( $data );
+				break;
+			case 'StylesChanged':
+			case 'TemplateChanged':
+			case 'TemplateDeleted':
+				$data = SiteEditorBuilder::resolve( $type, $data );
 				break;
 			case 'PluginFileEdited':
 			case 'ThemeFileEdited':

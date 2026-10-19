@@ -193,6 +193,14 @@ class Main {
 		Events\WidgetChanges\Collector::setup();
 		Events\Controller::register( new Events\ThemeSettingsChanged() ); // when theme settings, the logo or Additional CSS change (the Customizer and other ways).
 		Events\ThemeSettings\Collector::setup();
+		Events\Controller::register( new Events\StylesChanged() ); // when the global styles of a block theme are saved in the Site Editor.
+		Events\Controller::register( new Events\TemplateChanged() ); // when a template or template part is saved (also its first customization).
+		Events\Controller::register( new Events\TemplateCreated() ); // when a custom template or template part is made.
+		Events\Controller::register( new Events\TemplateReset() ); // when a template or template part is reset to the theme's version.
+		Events\Controller::register( new Events\TemplateDeleted() ); // when a custom template or template part is deleted.
+		Events\Controller::register( new Events\FontInstalled() ); // when a font, or variants of one, is installed in the Font Library.
+		Events\Controller::register( new Events\FontDeleted() ); // when a font, or variants of one, is removed from the Font Library.
+		Events\SiteEditor\Collector::setup();
 
 		// custom events.
 		Events\Controller::setup_custom_events();
