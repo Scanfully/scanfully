@@ -72,6 +72,58 @@ final class ContentDiff {
 	}
 
 	/**
+	 * Compare two versions of a code file (a plugin or theme file edited in
+	 * WordPress's file editor), line by line as it is written.
+	 *
+	 * @param string        $before The file before.
+	 * @param string        $after  The file after.
+	 * @param callable|null $differ As for compare().
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function compare_code( string $before, string $after, ?callable $differ = null ): array {
+		if ( strlen( $before ) > self::MAX_CONTENT || strlen( $after ) > self::MAX_CONTENT ) {
+			return self::unchanged_text( 'too_large' );
+		}
+
+		$old_lines = self::code_lines( $before );
+		$new_lines = self::code_lines( $after );
+		if ( count( $old_lines ) > self::MAX_LINES || count( $new_lines ) > self::MAX_LINES ) {
+			return self::unchanged_text( 'too_large' );
+		}
+
+		// Only line endings or spaces at the end of lines changed.
+		if ( $old_lines === $new_lines ) {
+			return self::unchanged_text( 'whitespace' );
+		}
+
+		$operations = null === $differ ? self::text_diff( $old_lines, $new_lines ) : $differ( $old_lines, $new_lines );
+
+		return self::summarize( $operations );
+	}
+
+	/**
+	 * A code file's lines as written, without line endings or spaces at the
+	 * end of a line.
+	 *
+	 * @param string $content The file.
+	 *
+	 * @return string[]
+	 */
+	public static function code_lines( string $content ): array {
+		if ( '' === $content ) {
+			return [];
+		}
+
+		$lines = preg_split( '/\R/u', $content );
+		if ( false === $lines ) {
+			$lines = explode( "\n", $content );
+		}
+
+		return array_map( 'rtrim', $lines );
+	}
+
+	/**
 	 * A content change without a diff, and why.
 	 *
 	 * @param string $reason Why there is no diff.

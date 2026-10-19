@@ -9,6 +9,7 @@ namespace Scanfully\Events\Content;
 
 use Scanfully\Events\Controller;
 use Scanfully\Events\PostChanges\Builder as PostBuilder;
+use Scanfully\Events\PostChanges\ContentDiff;
 use Scanfully\Events\PostChanges\Stash;
 use Scanfully\Events\MenuChanges\Builder as MenuBuilder;
 use Scanfully\Events\SettingsChanges\Settings;
@@ -75,6 +76,26 @@ final class Builder {
 	}
 
 	/**
+	 * A file edit with the content diff in place of the file before and
+	 * after.
+	 *
+	 * @param array<string, mixed> $data The event data, with the content as the Collector noted it.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private static function file_edit( array $data ): array {
+		$content = is_array( $data['changes']['content'] ?? null ) ? $data['changes']['content'] : [];
+		if ( isset( $content['stash'] ) && is_array( $content['stash'] ) ) {
+			$diff = ContentDiff::compare_code( (string) ( $content['stash']['old'] ?? '' ), (string) ( $content['stash']['new'] ?? '' ) );
+		} else {
+			$diff = ContentDiff::unchanged_text( ! empty( $content['too_large'] ) ? 'too_large' : 'unavailable' );
+		}
+		$data['changes'] = [ 'content' => $diff ];
+
+		return $data;
+	}
+
+	/**
 	 * The event data with names added; [] when nothing is left to send.
 	 *
 	 * @param string               $type The event type.
@@ -109,6 +130,10 @@ final class Builder {
 				break;
 			case 'WidgetsChanged':
 				$data = WidgetBuilder::resolve( $data );
+				break;
+			case 'PluginFileEdited':
+			case 'ThemeFileEdited':
+				$data = self::file_edit( $data );
 				break;
 			case 'TermChanged':
 				foreach ( [ 'old', 'new' ] as $side ) {

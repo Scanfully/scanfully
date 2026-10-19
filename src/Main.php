@@ -152,6 +152,9 @@ class Main {
 		Events\Controller::register( new Events\ThemeInstalled() ); // when a theme is installed.
 		Events\Controller::register( new Events\ThemeDeleted() ); // when a theme is deleted.
 		Events\Controller::register( new Events\ThemeSwitched() ); // when another theme is activated.
+		Events\Controller::register( new Events\PluginFileEdited() ); // when a plugin file is changed in the plugin file editor.
+		Events\Controller::register( new Events\ThemeFileEdited() ); // when a theme file is changed in the theme file editor.
+		Events\FileEdits\Collector::setup();
 		Events\Controller::register( new Events\PermalinksChanged() ); // when the permalink structure is changed.
 		Events\Controller::register( new Events\PostSaved() ); // when a post is created or changed.
 		Events\Controller::register( new Events\PostDeleted() ); // when a post is deleted permanently.
