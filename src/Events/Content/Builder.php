@@ -13,6 +13,7 @@ use Scanfully\Events\PostChanges\ContentDiff;
 use Scanfully\Events\PostChanges\Stash;
 use Scanfully\Events\MenuChanges\Builder as MenuBuilder;
 use Scanfully\Events\SettingsChanges\Settings;
+use Scanfully\Events\ThemeSettings\Builder as ThemeBuilder;
 use Scanfully\Events\WidgetChanges\Builder as WidgetBuilder;
 
 /**
@@ -130,6 +131,9 @@ final class Builder {
 				break;
 			case 'WidgetsChanged':
 				$data = WidgetBuilder::resolve( $data );
+				break;
+			case 'ThemeSettingsChanged':
+				$data = ThemeBuilder::resolve( $data );
 				break;
 			case 'PluginFileEdited':
 			case 'ThemeFileEdited':

@@ -191,6 +191,8 @@ class Main {
 		Events\MenuChanges\Collector::setup();
 		Events\Controller::register( new Events\WidgetsChanged() ); // when widgets are added, changed, moved or removed.
 		Events\WidgetChanges\Collector::setup();
+		Events\Controller::register( new Events\ThemeSettingsChanged() ); // when theme settings, the logo or Additional CSS change (the Customizer and other ways).
+		Events\ThemeSettings\Collector::setup();
 
 		// custom events.
 		Events\Controller::setup_custom_events();
