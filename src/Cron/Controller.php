@@ -50,6 +50,12 @@ class Controller {
 	public const ACTION_SEND_FAILED_LOGINS = 'scanfully_send_failed_logins';
 
 	/**
+	 * Hook: check whether the MU plugins or drop-ins changed since the last
+	 * site data sync, and sync right away when they did (recurring hourly).
+	 */
+	public const ACTION_CHECK_MU_PLUGINS = 'scanfully_check_mu_plugins';
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -83,6 +89,7 @@ class Controller {
 		add_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [ self::class, 'sync_woocheckout_config' ] );
 		add_action( self::ACTION_CLEANUP_PROBE_ORDERS, [ self::class, 'cleanup_woocheckout_probe_orders' ] );
 		add_action( self::ACTION_SEND_FAILED_LOGINS, [ self::class, 'send_failed_logins' ] );
+		add_action( self::ACTION_CHECK_MU_PLUGINS, [ self::class, 'check_mu_plugins' ] );
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
@@ -208,6 +215,26 @@ class Controller {
 		// A few minutes past every hour, so the hour before is over.
 		if ( ! as_has_scheduled_action( self::ACTION_SEND_FAILED_LOGINS, [], self::AS_GROUP ) ) {
 			as_schedule_recurring_action( ( intdiv( time(), HOUR_IN_SECONDS ) + 1 ) * HOUR_IN_SECONDS + 5 * MINUTE_IN_SECONDS, HOUR_IN_SECONDS, self::ACTION_SEND_FAILED_LOGINS, [], self::AS_GROUP, true );
+		}
+
+		if ( ! as_has_scheduled_action( self::ACTION_CHECK_MU_PLUGINS, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( time() + HOUR_IN_SECONDS, HOUR_IN_SECONDS, self::ACTION_CHECK_MU_PLUGINS, [], self::AS_GROUP, true );
+		}
+	}
+
+	/**
+	 * Check the MU plugins and drop-ins. Runs on the recurring hourly
+	 * schedule. Files in `mu-plugins` change outside WordPress (SFTP,
+	 * deploys, the host), so nothing tells the plugin; a quick check of the
+	 * names, sizes and times, without reading any file, starts the site data
+	 * sync right away when they differ from what the last sync sent.
+	 *
+	 * @return void
+	 */
+	public static function check_mu_plugins(): void {
+		$options = Options\Controller::get_options();
+		if ( $options->is_connected && Health\MuPlugins::changed_since_last_sync() ) {
+			self::schedule_health_sync();
 		}
 	}
 
