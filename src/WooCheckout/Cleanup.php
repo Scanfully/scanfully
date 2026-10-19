@@ -82,11 +82,22 @@ class Cleanup {
 		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
 			$orders = self::find_probe_orders( $type, 'pending', $cutoff );
 
+			$cancelled = 0;
 			foreach ( $orders as $order ) {
-				$order->update_status( 'cancelled', __( 'Scanfully probe order. Cancelled by the probe order cleanup.', 'scanfully' ) );
+				try {
+					$order->update_status( 'cancelled', __( 'Scanfully probe order. Cancelled by the probe order cleanup.', 'scanfully' ) );
+					++$cancelled;
+				} catch ( \Throwable $e ) {
+					// One order the status change is refused for (WooCommerce
+					// Subscriptions throws for a transition its rules reject)
+					// must not end the run for all the others.
+					self::log_failure( 'cancel', $order, $e );
+				}
 			}
 
-			if ( count( $orders ) < self::BATCH_SIZE ) {
+			// A short batch means there is nothing more; a batch without a
+			// single change would only come back unchanged.
+			if ( count( $orders ) < self::BATCH_SIZE || 0 === $cancelled ) {
 				break;
 			}
 		}
@@ -110,14 +121,43 @@ class Cleanup {
 		for ( $batch = 0; $batch < self::MAX_BATCHES; $batch++ ) {
 			$orders = self::find_probe_orders( $type, 'cancelled', $cutoff );
 
+			$deleted = 0;
 			foreach ( $orders as $order ) {
-				$order->delete( true );
+				try {
+					if ( false !== $order->delete( true ) ) {
+						++$deleted;
+					}
+				} catch ( \Throwable $e ) {
+					self::log_failure( 'delete', $order, $e );
+				}
 			}
 
-			if ( count( $orders ) < self::BATCH_SIZE ) {
+			// A short batch means there is nothing more; a batch without a
+			// single deletion would only come back unchanged.
+			if ( count( $orders ) < self::BATCH_SIZE || 0 === $deleted ) {
 				break;
 			}
 		}
+	}
+
+	/**
+	 * Record a probe order the cleanup could not change, in WooCommerce's
+	 * log under the `scanfully` source, and carry on.
+	 *
+	 * @param string     $action What was attempted: cancel or delete.
+	 * @param \WC_Order  $order  The order.
+	 * @param \Throwable $e      What went wrong.
+	 *
+	 * @return void
+	 */
+	private static function log_failure( string $action, \WC_Order $order, \Throwable $e ): void {
+		if ( ! function_exists( 'wc_get_logger' ) ) {
+			return;
+		}
+		wc_get_logger()->warning(
+			sprintf( 'Scanfully: could not %1$s probe order #%2$d in the probe order cleanup: %3$s', $action, $order->get_id(), $e->getMessage() ),
+			[ 'source' => 'scanfully' ]
+		);
 	}
 
 	/**

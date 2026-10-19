@@ -499,6 +499,8 @@ class Controller {
 				'db_collate' => self::get_db_collate(),
 			],
 			'plugins' => self::get_plugins(),
+			// Must-use plugins, their folders and drop-ins, with content hashes.
+			'mu_plugins' => MuPlugins::scan(),
 		];
 
 		// filter data.

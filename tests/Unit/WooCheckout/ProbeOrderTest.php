@@ -116,6 +116,39 @@ final class ProbeOrderTest extends TestCase {
 		$this->assertSame( 'success', $result['result'] );
 	}
 
+	public function test_a_subscription_already_cancelled_with_its_order_is_not_cancelled_again(): void {
+		$order = Mockery::mock( 'WC_Order' );
+		$order->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$order->shouldReceive( 'set_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+		$order->shouldReceive( 'save' )->once();
+
+		// Loaded before the order is saved: still pending, only tagged.
+		$stale = Mockery::mock( 'WC_Order' );
+		$stale->shouldReceive( 'update_meta_data' )->once()->with( '_scanfully_probe_order', 'true' );
+		$stale->shouldReceive( 'save_meta_data' )->once();
+		$stale->shouldNotReceive( 'update_status' );
+
+		// Loaded after: Subscriptions cancelled it along with the order.
+		$fresh = Mockery::mock( 'WC_Order' );
+		$fresh->shouldReceive( 'has_status' )->with( 'cancelled' )->andReturn( true );
+		$fresh->shouldNotReceive( 'update_status' );
+
+		$loads = 0;
+		Functions\when( 'wcs_get_subscriptions_for_order' )->alias(
+			static function () use ( $stale, $fresh, &$loads ) {
+				++$loads;
+				return [ 101 => 1 === $loads ? $stale : $fresh ];
+			}
+		);
+		Functions\when( 'wc_get_order' )->justReturn( $order );
+		Functions\when( 'home_url' )->justReturn( 'https://shop.test/' );
+		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url ) => $url . '?' . http_build_query( $args ) );
+
+		( new ProbeGateway() )->process_payment( 12 );
+
+		$this->assertSame( 2, $loads, 'The subscriptions are read again after the order is saved.' );
+	}
+
 	public function test_emails_about_probe_subscriptions_are_suppressed(): void {
 		$subscription = $this->order();
 
@@ -204,5 +237,93 @@ final class ProbeOrderTest extends TestCase {
 		Functions\when( 'wc_get_orders' )->justReturn( [ $untagged, $real_method ] );
 
 		Cleanup::run();
+	}
+
+	public function test_the_probe_gateway_lets_subscriptions_cancel_probe_subscriptions(): void {
+		// WC_Subscription::can_be_updated_to( 'cancelled' ) requires the
+		// subscription's gateway to declare this feature; without it the
+		// subscriptions a probe order creates can never leave pending.
+		$this->assertContains( 'subscription_cancellation', ( new ProbeGateway() )->supports );
+	}
+
+	public function test_cleanup_goes_on_when_a_probe_subscription_cannot_be_cancelled(): void {
+		$stuck = $this->order();
+		$stuck->shouldReceive( 'get_id' )->andReturn( 101 );
+		$stuck->shouldReceive( 'update_status' )->once()->andThrow( new \Exception( 'Unable to change subscription status to "cancelled".' ) );
+		$next          = $this->order();
+		$pending_order = $this->order();
+		$next->shouldReceive( 'update_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+		$pending_order->shouldReceive( 'update_status' )->once()->with( 'cancelled', Mockery::type( 'string' ) );
+
+		$logger = Mockery::mock();
+		$logger->shouldReceive( 'warning' )->once()->with( Mockery::pattern( '/could not cancel probe order #101/' ), [ 'source' => 'scanfully' ] );
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+
+		$queries = [];
+		Functions\when( 'wc_get_orders' )->alias(
+			function ( array $args ) use ( $stuck, $next, $pending_order, &$queries ) {
+				$queries[] = $args['type'] . ':' . $args['status'][0];
+				if ( [ 'pending' ] !== $args['status'] ) {
+					return [];
+				}
+				return 'shop_subscription' === $args['type'] ? [ $stuck, $next ] : [ $pending_order ];
+			}
+		);
+
+		Cleanup::run();
+
+		// The subscription that could not be cancelled did not end the run:
+		// the next subscription and every later pass were still handled.
+		$this->assertSame( [ 'shop_subscription:pending', 'shop_subscription:cancelled', 'shop_order:pending', 'shop_order:cancelled' ], $queries );
+	}
+
+	public function test_cleanup_goes_on_when_a_probe_order_cannot_be_deleted(): void {
+		$stuck = $this->order();
+		$stuck->shouldReceive( 'get_id' )->andReturn( 7 );
+		$stuck->shouldReceive( 'delete' )->once()->with( true )->andThrow( new \RuntimeException( 'Database error.' ) );
+		$next = $this->order();
+		$next->shouldReceive( 'delete' )->once()->with( true )->andReturn( true );
+
+		$logger = Mockery::mock();
+		$logger->shouldReceive( 'warning' )->once()->with( Mockery::pattern( '/could not delete probe order #7/' ), [ 'source' => 'scanfully' ] );
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+
+		Functions\when( 'wc_get_orders' )->alias(
+			static function ( array $args ) use ( $stuck, $next ) {
+				return 'shop_order' === $args['type'] && [ 'cancelled' ] === $args['status'] ? [ $stuck, $next ] : [];
+			}
+		);
+
+		Cleanup::run();
+	}
+
+	public function test_cleanup_stops_batching_when_a_full_batch_changes_nothing(): void {
+		$stuck = [];
+		for ( $i = 1; $i <= 50; $i++ ) {
+			$order = $this->order();
+			$order->shouldReceive( 'get_id' )->andReturn( $i );
+			$order->shouldReceive( 'update_status' )->once()->andThrow( new \Exception( 'refused' ) );
+			$stuck[] = $order;
+		}
+		$logger = Mockery::mock();
+		$logger->shouldReceive( 'warning' )->times( 50 );
+		Functions\when( 'wc_get_logger' )->justReturn( $logger );
+
+		$pending_queries = 0;
+		Functions\when( 'wc_get_orders' )->alias(
+			static function ( array $args ) use ( $stuck, &$pending_queries ) {
+				if ( 'shop_order' !== $args['type'] || [ 'pending' ] !== $args['status'] ) {
+					return [];
+				}
+				++$pending_queries;
+				return $stuck;
+			}
+		);
+
+		Cleanup::run();
+
+		// A full batch that refused every change is not queried again and
+		// again: the same rows would only come back.
+		$this->assertSame( 1, $pending_queries );
 	}
 }

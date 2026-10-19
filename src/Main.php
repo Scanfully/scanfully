@@ -145,9 +145,62 @@ class Main {
 		Events\Controller::register( new Events\DeactivatedPlugin() ); // when a plugin is deactivated.
 		Events\Controller::register( new Events\PluginUpdate() ); // when a plugin is updated.
 		Events\Controller::register( new Events\ThemeUpdate() ); // when a plugin is updated.
-		Events\Controller::register( new Events\RewriteRules() ); // when new rewrite rules are saved.
-		Events\Controller::register( new Events\PostSaved() ); // when a post status is changed.
+		Events\Controller::register( new Events\PluginUpdateFailed() ); // when a plugin update fails.
+		Events\Controller::register( new Events\ThemeUpdateFailed() ); // when a theme update fails.
+		Events\Controller::register( new Events\PluginInstalled() ); // when a plugin is installed.
+		Events\Controller::register( new Events\PluginDeleted() ); // when a plugin is deleted.
+		Events\Controller::register( new Events\ThemeInstalled() ); // when a theme is installed.
+		Events\Controller::register( new Events\ThemeDeleted() ); // when a theme is deleted.
+		Events\Controller::register( new Events\ThemeSwitched() ); // when another theme is activated.
+		Events\Controller::register( new Events\PluginFileEdited() ); // when a plugin file is changed in the plugin file editor.
+		Events\Controller::register( new Events\ThemeFileEdited() ); // when a theme file is changed in the theme file editor.
+		Events\FileEdits\Collector::setup();
+		Events\Controller::register( new Events\PermalinksChanged() ); // when the permalink structure is changed.
+		Events\Controller::register( new Events\PostSaved() ); // when a post is created or changed.
+		Events\Controller::register( new Events\PostDeleted() ); // when a post is deleted permanently.
+		Events\Controller::register( new Events\PostBulkAction() ); // when many posts get the same action in one request.
+		Events\Controller::register( new Events\TermCreated() ); // when a category, tag or other term is created.
+		Events\Controller::register( new Events\TermChanged() ); // when a term's name, slug, parent or description changes.
+		Events\Controller::register( new Events\TermDeleted() ); // when a term is deleted.
+		Events\Controller::register( new Events\TermBulkAction() ); // when many terms get the same action in one request.
+		Events\TermChanges\Collector::setup();
+		Events\Controller::register( new Events\MediaUploaded() ); // when a file is added to the media library.
+		Events\Controller::register( new Events\MediaChanged() ); // when a file's details, file, image or post change.
+		Events\Controller::register( new Events\MediaDeleted() ); // when a file is deleted permanently.
+		Events\Controller::register( new Events\MediaBulkAction() ); // when many files get the same action within a minute.
+		Events\MediaChanges\Collector::setup();
 		Events\Controller::register( new Events\CoreUpdate() ); // when the core is updated.
+		Events\Controller::register( new Events\CoreUpdateFailed() ); // when an automatic core update fails.
+		Events\Controller::register( new Events\UserCreated() ); // when a user is created.
+		Events\Controller::register( new Events\UserDeleted() ); // when a user is deleted.
+		Events\Controller::register( new Events\UserRoleChanged() ); // when a user's role is changed.
+		Events\Controller::register( new Events\UserLogin() ); // when a user with elevated rights logs in.
+		Events\FailedLogins\Counter::setup(); // counts failed logins per hour, sent by the hourly job.
+		Events\Controller::register( new Events\AppPasswordCreated() ); // when an application password is created for a user with elevated rights.
+		Events\Controller::register( new Events\AppPasswordRevoked() ); // when an application password of a user with elevated rights is revoked.
+		Events\Controller::register( new Events\AppPasswordFirstUsed() ); // when an application password of a user with elevated rights is used for the first time.
+		Events\Controller::register( new Events\PasswordChanged() ); // when the password of a user with elevated rights is changed.
+		Events\Controller::register( new Events\EmailChanged() ); // when the email address of a user with elevated rights is changed.
+		Events\Controller::register( new Events\SuperAdminGranted() ); // when a user is made super admin (multisite).
+		Events\Controller::register( new Events\SuperAdminRevoked() ); // when a user is no longer super admin (multisite).
+		Events\Controller::register( new Events\SiteOptionChanged() ); // when a setting of the settings screens is changed.
+		Events\SettingsChanges\Collector::setup();
+		Events\Controller::register( new Events\MenuCreated() ); // when a navigation menu is made.
+		Events\Controller::register( new Events\MenuChanged() ); // when a navigation menu or its items change.
+		Events\Controller::register( new Events\MenuDeleted() ); // when a navigation menu is deleted.
+		Events\MenuChanges\Collector::setup();
+		Events\Controller::register( new Events\WidgetsChanged() ); // when widgets are added, changed, moved or removed.
+		Events\WidgetChanges\Collector::setup();
+		Events\Controller::register( new Events\ThemeSettingsChanged() ); // when theme settings, the logo or Additional CSS change (the Customizer and other ways).
+		Events\ThemeSettings\Collector::setup();
+		Events\Controller::register( new Events\StylesChanged() ); // when the global styles of a block theme are saved in the Site Editor.
+		Events\Controller::register( new Events\TemplateChanged() ); // when a template or template part is saved (also its first customization).
+		Events\Controller::register( new Events\TemplateCreated() ); // when a custom template or template part is made.
+		Events\Controller::register( new Events\TemplateReset() ); // when a template or template part is reset to the theme's version.
+		Events\Controller::register( new Events\TemplateDeleted() ); // when a custom template or template part is deleted.
+		Events\Controller::register( new Events\FontInstalled() ); // when a font, or variants of one, is installed in the Font Library.
+		Events\Controller::register( new Events\FontDeleted() ); // when a font, or variants of one, is removed from the Font Library.
+		Events\SiteEditor\Collector::setup();
 
 		// custom events.
 		Events\Controller::setup_custom_events();

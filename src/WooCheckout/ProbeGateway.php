@@ -31,7 +31,11 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		// drops any gateway that does not declare them when the cart has a
 		// subscription and manual renewals are disabled. The probe never
 		// charges a real PSP; it only needs to stay visible on checkout.
-		$this->supports = [ 'products', 'subscriptions', 'multiple_subscriptions' ];
+		// subscription_cancellation: Subscriptions only moves a subscription
+		// to cancelled when its gateway declares this. Without it, the
+		// subscriptions a probe order creates stay pending, both here and in
+		// the cleanup. There is no PSP to notify, so cancelling is always fine.
+		$this->supports = [ 'products', 'subscriptions', 'multiple_subscriptions', 'subscription_cancellation' ];
 
 		// Always enabled at the gateway settings level; availability is
 		// gated dynamically by ProbeGateway::filter_available_gateways().
@@ -184,8 +188,7 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		}
 
 		self::tag_probe_order( $order );
-		$subscriptions = self::order_subscriptions( $order );
-		foreach ( $subscriptions as $subscription ) {
+		foreach ( self::order_subscriptions( $order ) as $subscription ) {
 			self::tag_probe_order( $subscription );
 			$subscription->save_meta_data();
 		}
@@ -193,7 +196,10 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		$order->set_status( 'cancelled', __( 'Scanfully probe order. Cancelled automatically at the end of the checkout check.', 'scanfully' ) );
 		$order->save();
 
-		foreach ( $subscriptions as $subscription ) {
+		// Saving the cancelled order makes Subscriptions cancel the
+		// subscriptions as well. Load them again so that shows, instead of
+		// cancelling a stale copy a second time with a second note.
+		foreach ( self::order_subscriptions( $order ) as $subscription ) {
 			self::cancel_subscription( $subscription );
 		}
 

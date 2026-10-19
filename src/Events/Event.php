@@ -74,17 +74,79 @@ abstract class Event {
 	}
 
 	/**
-	 * Get the current user
+	 * Get the user who made the change: the signed-in user, unless the event
+	 * names its own actor.
+	 *
+	 * @param array $args The arguments passed to the action.
 	 *
 	 * @return array
 	 */
-	private function get_user(): array {
-		$current_user = wp_get_current_user();
+	private function get_user( array $args ): array {
+		$current_user = $this->get_actor( $args ) ?? wp_get_current_user();
 
 		return [
-			'id'   => $current_user->ID,
-			'name' => $current_user->display_name,
+			'id'   => (int) ( $current_user->ID ?? 0 ),
+			'name' => self::safe_display_name( $current_user ),
 		];
+	}
+
+	/**
+	 * The user who made the change, when that isn't the signed-in user (for
+	 * a login, WordPress hasn't set the signed-in user yet). Null to use the
+	 * signed-in user.
+	 *
+	 * @param array $args The arguments passed to the action.
+	 *
+	 * @return object|null
+	 */
+	protected function get_actor( array $args ): ?object {
+		return null;
+	}
+
+	/**
+	 * A user's display name, safe to send. WordPress defaults the display
+	 * name to the login, which is often an email address; an email address
+	 * is replaced by the user's first and last name, or left empty, so no
+	 * email address leaves the site.
+	 *
+	 * @param object $user The user (a WP_User).
+	 *
+	 * @return string
+	 */
+	protected static function safe_display_name( object $user ): string {
+		$name = trim( (string) ( $user->display_name ?? '' ) );
+		if ( ! self::looks_like_email( $name ) ) {
+			return $name;
+		}
+
+		$name = trim( ( $user->first_name ?? '' ) . ' ' . ( $user->last_name ?? '' ) );
+
+		return self::looks_like_email( $name ) ? '' : $name;
+	}
+
+	/**
+	 * Plain text from a value WordPress stores or returns HTML-encoded, such
+	 * as the site title (`Barry&#039;s Shop`) or a theme name read through
+	 * WP_Theme (`Tom &amp; Jerry`), so a name is spelled the same in every
+	 * event.
+	 *
+	 * @param mixed $value The value.
+	 *
+	 * @return string
+	 */
+	protected static function plain_text( $value ): string {
+		return html_entity_decode( (string) $value, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/**
+	 * Whether a string is an email address.
+	 *
+	 * @param string $value The string.
+	 *
+	 * @return bool
+	 */
+	private static function looks_like_email( string $value ): bool {
+		return false !== strpos( $value, '@' ) && false !== is_email( $value );
 	}
 
 
@@ -108,15 +170,28 @@ abstract class Event {
 			return;
 		}
 
-		// Schedule the API request as a background job so it does not block the current request.
+		$this->schedule( $this->type, $this->get_user( $args ), $this->get_post_body( $args ) );
+	}
+
+	/**
+	 * Schedule the API request as a background job so it does not block the
+	 * current request.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user who made the change.
+	 * @param array  $data The event data.
+	 *
+	 * @return void
+	 */
+	protected function schedule( string $type, array $user, array $data ): void {
 		as_schedule_single_action(
 			time(),
 			Controller::ACTION_SEND_EVENT,
 			self::fit_args(
 				[
-					'type' => $this->type,
-					'user' => $this->get_user(),
-					'data' => $this->get_post_body( $args ),
+					'type' => $type,
+					'user' => $user,
+					'data' => $data,
 				]
 			),
 			'scanfully'
@@ -127,7 +202,7 @@ abstract class Event {
 	 * Action Scheduler rejects jobs whose arguments are longer than this, when
 	 * encoded as JSON; the event would be lost.
 	 */
-	private const MAX_ARGS_LENGTH = 8000;
+	protected const MAX_ARGS_LENGTH = 8000;
 
 	/**
 	 * Keep the job arguments within Action Scheduler's size limit: shorten
@@ -138,7 +213,7 @@ abstract class Event {
 	 *
 	 * @return array
 	 */
-	private static function fit_args( array $args ): array {
+	protected static function fit_args( array $args ): array {
 		foreach ( [ 0, 1000, 200 ] as $max_length ) {
 			if ( $max_length > 0 ) {
 				$args['data'] = self::shorten_strings( $args['data'], $max_length );

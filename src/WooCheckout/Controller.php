@@ -177,7 +177,26 @@ class Controller {
 	public static function prime_probe_request_check(): void {
 		if ( self::is_probe_request() ) {
 			self::mark_response_uncacheable();
+			self::keep_cron_out_of_probe_request();
 		}
+	}
+
+	/**
+	 * Stop WordPress from running cron jobs inside a probe request.
+	 *
+	 * With ALTERNATE_WP_CRON, wp-cron.php runs inside the page request that
+	 * found a due job instead of in a request of its own. In a probe request
+	 * the registered gateway list holds only the probe gateway, so a job that
+	 * needs a real gateway, such as a WooCommerce Subscriptions renewal, would
+	 * treat the subscription as manual. Reporting no due jobs leaves them for
+	 * the next ordinary request, usually within a minute.
+	 *
+	 * Runs at `init` priority 1; wp_cron() looks for due jobs at priority 10.
+	 *
+	 * @return void
+	 */
+	private static function keep_cron_out_of_probe_request(): void {
+		add_filter( 'pre_get_ready_cron_jobs', '__return_empty_array' );
 	}
 
 	/**

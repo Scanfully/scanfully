@@ -7,8 +7,19 @@
 
 namespace Scanfully\Events;
 
+use Scanfully\Events\PostChanges\Collector;
+use Scanfully\Events\PostChanges\Stash;
+
 /**
- * Class ActivatedPlugin
+ * Class PostSaved
+ *
+ * A post was saved and something changed: it was created, its status
+ * changed, or its title, slug, content, custom fields, terms or other
+ * fields changed. The Collector notes the changes while the post is saved
+ * and reports each changed post once, at the end of the request; a save
+ * that changes nothing is not reported. The background job
+ * (PostChanges\Builder) works out the content diff and names and sends the
+ * event.
  *
  * @package Scanfully\Events
  */
@@ -18,13 +29,15 @@ class PostSaved extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PostSaved', 'wp_after_insert_post', 10, 4 );
+		parent::__construct( 'PostSaved', Collector::ACTION, 10, 5 );
+
+		Collector::setup();
 	}
 
 	/**
 	 * Get the post body
 	 *
-	 * @param  array $data The data to send.
+	 * @param  array $data The data passed to the action: post ID, post, update, post before, changes.
 	 *
 	 * @return array
 	 */
@@ -33,14 +46,102 @@ class PostSaved extends Event {
 		$post    = $data[1];
 		// $update      = $data[2];
 		$post_before = $data[3];
+		$changes     = $data[4] ?? [];
 
-		return [
+		$body = [
 			'id'          => $post_id,
 			'title'       => $post->post_title,
 			'post_status' => $post->post_status,
 			'post_before' => self::summarize_post( $post_before ),
 			'post'        => self::summarize_post( $post ),
 		];
+
+		if ( is_array( $changes ) && [] !== $changes ) {
+			$body['changes'] = $changes;
+		}
+
+		return $body;
+	}
+
+	/**
+	 * Schedule the background job that works out what changed and sends
+	 * the event. What doesn't fit in the job's arguments (the content of a
+	 * post without revisions, many changed fields) is stored for the job.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user who made the change.
+	 * @param array  $data The event data.
+	 *
+	 * @return void
+	 */
+	protected function schedule( string $type, array $user, array $data ): void {
+		$stash = '';
+		if ( isset( $data['changes'] ) && ( isset( $data['changes']['content']['stash'] ) || self::args_length( $type, $user, $data ) > self::MAX_ARGS_LENGTH ) ) {
+			$stash           = Stash::put( [ 'changes' => $data['changes'] ] );
+			$data['changes'] = '' !== $stash ? [ 'stashed' => true ] : self::without_stashed_content( $data['changes'] );
+		}
+
+		$args = self::fit_args(
+			[
+				'type'  => $type,
+				'user'  => $user,
+				'data'  => $data,
+				'stash' => $stash,
+			]
+		);
+
+		as_schedule_single_action( time(), Controller::ACTION_BUILD_POST_EVENT, $args, 'scanfully' );
+	}
+
+	/**
+	 * The length of a job's arguments as JSON.
+	 *
+	 * @param string $type The event type.
+	 * @param array  $user The user.
+	 * @param array  $data The event data.
+	 *
+	 * @return int
+	 */
+	private static function args_length( string $type, array $user, array $data ): int {
+		return strlen(
+			(string) wp_json_encode(
+				[
+					'type' => $type,
+					'user' => $user,
+					'data' => $data,
+				]
+			)
+		);
+	}
+
+	/**
+	 * Changes without the content to compare, for when it could not be
+	 * stored: the content is only reported as changed.
+	 *
+	 * @param array $changes The changes.
+	 *
+	 * @return array
+	 */
+	private static function without_stashed_content( array $changes ): array {
+		if ( isset( $changes['content']['stash'] ) ) {
+			$changes['content'] = [ 'unavailable' => true ];
+		}
+
+		return $changes;
+	}
+
+	/**
+	 * A user's name as events report it (never an email address); '' when
+	 * the user doesn't exist.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return string
+	 */
+	public static function author_name( int $user_id ): string {
+		$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+
+		return $user instanceof \WP_User ? self::safe_display_name( $user ) : '';
 	}
 
 	/**
@@ -88,33 +189,11 @@ class PostSaved extends Event {
 		}
 
 		// Never send the password itself, only whether the post has one.
-		$password                 = is_object( $post ) ? ( $post->post_password ?? '' ) : ( $post['post_password'] ?? '' );
+		$password                = is_object( $post ) ? ( $post->post_password ?? '' ) : ( $post['post_password'] ?? '' );
 		$summary['has_password'] = '' !== (string) $password;
 
 		return $summary;
 	}
-
-	/**
-	 * Track post ID and status pairs that have already had an event scheduled
-	 * in this request, to prevent duplicate events when wp_after_insert_post
-	 * fires multiple times for the same save.
-	 *
-	 * @var array<string, bool>
-	 */
-	private static array $fired_ids = [];
-
-	/**
-	 * Transient TTL in seconds used to deduplicate rapid cross-request saves
-	 * (e.g. Gutenberg firing two REST API saves in quick succession).
-	 */
-	private const DEDUP_TTL = 5;
-
-	/**
-	 * Default maximum number of post events per minute, so bulk edits and
-	 * similar mass saves can't queue thousands of jobs. Filterable via
-	 * `scanfully_post_saved_events_per_minute`.
-	 */
-	private const MAX_EVENTS_PER_MINUTE = 30;
 
 	/**
 	 * Internal post types that are saved in the background and never
@@ -124,6 +203,8 @@ class PostSaved extends Event {
 		'revision',
 		'attachment',
 		'nav_menu_item',
+		// Block theme menus are menu events (MenuChanges).
+		'wp_navigation',
 		'wp_template',
 		'wp_template_part',
 		'oembed_cache',
@@ -131,6 +212,8 @@ class PostSaved extends Event {
 		'user_request',
 		'acf-field',
 		'acf-field-group',
+		// SEOPress logs every request for a missing URL as a post.
+		'seopress_404',
 	];
 
 	/**
@@ -141,7 +224,25 @@ class PostSaved extends Event {
 	 * @return bool
 	 */
 	public function should_fire( array $data ): bool {
+		$post = $data[1] ?? null;
 
+		// Repeated saves need no deduplication here: the Collector reports a
+		// post once per request, and only when something changed. The
+		// per-minute cap and bulk actions are handled when it reports
+		// (Content\Report).
+		return is_object( $post ) && self::is_reported( $post );
+	}
+
+	/**
+	 * Whether a save of a post is reported: not an autosave, Heartbeat or
+	 * import, a status and post type that are activity, and not excluded by
+	 * the `scanfully_post_saved_should_fire` filter.
+	 *
+	 * @param object $post The saved post.
+	 *
+	 * @return bool
+	 */
+	public static function is_reported( object $post ): bool {
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return false;
 		}
@@ -158,8 +259,7 @@ class PostSaved extends Event {
 			return false;
 		}
 
-		$post = $data[1] ?? null;
-		if ( ! is_object( $post ) || ! isset( $post->post_status, $post->post_type ) ) {
+		if ( ! isset( $post->post_status, $post->post_type ) ) {
 			return false;
 		}
 
@@ -178,37 +278,7 @@ class PostSaved extends Event {
 		 * @param bool   $should_fire Whether to report the save.
 		 * @param object $post        The saved post.
 		 */
-		if ( ! apply_filters( 'scanfully_post_saved_should_fire', true, $post ) ) {
-			return false;
-		}
-
-		$post_id = (int) $data[0];
-
-		// Duplicates are tracked per post and status: a save that changes the
-		// status (draft, then publish) is always reported, while repeated
-		// saves with the same status collapse into one event.
-		$dedup_key = $post_id . '_' . $post->post_status;
-
-		// Prevent duplicate events for the same save within a single request.
-		if ( isset( self::$fired_ids[ $dedup_key ] ) ) {
-			return false;
-		}
-
-		// Prevent duplicate events across rapid successive requests (e.g. Gutenberg's
-		// publish flow can fire two REST saves within a second of each other).
-		$transient_key = 'scanfully_post_event_' . $dedup_key;
-		if ( get_transient( $transient_key ) ) {
-			return false;
-		}
-
-		if ( self::is_rate_limited() ) {
-			return false;
-		}
-
-		set_transient( $transient_key, 1, self::DEDUP_TTL );
-		self::$fired_ids[ $dedup_key ] = true;
-
-		return true;
+		return (bool) apply_filters( 'scanfully_post_saved_should_fire', true, $post );
 	}
 
 	/**
@@ -222,7 +292,7 @@ class PostSaved extends Event {
 	 *
 	 * @return bool
 	 */
-	private static function is_tracked_post_type( string $post_type ): bool {
+	public static function is_tracked_post_type( string $post_type ): bool {
 		if ( in_array( $post_type, self::IGNORED_POST_TYPES, true ) ) {
 			return false;
 		}
@@ -234,28 +304,5 @@ class PostSaved extends Event {
 		$type_object = get_post_type_object( $post_type );
 
 		return is_object( $type_object ) && ! empty( $type_object->show_ui );
-	}
-
-	/**
-	 * Count this event against the per-minute cap. Returns true when the cap
-	 * is reached and the event should be dropped.
-	 *
-	 * @return bool
-	 */
-	private static function is_rate_limited(): bool {
-		$limit = (int) apply_filters( 'scanfully_post_saved_events_per_minute', self::MAX_EVENTS_PER_MINUTE );
-		if ( $limit < 1 ) {
-			return false;
-		}
-
-		$bucket = 'scanfully_post_events_' . (int) floor( time() / MINUTE_IN_SECONDS );
-		$count  = (int) get_transient( $bucket );
-		if ( $count >= $limit ) {
-			return true;
-		}
-
-		set_transient( $bucket, $count + 1, 2 * MINUTE_IN_SECONDS );
-
-		return false;
 	}
 }

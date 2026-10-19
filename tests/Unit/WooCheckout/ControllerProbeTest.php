@@ -7,6 +7,7 @@
 
 namespace Scanfully\Tests\Unit\WooCheckout;
 
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use ReflectionProperty;
 use Scanfully\WooCheckout\Controller;
@@ -14,6 +15,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\WooCheckout\Controller::is_probe_request
+ * @covers \Scanfully\WooCheckout\Controller::prime_probe_request_check
  */
 final class ControllerProbeTest extends TestCase {
 
@@ -109,6 +111,25 @@ final class ControllerProbeTest extends TestCase {
 		Controller::prime_probe_request_check();
 
 		$this->assertTrue( Controller::is_probe_request() );
+	}
+
+	public function test_a_probe_request_never_runs_cron_itself(): void {
+		$_SERVER['HTTP_X_SCANFULLY_PROBE'] = $this->header_for( $this->fresh_scan_id() );
+		Functions\when( 'nocache_headers' )->justReturn();
+		// With ALTERNATE_WP_CRON a page request runs due cron jobs itself, and
+		// in a probe request only the probe gateway is registered.
+		Filters\expectAdded( 'pre_get_ready_cron_jobs' )->once()->with( '__return_empty_array' );
+
+		Controller::prime_probe_request_check();
+	}
+
+	public function test_an_ordinary_request_keeps_its_cron(): void {
+		Functions\expect( 'nocache_headers' )->never();
+		Filters\expectAdded( 'pre_get_ready_cron_jobs' )->never();
+
+		Controller::prime_probe_request_check();
+
+		$this->assertFalse( Controller::is_probe_request() );
 	}
 
 	public function test_a_scan_id_older_than_two_hours_is_rejected(): void {

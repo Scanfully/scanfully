@@ -78,6 +78,46 @@ final class EventPayloadTest extends TestCase {
 		$this->assertSame( $payload, $this->scheduled[0]['data'] );
 	}
 
+	/**
+	 * @dataProvider provide_actor_names
+	 *
+	 * @param array<string, string> $actor   The signed-in user's fields.
+	 * @param string                $expected The name sent.
+	 */
+	public function test_the_actor_name_is_never_an_email_address( array $actor, string $expected ): void {
+		Functions\when( 'is_email' )->alias( static fn( $email ) => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) );
+		Functions\when( 'wp_get_current_user' )->justReturn( (object) array_merge( [ 'ID' => 3 ], $actor ) );
+
+		( new PluginUpdate() )->listener_callback( [ 'name' => 'Akismet' ] );
+
+		$this->assertSame(
+			[
+				'id'   => 3,
+				'name' => $expected,
+			],
+			$this->scheduled[0]['user']
+		);
+	}
+
+	/**
+	 * @return array<string, array{array<string, string>, string}>
+	 */
+	public function provide_actor_names(): array {
+		return [
+			'a normal display name'           => [ [ 'display_name' => 'Jane Doe' ], 'Jane Doe' ],
+			'email, with a first and last name' => [
+				[
+					'display_name' => 'jane@scanfully.com',
+					'first_name'   => 'Jane',
+					'last_name'    => 'Doe',
+				],
+				'Jane Doe',
+			],
+			'email, without a name'           => [ [ 'display_name' => 'jane@scanfully.com' ], '' ],
+			'an @ that is not an email'       => [ [ 'display_name' => '@jane' ], '@jane' ],
+		];
+	}
+
 	public function test_an_oversized_payload_is_shortened_to_fit_action_scheduler(): void {
 		( new PluginUpdate() )->listener_callback(
 			[

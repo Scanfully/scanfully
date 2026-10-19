@@ -1,6 +1,6 @@
 <?php
 /**
- * PostSaved filtering and rate limit unit tests.
+ * PostSaved filtering unit tests.
  *
  * @package Scanfully\Tests\Unit\Events
  */
@@ -9,7 +9,6 @@ namespace Scanfully\Tests\Unit\Events;
 
 use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
-use ReflectionProperty;
 use Scanfully\Events\PostSaved;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
@@ -31,15 +30,11 @@ final class PostSavedFilterTest extends TestCase {
 	 *
 	 * @var array<int, string>
 	 */
-	private array $ui_types = [ 'post', 'page', 'product', 'shop_order' ];
+	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404' ];
 
 	protected function setUp(): void {
 		parent::setUp();
 		$this->transients = [];
-
-		$fired = new ReflectionProperty( PostSaved::class, 'fired_ids' );
-		$fired->setAccessible( true );
-		$fired->setValue( null, [] );
 
 		Functions\when( 'wp_doing_ajax' )->justReturn( false );
 		Functions\when( 'wc_get_order_types' )->justReturn( [ 'shop_order', 'shop_order_refund' ] );
@@ -99,33 +94,25 @@ final class PostSavedFilterTest extends TestCase {
 			'refund'                             => [ 'shop_order_refund', 'draft' ],
 			'ACF field'                          => [ 'acf-field', 'publish' ],
 			'oEmbed cache'                       => [ 'oembed_cache', 'publish' ],
+			'SEOPress 404 record'                => [ 'seopress_404', 'publish' ],
+			'SEOPress 404 record as a draft'     => [ 'seopress_404', 'draft' ],
+			'trashed SEOPress 404 record'        => [ 'seopress_404', 'trash' ],
 			'custom type without an admin screen' => [ 'my_internal_type', 'publish' ],
 			'pending review status'              => [ 'post', 'pending' ],
 		];
 	}
 
-	/**
-	 * Forget saves made earlier in this "request" (the per-request list).
-	 */
-	private function new_request(): void {
-		$fired = new ReflectionProperty( PostSaved::class, 'fired_ids' );
-		$fired->setAccessible( true );
-		$fired->setValue( null, [] );
-	}
-
 	public function test_publishing_right_after_saving_a_draft_is_reported(): void {
 		$this->assertTrue( $this->fires( 'post', 'draft', 5 ) );
-		$this->new_request();
-
 		$this->assertTrue( $this->fires( 'post', 'publish', 5 ), 'The publish event must not be dropped as a duplicate of the draft save.' );
 	}
 
-	public function test_repeated_saves_with_the_same_status_are_reported_once(): void {
+	public function test_saves_seconds_apart_are_not_deduplicated_by_time(): void {
+		// The Collector reports a post once per request and only when it
+		// changed; there is no time window that drops a real change.
 		$this->assertTrue( $this->fires( 'post', 'publish', 6 ) );
-		$this->assertFalse( $this->fires( 'post', 'publish', 6 ), 'Same request.' );
-
-		$this->new_request();
-		$this->assertFalse( $this->fires( 'post', 'publish', 6 ), 'Next request within seconds (block editor double save).' );
+		$this->assertTrue( $this->fires( 'post', 'publish', 6 ) );
+		$this->assertSame( [], array_filter( array_keys( $this->transients ), static fn( string $key ): bool => 0 === strpos( $key, 'scanfully_post_event_' ) ) );
 	}
 
 	/**
@@ -168,14 +155,6 @@ final class PostSavedFilterTest extends TestCase {
 		Filters\expectApplied( 'scanfully_post_saved_should_fire' )->andReturn( false );
 
 		$this->assertFalse( $this->fires( 'post' ) );
-	}
-
-	public function test_saves_are_capped_per_minute(): void {
-		Filters\expectApplied( 'scanfully_post_saved_events_per_minute' )->andReturn( 2 );
-
-		$this->assertTrue( $this->fires( 'post', 'publish', 1 ) );
-		$this->assertTrue( $this->fires( 'post', 'publish', 2 ) );
-		$this->assertFalse( $this->fires( 'post', 'publish', 3 ) );
 	}
 
 	/**
