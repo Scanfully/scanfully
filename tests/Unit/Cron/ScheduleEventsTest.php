@@ -56,7 +56,7 @@ final class ScheduleEventsTest extends TestCase {
 
 		Controller::schedule_events();
 
-		$this->assertCount( 5, $unique_flags );
+		$this->assertCount( 6, $unique_flags );
 		$this->assertSame( [ true ], array_values( array_unique( $unique_flags ) ), 'Every job must be scheduled as unique.' );
 	}
 

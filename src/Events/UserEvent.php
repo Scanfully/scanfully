@@ -124,6 +124,39 @@ abstract class UserEvent extends Event {
 	}
 
 	/**
+	 * Whether a user has elevated rights, for code outside the user events
+	 * (the failed login counts).
+	 *
+	 * @param \WP_User $user The user.
+	 *
+	 * @return bool
+	 */
+	public static function is_elevated( \WP_User $user ): bool {
+		return self::has_elevated_capabilities( $user );
+	}
+
+	/**
+	 * An account as the failed login counts name it: ID, display name (never
+	 * an email address) and roles; null when it no longer exists.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return array{id: int, name: string, roles: string[]}|null
+	 */
+	public static function account_summary( int $user_id ): ?array {
+		$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+		if ( ! $user instanceof \WP_User ) {
+			return null;
+		}
+
+		return [
+			'id'    => (int) $user->ID,
+			'name'  => self::safe_display_name( $user ),
+			'roles' => self::role_list( $user->roles ),
+		];
+	}
+
+	/**
 	 * Whether any of these roles has elevated rights.
 	 *
 	 * @param array<int, string> $roles Role names.

@@ -51,7 +51,27 @@ class UserLogin extends UserEvent {
 			return [];
 		}
 
-		return array_merge( self::describe_user( $user, true ), self::request_origin() );
+		$data   = array_merge( self::describe_user( $user, true ), self::request_origin() );
+		$failed = self::failed_before( (int) $user->ID );
+		if ( $failed > 0 ) {
+			$data['failed_before'] = $failed;
+		}
+
+		return $data;
+	}
+
+	/**
+	 * The wrong passwords tried on an account in this hour and the one before:
+	 * a login that follows them may be someone who guessed it.
+	 *
+	 * @param int $user_id The user ID.
+	 *
+	 * @return int
+	 */
+	private static function failed_before( int $user_id ): int {
+		$hour = FailedLogins\Store::hour();
+
+		return FailedLogins\Store::count( 'u_' . $user_id, $hour ) + FailedLogins\Store::count( 'u_' . $user_id, $hour - 1 );
 	}
 
 	/**

@@ -10,7 +10,9 @@ namespace Scanfully\Tests\Unit\Events;
 use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Mockery;
+use Scanfully\Events\FailedLogins\Store;
 use Scanfully\Events\UserLogin;
+use Scanfully\Tests\Unit\Events\FailedLogins\FakeCounterTable;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
@@ -46,9 +48,17 @@ final class UserLoginTest extends TestCase {
 	 */
 	private array $scheduled = [];
 
+	/**
+	 * The failed login counters.
+	 *
+	 * @var FakeCounterTable
+	 */
+	private FakeCounterTable $counters;
+
 	protected function setUp(): void {
 		parent::setUp();
-		$this->server = $_SERVER;
+		$this->counters = FakeCounterTable::install();
+		$this->server   = $_SERVER;
 		foreach ( self::SERVER_KEYS as $key ) {
 			unset( $_SERVER[ $key ] );
 		}
@@ -98,6 +108,24 @@ final class UserLoginTest extends TestCase {
 		$user->user_email   = 'bob@scanfully.com';
 
 		return $user;
+	}
+
+	public function test_a_login_after_wrong_passwords_on_the_account_says_how_many(): void {
+		$hour = Store::hour();
+		$this->counters->rows[ 'scanfully_lf_' . $hour . '_u_4' ]         = 9;
+		$this->counters->rows[ 'scanfully_lf_' . ( $hour - 1 ) . '_u_4' ] = 5;
+		$this->counters->rows[ 'scanfully_lf_' . ( $hour - 2 ) . '_u_4' ] = 100;
+		$this->counters->rows[ 'scanfully_lf_' . $hour . '_u_5' ]         = 3;
+
+		( new UserLogin() )->listener_callback( 'bob', $this->user( [ 'administrator' ] ) );
+
+		$this->assertSame( 14, $this->scheduled[0]['data']['failed_before'] );
+	}
+
+	public function test_a_login_without_wrong_passwords_has_no_count(): void {
+		( new UserLogin() )->listener_callback( 'bob', $this->user( [ 'administrator' ] ) );
+
+		$this->assertArrayNotHasKey( 'failed_before', $this->scheduled[0]['data'] );
 	}
 
 	public function test_a_login_with_elevated_rights_is_reported_with_address_and_browser(): void {

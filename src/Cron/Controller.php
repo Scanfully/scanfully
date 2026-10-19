@@ -44,6 +44,12 @@ class Controller {
 	public const ACTION_CLEANUP_PROBE_ORDERS = 'scanfully_woocheckout_cleanup_probe_orders';
 
 	/**
+	 * Hook: send the failed login counts of the hours that are over
+	 * (recurring hourly).
+	 */
+	public const ACTION_SEND_FAILED_LOGINS = 'scanfully_send_failed_logins';
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -76,6 +82,7 @@ class Controller {
 		add_action( self::ACTION_SYNC_DIRECTORIES, [ self::class, 'sync_directories' ] );
 		add_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [ self::class, 'sync_woocheckout_config' ] );
 		add_action( self::ACTION_CLEANUP_PROBE_ORDERS, [ self::class, 'cleanup_woocheckout_probe_orders' ] );
+		add_action( self::ACTION_SEND_FAILED_LOGINS, [ self::class, 'send_failed_logins' ] );
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
@@ -197,6 +204,22 @@ class Controller {
 		if ( ! as_has_scheduled_action( self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP ) ) {
 			as_schedule_recurring_action( time(), DAY_IN_SECONDS, self::ACTION_CLEANUP_PROBE_ORDERS, [], self::AS_GROUP, true );
 		}
+
+		// A few minutes past every hour, so the hour before is over.
+		if ( ! as_has_scheduled_action( self::ACTION_SEND_FAILED_LOGINS, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( ( intdiv( time(), HOUR_IN_SECONDS ) + 1 ) * HOUR_IN_SECONDS + 5 * MINUTE_IN_SECONDS, HOUR_IN_SECONDS, self::ACTION_SEND_FAILED_LOGINS, [], self::AS_GROUP, true );
+		}
+	}
+
+	/**
+	 * Send the failed login counts. Runs on the recurring hourly schedule.
+	 * Refreshes the access token if needed.
+	 *
+	 * @return void
+	 */
+	public static function send_failed_logins(): void {
+		self::refresh_access_token_if_needed();
+		\Scanfully\Events\FailedLogins\Reporter::send();
 	}
 
 	/**
