@@ -226,6 +226,17 @@ Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy po
 
 == Changelog ==
 
+= 1.9.0: October 19, 2026 =
+* Added: the activity log reports what changed in a saved post, posts deleted permanently, categories, tags and other terms, and bulk actions as one row listing every post or term
+* Added: media library changes, every setting of the core settings screens, navigation menus and widgets, Customizer theme settings, and Site Editor styles, templates, template parts and fonts in the activity log
+* Added: plugin and theme file editor edits, plugin and theme installs, deletions and theme switches, and failed plugin, theme and WordPress updates in the activity log
+* Added: logins, password and email address changes, application passwords and super admin changes of accounts with elevated rights in the activity log
+* Added: failed logins are counted per hour and sent once an hour
+* Added: the site data includes the must-use plugins, their folders and the drop-ins, checked for changes every hour
+* Changed: saves that change nothing are no longer reported, and permalink structure changes replace rewrite rule flushes
+* Fixed: SEOPress 404 records showing as saved posts in the activity log
+* Fixed: WooCommerce checkout test subscriptions could not be cancelled, and checkout test requests could run the shop's cron jobs on sites with ALTERNATE_WP_CRON
+
 = 1.8.1: October 16, 2026 =
 * Added: WooCommerce checkout monitoring can buy subscription and variable subscription products; subscriptions created by a test order are cancelled right away without sending emails and removed with the test order
 * Removed: development-only files from the plugin package
