@@ -38,6 +38,29 @@ class BlocksIntegration extends AbstractPaymentMethodType {
 				}
 			}
 		);
+		add_action( 'woocommerce_blocks_payment_method_type_registration', [ self::class, 'keep_only_probe_method' ], PHP_INT_MAX );
+	}
+
+	/**
+	 * During a validated probe request, unregister every other block payment
+	 * method. ProbeGateway leaves only the probe gateway registered, and some
+	 * block integrations (Mollie) throw when their own gateway is missing,
+	 * which breaks every page that loads the payment method registry,
+	 * product pages included.
+	 *
+	 * @param object $registry The WooCommerce Blocks payment method registry.
+	 *
+	 * @return void
+	 */
+	public static function keep_only_probe_method( $registry ): void {
+		if ( ! Controller::is_probe_request() || ! method_exists( $registry, 'get_all_registered' ) || ! method_exists( $registry, 'unregister' ) ) {
+			return;
+		}
+		foreach ( array_keys( $registry->get_all_registered() ) as $name ) {
+			if ( Controller::PROBE_GATEWAY_ID !== $name ) {
+				$registry->unregister( $name );
+			}
+		}
 	}
 
 	/**
