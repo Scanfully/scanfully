@@ -156,6 +156,27 @@ final class ProbeOrderTest extends TestCase {
 		$this->assertSame( 'shop@scanfully.com', ProbeGateway::suppress_email_for_probe( 'shop@scanfully.com', $this->order( false ) ) );
 	}
 
+	public function test_every_registered_email_gets_the_probe_filter(): void {
+		$mailer = new class() {
+			/**
+			 * Registered emails, as WC_Emails::get_emails() returns them.
+			 *
+			 * @return object[]
+			 */
+			public function get_emails(): array {
+				return [
+					(object) [ 'id' => 'cancelled_order' ],
+					(object) [ 'id' => 'cancelled_subscription' ],
+				];
+			}
+		};
+
+		ProbeGateway::suppress_probe_emails( $mailer );
+
+		$this->assertNotFalse( has_filter( 'woocommerce_email_recipient_cancelled_order', [ ProbeGateway::class, 'suppress_email_for_probe' ] ) );
+		$this->assertNotFalse( has_filter( 'woocommerce_email_recipient_cancelled_subscription', [ ProbeGateway::class, 'suppress_email_for_probe' ] ) );
+	}
+
 	public function test_orders_created_during_a_probe_are_tagged(): void {
 		$this->set_probe_request( true );
 		$_SERVER['HTTP_X_SCANFULLY_PROBE'] = 'sf-1-abcd:sig';
