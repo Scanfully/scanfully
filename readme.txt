@@ -227,7 +227,7 @@ Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy po
 == Changelog ==
 
 = 1.9.1: October 27, 2026 =
-* Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie and some other payment plugins, which stop with an error when their own payment method is missing, as on the test's own visits. Your customers' checkout was never affected
+* Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie
 * Fixed: test orders of the WooCommerce checkout test no longer email the shop a cancelled order notice, which WooCommerce 11 started sending, and no other WooCommerce email is sent about a test order
 * Fixed: FooEvents tickets, Greyd Forms entries, WP RSS Aggregator feed items and WP User Activity log entries no longer show in the activity log as saved posts
 
