@@ -45,6 +45,10 @@ final class PostEventTest extends TestCase {
 			delete_option( 'scanfully_connect_is_connected' );
 			remove_filter( 'scanfully_post_saved_events_per_minute', '__return_zero' );
 			unregister_post_type( 'seopress_404' );
+			unregister_post_type( 'event_magic_tickets' );
+			unregister_post_type( 'tp_forms_entry' );
+			unregister_post_type( 'wprss_feed_item' );
+			unregister_post_type( 'activity' );
 			unregister_post_type( 'scanfully_test_type' );
 		}
 		parent::tearDown();
@@ -109,6 +113,90 @@ final class PostEventTest extends TestCase {
 			],
 			$this->jobs_queued_per_step( 'seopress_404' )
 		);
+	}
+
+	public function test_a_fooevents_ticket_queues_nothing_from_creation_to_deletion(): void {
+		// FooEvents registers the type with an admin screen and saves a
+		// published ticket for every ticket sold at checkout.
+		register_post_type( 'event_magic_tickets', [ 'show_ui' => true ] );
+
+		$this->assertSame(
+			[
+				'created'        => 0,
+				'updated'        => 0,
+				'status changed' => 0,
+				'trashed'        => 0,
+				'deleted'        => 0,
+			],
+			$this->jobs_queued_per_step( 'event_magic_tickets' )
+		);
+	}
+
+	public function test_a_greyd_forms_entry_queues_nothing_from_creation_to_deletion(): void {
+		// Greyd Forms registers the type with an admin screen and saves a
+		// post for every form a visitor sends.
+		register_post_type( 'tp_forms_entry', [ 'show_ui' => true ] );
+
+		$this->assertSame(
+			[
+				'created'        => 0,
+				'updated'        => 0,
+				'status changed' => 0,
+				'trashed'        => 0,
+				'deleted'        => 0,
+			],
+			$this->jobs_queued_per_step( 'tp_forms_entry' )
+		);
+	}
+
+	public function test_a_wp_rss_aggregator_feed_item_queues_nothing_from_creation_to_deletion(): void {
+		// WP RSS Aggregator registers the type with an admin screen, saves a
+		// post for every item it imports from a feed, and deletes old ones.
+		register_post_type( 'wprss_feed_item', [ 'show_ui' => true ] );
+
+		$this->assertSame(
+			[
+				'created'        => 0,
+				'updated'        => 0,
+				'status changed' => 0,
+				'trashed'        => 0,
+				'deleted'        => 0,
+			],
+			$this->jobs_queued_per_step( 'wprss_feed_item' )
+		);
+	}
+
+	/**
+	 * Runs in its own process: the plugin's function stays declared.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_a_wp_user_activity_entry_queues_nothing_from_creation_to_deletion(): void {
+		// WP User Activity registers the type with an admin screen, saves a
+		// post for every entry of its own activity log, and deletes old ones.
+		require_once dirname( __DIR__ ) . '/Fixtures/wp-user-activity.php';
+		register_post_type( 'activity', [ 'show_ui' => true ] );
+
+		$this->assertSame(
+			[
+				'created'        => 0,
+				'updated'        => 0,
+				'status changed' => 0,
+				'trashed'        => 0,
+				'deleted'        => 0,
+			],
+			$this->jobs_queued_per_step( 'activity' )
+		);
+	}
+
+	public function test_an_activity_type_is_still_reported_while_wp_user_activity_is_not_active(): void {
+		register_post_type( 'activity', [ 'show_ui' => true ] );
+
+		$queued = $this->jobs_queued_per_step( 'activity' );
+
+		$this->assertSame( 1, $queued['created'] );
+		$this->assertSame( 1, $queued['trashed'] );
 	}
 
 	public function test_a_custom_post_type_with_an_admin_screen_is_still_reported(): void {

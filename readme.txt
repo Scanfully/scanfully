@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -215,7 +215,7 @@ Once connected, the plugin sends data to the Scanfully API at api.scanfully.com 
 * The WordPress activity described above, as it happens. It includes the display name of the person who made a change, and the old and new value of a changed setting. Content and file editor changes are sent as a short diff of the lines that changed.
 * For accounts with elevated rights only: their email address with their user events, and the IP address and browser of their logins and of the first use of an application password.
 * Failed logins as counts per hour, with the accounts with elevated rights that were tried, but without IP addresses or the usernames tried.
-* When WooCommerce checkout monitoring is on: the shop details its test checkout needs, such as the product, shipping method and checkout page. Scanfully then places test orders, which the plugin cancels and removes.
+* When WooCommerce is active: the shop details a test checkout needs, such as the product, shipping method and checkout page, on connect, once a day and when they change. Scanfully only places test orders when WooCommerce checkout monitoring is on for the site, and the plugin cancels and removes them.
 
 Email deliverability checks are on by default: the plugin sends test emails to a Scanfully address through your site's own mail setup. You can turn them off under Settings > Scanfully.
 
@@ -225,6 +225,11 @@ Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy po
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.9.1: October 27, 2026 =
+* Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie
+* Fixed: test orders of the WooCommerce checkout test no longer email the shop a cancelled order notice, which WooCommerce 11 started sending, and no other WooCommerce email is sent about a test order
+* Fixed: FooEvents tickets, Greyd Forms entries, WP RSS Aggregator feed items and WP User Activity log entries no longer show in the activity log as saved posts
 
 = 1.9.0: October 19, 2026 =
 * Added: the activity log reports what changed in a saved post, posts deleted permanently, categories, tags and other terms, and bulk actions as one row listing every post or term
