@@ -30,7 +30,7 @@ final class PostSavedFilterTest extends TestCase {
 	 *
 	 * @var array<int, string>
 	 */
-	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404', 'event_magic_tickets' ];
+	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404', 'event_magic_tickets', 'tp_forms_entry', 'wprss_feed_item', 'activity', 'site_activity' ];
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -99,9 +99,60 @@ final class PostSavedFilterTest extends TestCase {
 			'trashed SEOPress 404 record'        => [ 'seopress_404', 'trash' ],
 			'FooEvents ticket'                   => [ 'event_magic_tickets', 'publish' ],
 			'trashed FooEvents ticket'           => [ 'event_magic_tickets', 'trash' ],
+			'Greyd Forms entry'                  => [ 'tp_forms_entry', 'publish' ],
+			'trashed Greyd Forms entry'          => [ 'tp_forms_entry', 'trash' ],
+			'WP RSS Aggregator feed item'        => [ 'wprss_feed_item', 'publish' ],
+			'trashed WP RSS Aggregator feed item' => [ 'wprss_feed_item', 'trash' ],
 			'custom type without an admin screen' => [ 'my_internal_type', 'publish' ],
 			'pending review status'              => [ 'post', 'pending' ],
 		];
+	}
+
+	public function test_an_activity_type_is_reported_while_wp_user_activity_is_not_active(): void {
+		$this->assertTrue( $this->fires( 'activity' ) );
+	}
+
+	/**
+	 * Runs in its own process: the plugin's functions stay declared.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_wp_user_activity_entries_do_not_fire(): void {
+		Functions\when( 'wp_user_activity_get_post_type' )->justReturn( 'activity' );
+
+		$this->assertFalse( $this->fires( 'activity' ) );
+		$this->assertFalse( $this->fires( 'activity', 'trash' ) );
+		$this->assertTrue( $this->fires( 'post' ) );
+	}
+
+	/**
+	 * Runs in its own process: the plugin's functions stay declared.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_a_renamed_wp_user_activity_type_does_not_fire(): void {
+		// The `wp_user_activity_get_post_type` filter renamed the type.
+		Functions\when( 'wp_user_activity_get_post_type' )->justReturn( 'site_activity' );
+
+		$this->assertFalse( $this->fires( 'site_activity' ) );
+		$this->assertTrue( $this->fires( 'activity' ) );
+	}
+
+	/**
+	 * Before version 2.3.0 the type was always `activity`, without a
+	 * function to name it. Runs in its own process: the plugin's functions
+	 * stay declared.
+	 *
+	 * @runInSeparateProcess
+	 * @preserveGlobalState disabled
+	 */
+	public function test_wp_user_activity_entries_before_2_3_do_not_fire(): void {
+		Functions\when( '_wp_user_activity' )->justReturn( null );
+
+		$this->assertFalse( $this->fires( 'activity' ) );
+		$this->assertTrue( $this->fires( 'post' ) );
 	}
 
 	public function test_publishing_right_after_saving_a_draft_is_reported(): void {
