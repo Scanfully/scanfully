@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -225,6 +225,11 @@ Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy po
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.9.1: October 27, 2026 =
+* Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie and some other payment plugins, which stop with an error when their own payment method is missing, as on the test's own visits. Your customers' checkout was never affected
+* Fixed: test orders of the WooCommerce checkout test no longer email the shop a cancelled order notice, which WooCommerce 11 started sending, and no other WooCommerce email is sent about a test order
+* Fixed: FooEvents tickets, Greyd Forms entries, WP RSS Aggregator feed items and WP User Activity log entries no longer show in the activity log as saved posts
 
 = 1.9.0: October 19, 2026 =
 * Added: the activity log reports what changed in a saved post, posts deleted permanently, categories, tags and other terms, and bulk actions as one row listing every post or term
