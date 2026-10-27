@@ -30,7 +30,7 @@ final class PostSavedFilterTest extends TestCase {
 	 *
 	 * @var array<int, string>
 	 */
-	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404' ];
+	private array $ui_types = [ 'post', 'page', 'product', 'shop_order', 'seopress_404', 'event_magic_tickets' ];
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -97,6 +97,8 @@ final class PostSavedFilterTest extends TestCase {
 			'SEOPress 404 record'                => [ 'seopress_404', 'publish' ],
 			'SEOPress 404 record as a draft'     => [ 'seopress_404', 'draft' ],
 			'trashed SEOPress 404 record'        => [ 'seopress_404', 'trash' ],
+			'FooEvents ticket'                   => [ 'event_magic_tickets', 'publish' ],
+			'trashed FooEvents ticket'           => [ 'event_magic_tickets', 'trash' ],
 			'custom type without an admin screen' => [ 'my_internal_type', 'publish' ],
 			'pending review status'              => [ 'post', 'pending' ],
 		];

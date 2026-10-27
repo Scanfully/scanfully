@@ -45,6 +45,7 @@ final class PostEventTest extends TestCase {
 			delete_option( 'scanfully_connect_is_connected' );
 			remove_filter( 'scanfully_post_saved_events_per_minute', '__return_zero' );
 			unregister_post_type( 'seopress_404' );
+			unregister_post_type( 'event_magic_tickets' );
 			unregister_post_type( 'scanfully_test_type' );
 		}
 		parent::tearDown();
@@ -108,6 +109,23 @@ final class PostEventTest extends TestCase {
 				'deleted'        => 0,
 			],
 			$this->jobs_queued_per_step( 'seopress_404' )
+		);
+	}
+
+	public function test_a_fooevents_ticket_queues_nothing_from_creation_to_deletion(): void {
+		// FooEvents registers the type with an admin screen and saves a
+		// published ticket for every ticket sold at checkout.
+		register_post_type( 'event_magic_tickets', [ 'show_ui' => true ] );
+
+		$this->assertSame(
+			[
+				'created'        => 0,
+				'updated'        => 0,
+				'status changed' => 0,
+				'trashed'        => 0,
+				'deleted'        => 0,
+			],
+			$this->jobs_queued_per_step( 'event_magic_tickets' )
 		);
 	}
 

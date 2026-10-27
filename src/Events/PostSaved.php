@@ -214,6 +214,9 @@ class PostSaved extends Event {
 		'acf-field-group',
 		// SEOPress logs every request for a missing URL as a post.
 		'seopress_404',
+		// FooEvents saves a post for every ticket sold, and changes it when
+		// the ticket is checked in.
+		'event_magic_tickets',
 	];
 
 	/**
