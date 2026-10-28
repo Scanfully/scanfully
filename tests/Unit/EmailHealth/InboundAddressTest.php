@@ -121,7 +121,10 @@ final class InboundAddressTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( 'site-1' );
 		Functions\when( 'update_option' )->alias(
 			static function ( string $name, $value ) use ( &$saved ) {
-				$saved[ $name ] = $value;
+				// When the connection last worked is not stored from the response.
+				if ( 'scanfully_connect_last_used' !== $name ) {
+					$saved[ $name ] = $value;
+				}
 				return true;
 			}
 		);

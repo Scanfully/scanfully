@@ -86,7 +86,10 @@ final class FailureHandlingTest extends TestCase {
 		);
 		Functions\when( 'update_option' )->alias(
 			function ( string $name, $value ) {
-				$this->options[ self::key( $name ) ] = (string) $value;
+				// The request's own record of its last failure is not an email health option.
+				if ( \Scanfully\API\Request::OPTION_LAST_ERROR !== $name ) {
+					$this->options[ self::key( $name ) ] = (string) $value;
+				}
 				return true;
 			}
 		);

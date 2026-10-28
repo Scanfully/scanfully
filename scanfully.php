@@ -81,6 +81,11 @@ add_action(
 register_deactivation_hook(
 	__FILE__,
 	function () {
+		// Tell Scanfully first, so the site's owner learns why the plugin
+		// stopped reporting.
+		if ( class_exists( '\\Scanfully\\Connect\\Controller' ) ) {
+			\Scanfully\Connect\Controller::report_deactivated();
+		}
 		\Scanfully\Cron\Controller::clear_scheduled_events();
 	}
 );

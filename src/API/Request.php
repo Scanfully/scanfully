@@ -16,6 +16,19 @@ use Scanfully\Options\Controller as OptionController;
 abstract class Request {
 
 	/**
+	 * Option holding the plugin's last failed request to Scanfully: when,
+	 * the HTTP status (0 when no answer came) and the error. The sync route
+	 * answers it to the API, so the site's owner learns why the plugin
+	 * stopped reporting. Written only on a failure, never autoloaded.
+	 */
+	public const OPTION_LAST_ERROR = 'scanfully_connect_last_request_error';
+
+	/**
+	 * The longest error text kept.
+	 */
+	private const MAX_ERROR_LENGTH = 200;
+
+	/**
 	 * Send the request to the API.
 	 *
 	 * @param  string $endpoint The endpoint to send the request to.
@@ -53,26 +66,39 @@ abstract class Request {
 
 		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
 		if ( is_wp_error( $response ) ) {
+			self::record_failure( 0, self::error_message( $response ) );
 			return null;
 		}
 
 		// Only update last_used when we can confirm a successful response.
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		if ( $status >= 200 && $status < 300 ) {
-			// A successful request proves the connection works, so clear any
-			// stale refresh-failure state that would otherwise keep the
-			// broken-connection notice showing while data is flowing.
-			\Scanfully\Cron\Controller::clear_refresh_failures();
-			try {
-				$now = new \DateTime();
-				$now->setTimezone( new \DateTimeZone( 'UTC' ) );
-				OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
-			} catch ( \Exception $e ) {
-				// do nothing for now, just don't break the plugin.
-			}
+			self::record_success();
+		} else {
+			self::record_failure( $status, '' );
 		}
 
 		return $status;
+	}
+
+	/**
+	 * Keep that a request to Scanfully worked: it proves the connection
+	 * works, so any stale refresh-failure state that would keep the
+	 * broken-connection notice showing goes, and last_used says when. The
+	 * sync route answers last_used to the API as the last success, next to
+	 * the last failure, so every kind of request records both.
+	 *
+	 * @return void
+	 */
+	private static function record_success(): void {
+		\Scanfully\Cron\Controller::clear_refresh_failures();
+		try {
+			$now = new \DateTime();
+			$now->setTimezone( new \DateTimeZone( 'UTC' ) );
+			OptionController::set_option( 'last_used', $now->format( \Scanfully\Connect\Controller::DATE_FORMAT ) );
+		} catch ( \Exception $e ) {
+			// do nothing for now, just don't break the plugin.
+		}
 	}
 
 	/**
@@ -164,16 +190,20 @@ abstract class Request {
 	 */
 	private function process_response( $response ): ?array {
 		if ( is_wp_error( $response ) ) {
+			self::record_failure( 0, self::error_message( $response ) );
 			return null;
 		}
 		$status   = (int) wp_remote_retrieve_response_code( $response );
 		$raw_body = wp_remote_retrieve_body( $response );
+		if ( $status < 200 || $status >= 300 ) {
+			self::record_failure( $status, '' );
+		}
 
 		// A successful request proves the connection works, so clear any stale
 		// refresh-failure state that would otherwise keep the broken-connection
 		// notice showing while the plugin is communicating fine.
 		if ( $status >= 200 && $status < 300 ) {
-			\Scanfully\Cron\Controller::clear_refresh_failures();
+			self::record_success();
 		}
 
 		$decoded  = null;
@@ -187,6 +217,57 @@ abstract class Request {
 			'status' => $status,
 			'body'   => $decoded,
 			'raw'    => (string) $raw_body,
+		];
+	}
+
+	/**
+	 * Keep a failed request to Scanfully: an answer with a status outside
+	 * 2xx, or none at all, with the transport's error.
+	 *
+	 * @param int    $status  The HTTP status; 0 when no answer came.
+	 * @param string $message The error of a request that got no answer.
+	 *
+	 * @return void
+	 */
+	private static function record_failure( int $status, string $message ): void {
+		update_option(
+			self::OPTION_LAST_ERROR,
+			[
+				'at'      => time(),
+				'status'  => $status,
+				'message' => mb_substr( trim( $message ), 0, self::MAX_ERROR_LENGTH ),
+			],
+			false
+		);
+	}
+
+	/**
+	 * The message of a transport error, or '' when it holds none.
+	 *
+	 * @param mixed $error What is_wp_error() took for an error.
+	 *
+	 * @return string
+	 */
+	private static function error_message( $error ): string {
+		return $error instanceof \WP_Error ? $error->get_error_message() : '';
+	}
+
+	/**
+	 * The plugin's last failed request to Scanfully, or null when none
+	 * failed since the site connected.
+	 *
+	 * @return array{at: int, status: int, message: string}|null
+	 */
+	public static function last_error(): ?array {
+		$error = get_option( self::OPTION_LAST_ERROR );
+		if ( ! is_array( $error ) || ! isset( $error['at'] ) ) {
+			return null;
+		}
+
+		return [
+			'at'      => (int) $error['at'],
+			'status'  => (int) ( $error['status'] ?? 0 ),
+			'message' => (string) ( $error['message'] ?? '' ),
 		];
 	}
 

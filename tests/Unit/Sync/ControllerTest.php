@@ -23,7 +23,7 @@ final class ControllerTest extends TestCase {
 	/**
 	 * Stored options, keyed by option name without prefix.
 	 *
-	 * @var array<string, string>
+	 * @var array<string, mixed>
 	 */
 	private array $options = [];
 
@@ -136,6 +136,41 @@ final class ControllerTest extends TestCase {
 
 		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'The syncs must not wait for WP-Cron.' );
 		$this->assertSame( [ 'async-request-runner' ], $GLOBALS['scanfully_test_action_scheduler']['locks'] );
+	}
+
+	public function test_a_sync_answers_how_the_plugin_reaches_scanfully(): void {
+		$this->options['last_used']          = '2026-10-28 03:00:00';
+		$this->options['last_request_error'] = [
+			'at'      => 1793181600,
+			'status'  => 0,
+			'message' => 'cURL error 28: Operation timed out',
+		];
+
+		$data = Controller::handle_sync()->get_data();
+
+		$this->assertSame( 'scheduled', $data['status'] );
+		$this->assertSame( SCANFULLY_VERSION, $data['version'] );
+		$this->assertSame( '2026-10-28T03:00:00+00:00', $data['last_success_at'] );
+		$this->assertSame(
+			[
+				'at'      => '2026-10-28T10:00:00+00:00',
+				'status'  => 0,
+				'message' => 'cURL error 28: Operation timed out',
+			],
+			$data['last_error']
+		);
+
+		// A rate limited sync answers the same.
+		$data = Controller::handle_sync()->get_data();
+		$this->assertSame( 'rate_limited', $data['status'] );
+		$this->assertSame( SCANFULLY_VERSION, $data['version'] );
+	}
+
+	public function test_a_sync_before_any_request_answers_nulls(): void {
+		$data = Controller::handle_sync()->get_data();
+
+		$this->assertNull( $data['last_success_at'] );
+		$this->assertNull( $data['last_error'] );
 	}
 
 	public function test_a_second_sync_within_the_window_is_rate_limited(): void {
