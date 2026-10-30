@@ -41,6 +41,7 @@ final class RequestTlsTest extends TestCase {
 		Functions\when( 'is_wp_error' )->alias( static fn( $thing ) => null === $thing );
 		Functions\when( 'wp_json_encode' )->alias( static fn( $data ) => json_encode( $data ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- WordPress is not loaded in unit tests.
 		Functions\when( 'get_option' )->justReturn( 'token' );
+		Functions\when( 'update_option' )->justReturn( true );
 		Functions\when( 'add_query_arg' )->alias( static fn( $args, $url ) => $url );
 	}
 

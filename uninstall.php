@@ -45,16 +45,46 @@ function scanfully_uninstall_revoke_tokens(): void {
 
 	$api_url = (string) apply_filters( 'scanfully_api_url', 'https://api.scanfully.com/v1' );
 
+	// Say the plugin was deleted, and by whom, so the site's owner learns why
+	// it stopped reporting.
 	wp_remote_post(
 		$api_url . '/sites/' . rawurlencode( $site_id ) . '/connect/revoke',
 		[
-			'headers'     => [ 'Authorization' => sprintf( 'Bearer %s', $access_token ) ],
+			'headers'     => [
+				'Authorization' => sprintf( 'Bearer %s', $access_token ),
+				'Content-Type'  => 'application/json',
+			],
+			'body'        => wp_json_encode(
+				[
+					'reason' => 'uninstalled',
+					'by'     => scanfully_uninstall_user_name(),
+				]
+			),
 			'timeout'     => 5,
 			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => (bool) apply_filters( 'scanfully_sslverify', true ),
 		]
 	);
+}
+
+/**
+ * The display name of the user who deletes the plugin, safe to send: as
+ * Events\Event::safe_display_name(), a name that holds an @ is replaced by
+ * the user's first and last name, or left empty, so no email address leaves
+ * the site.
+ *
+ * @return string
+ */
+function scanfully_uninstall_user_name(): string {
+	$user = wp_get_current_user();
+	$name = trim( (string) $user->display_name );
+	if ( false === strpos( $name, '@' ) ) {
+		return $name;
+	}
+	$name = trim( $user->first_name . ' ' . $user->last_name );
+
+	return false === strpos( $name, '@' ) ? $name : '';
 }
 
 /**

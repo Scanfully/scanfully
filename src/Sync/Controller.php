@@ -129,7 +129,7 @@ class Controller {
 		if ( $last_run > 0 ) {
 			$retry_after = max( 1, self::RATE_LIMIT_WINDOW - ( time() - $last_run ) );
 
-			$response = new \WP_REST_Response( [ 'status' => 'rate_limited' ], 429 );
+			$response = new \WP_REST_Response( array_merge( [ 'status' => 'rate_limited' ], self::diagnostics() ), 429 );
 			$response->header( 'Retry-After', (string) $retry_after );
 
 			return $response;
@@ -140,7 +140,32 @@ class Controller {
 		self::schedule_syncs();
 		self::run_queue_now();
 
-		return new \WP_REST_Response( [ 'status' => 'scheduled' ], 202 );
+		return new \WP_REST_Response( array_merge( [ 'status' => 'scheduled' ], self::diagnostics() ), 202 );
+	}
+
+	/**
+	 * What the plugin tells the API about itself in the answer: its version,
+	 * when its last request to Scanfully worked and its last one that
+	 * failed. The answer comes from this web request, so it gets through
+	 * when the plugin's scheduled jobs do not run. Only the token holder (the
+	 * API) gets it, and it holds no site data.
+	 *
+	 * @return array
+	 */
+	private static function diagnostics(): array {
+		$last_used  = Options\Controller::get_option( 'last_used' );
+		$last_error = \Scanfully\API\Request::last_error();
+		$used_at    = '' === $last_used ? false : strtotime( $last_used . ' UTC' );
+
+		return [
+			'version'         => defined( 'SCANFULLY_VERSION' ) ? SCANFULLY_VERSION : '',
+			'last_success_at' => false === $used_at ? null : gmdate( 'c', $used_at ),
+			'last_error'      => null === $last_error ? null : [
+				'at'      => gmdate( 'c', $last_error['at'] ),
+				'status'  => $last_error['status'],
+				'message' => $last_error['message'],
+			],
+		];
 	}
 
 	/**
