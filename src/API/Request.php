@@ -221,8 +221,10 @@ abstract class Request {
 	}
 
 	/**
-	 * Keep a failed request to Scanfully: an answer with a status outside
-	 * 2xx, or none at all, with the transport's error.
+	 * Keep a failed request to Scanfully: no answer at all, with the
+	 * transport's error, or an answer that says it did not get through.
+	 * Scanfully answering 400 or 429 about one request does not count: the
+	 * connection works, and the API would tell the site's owner it doesn't.
 	 *
 	 * @param int    $status  The HTTP status; 0 when no answer came.
 	 * @param string $message The error of a request that got no answer.
@@ -230,6 +232,10 @@ abstract class Request {
 	 * @return void
 	 */
 	private static function record_failure( int $status, string $message ): void {
+		if ( $status >= 400 && $status < 500 && ! in_array( $status, [ 401, 403, 407 ], true ) ) {
+			return;
+		}
+
 		update_option(
 			self::OPTION_LAST_ERROR,
 			[

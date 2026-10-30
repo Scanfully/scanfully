@@ -101,6 +101,27 @@ final class RequestFailureTest extends TestCase {
 		$this->assertSame( 503, Request::last_error()['status'] ?? null );
 	}
 
+	public function test_a_refusal_of_the_connection_is_kept(): void {
+		foreach ( [ 401, 403, 407 ] as $status ) {
+			$this->answer = [ 'response' => [ 'code' => $status ] ];
+
+			$this->make_request()->do_request( 'sites/s1/data', [] );
+
+			$this->assertSame( $status, Request::last_error()['status'] ?? null );
+		}
+	}
+
+	public function test_an_answer_about_one_request_is_not_a_failure_to_reach_scanfully(): void {
+		foreach ( [ 400, 404, 409, 422, 429 ] as $status ) {
+			$this->answer = [ 'response' => [ 'code' => $status ] ];
+
+			$this->make_request()->do_request( 'sites/s1/timeline', [] );
+			$this->make_request()->do_request_with_response( 'sites/s1/email', [] );
+
+			$this->assertNull( Request::last_error(), "status $status" );
+		}
+	}
+
 	public function test_a_long_error_is_cut(): void {
 		$this->answer = new \WP_Error( 'http_request_failed', str_repeat( 'x', 500 ) );
 
