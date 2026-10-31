@@ -77,6 +77,16 @@ add_action(
 	20
 );
 
+// register activation hook.
+register_activation_hook(
+	__FILE__,
+	function () {
+		// The connection was last used before the deactivation, so its first
+		// report needs a moment before anything calls it stale.
+		set_transient( 'scanfully_recently_activated', 1, 5 * MINUTE_IN_SECONDS );
+	}
+);
+
 // register deactivation hook.
 register_deactivation_hook(
 	__FILE__,
