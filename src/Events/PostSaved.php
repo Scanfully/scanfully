@@ -214,6 +214,14 @@ class PostSaved extends Event {
 		'acf-field-group',
 		// SEOPress logs every request for a missing URL as a post.
 		'seopress_404',
+		// FooEvents saves a post for every ticket sold, and changes it when
+		// the ticket is checked in.
+		'event_magic_tickets',
+		// Greyd Forms saves every form entry as a post.
+		'tp_forms_entry',
+		// WP RSS Aggregator saves every item it imports from a feed as a
+		// post, and deletes old ones.
+		'wprss_feed_item',
 	];
 
 	/**
@@ -283,10 +291,10 @@ class PostSaved extends Event {
 
 	/**
 	 * Whether saves of this post type are reported. Skips internal types,
-	 * types without an admin screen, and every WooCommerce order type: with
-	 * HPOS, each order also saves a backup post (a placeholder, or a
-	 * `shop_order` draft when sync is on), which would otherwise turn every
-	 * checkout into a timeline event.
+	 * types without an admin screen, the log of WP User Activity, and every
+	 * WooCommerce order type: with HPOS, each order also saves a backup post
+	 * (a placeholder, or a `shop_order` draft when sync is on), which would
+	 * otherwise turn every checkout into a timeline event.
 	 *
 	 * @param string $post_type The post type.
 	 *
@@ -301,8 +309,30 @@ class PostSaved extends Event {
 			return false;
 		}
 
+		if ( self::is_user_activity_log( $post_type ) ) {
+			return false;
+		}
+
 		$type_object = get_post_type_object( $post_type );
 
 		return is_object( $type_object ) && ! empty( $type_object->show_ui );
+	}
+
+	/**
+	 * Whether a post type is the log of WP User Activity, another activity
+	 * log plugin that saves every entry as a post. Its name (`activity`) is
+	 * too common to skip while that plugin is not active.
+	 *
+	 * @param string $post_type The post type.
+	 *
+	 * @return bool
+	 */
+	private static function is_user_activity_log( string $post_type ): bool {
+		// Version 2.3.0 and later name the type with a filter.
+		if ( function_exists( 'wp_user_activity_get_post_type' ) ) {
+			return wp_user_activity_get_post_type() === $post_type;
+		}
+
+		return 'activity' === $post_type && function_exists( '_wp_user_activity' );
 	}
 }

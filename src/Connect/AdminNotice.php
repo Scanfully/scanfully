@@ -74,6 +74,11 @@ class AdminNotice {
 			return true;
 		}
 
+		// Just activated: it hasn't had the chance to report yet.
+		if ( get_transient( 'scanfully_recently_activated' ) ) {
+			return false;
+		}
+
 		$reference_date = $options->last_used;
 
 		// Fall back to date_connected if last_used is empty.

@@ -104,6 +104,40 @@ namespace {
 		}
 	}
 
+	if ( ! class_exists( 'WP_Error' ) ) {
+		/**
+		 * Stub of WordPress' error, with its message.
+		 */
+		class WP_Error {
+
+			/**
+			 * The error message.
+			 *
+			 * @var string
+			 */
+			private string $message;
+
+			/**
+			 * Constructor.
+			 *
+			 * @param string $code    Error code.
+			 * @param string $message Error message.
+			 */
+			public function __construct( $code = '', $message = '' ) {
+				$this->message = (string) $message;
+			}
+
+			/**
+			 * Get the error message.
+			 *
+			 * @return string
+			 */
+			public function get_error_message() {
+				return $this->message;
+			}
+		}
+	}
+
 	if ( ! class_exists( 'WP_REST_Response' ) ) {
 		/**
 		 * Stub of WordPress' REST response.

@@ -8,7 +8,7 @@
  *
  * @wordpress-plugin
  * Plugin Name: Scanfully
- * Version:     1.9.0
+ * Version:     1.10.0
  * Plugin URI:  https://scanfully.com/wp-plugin
  * Description: Scanfully is your favorite WordPress performance and health monitoring tool.
  * Author:      Scanfully
@@ -68,7 +68,7 @@ add_action(
 	function () {
 		// meta.
 		define( 'SCANFULLY_PLUGIN_FILE', __FILE__ );
-		define( 'SCANFULLY_VERSION', '1.9.0' );
+		define( 'SCANFULLY_VERSION', '1.10.0' );
 
 		// boot.
 		require __DIR__ . '/vendor/autoload.php';
@@ -77,10 +77,25 @@ add_action(
 	20
 );
 
+// register activation hook.
+register_activation_hook(
+	__FILE__,
+	function () {
+		// The connection was last used before the deactivation, so its first
+		// report needs a moment before anything calls it stale.
+		set_transient( 'scanfully_recently_activated', 1, 5 * MINUTE_IN_SECONDS );
+	}
+);
+
 // register deactivation hook.
 register_deactivation_hook(
 	__FILE__,
 	function () {
+		// Tell Scanfully first, so the site's owner learns why the plugin
+		// stopped reporting.
+		if ( class_exists( '\\Scanfully\\Connect\\Controller' ) ) {
+			\Scanfully\Connect\Controller::report_deactivated();
+		}
 		\Scanfully\Cron\Controller::clear_scheduled_events();
 	}
 );

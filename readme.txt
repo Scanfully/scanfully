@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -138,6 +138,8 @@ Once connected, the plugin sends the following data to provide monitoring, diagn
 * **WordPress user events:** User IDs, display names, and roles. Events for users with elevated permissions also include their email address. Successful logins and first application-password use for those users include IP addresses, forwarded proxy information, and browser details.
 * **Failed-login summaries:** Hourly counts and details of targeted users with elevated permissions. These summaries omit IP addresses and attempted usernames.
 * **WooCommerce configuration:** On connected WooCommerce sites, shop details sync even when checkout tests are off. These include the store address, WooCommerce version, product and cart/checkout URLs, shipping details, and login requirements. When checkout tests are enabled, Scanfully creates test orders. The plugin cancels test orders and deletes cancelled test orders through scheduled cleanup after seven days by default.
+* **Connection changes:** When the plugin is deactivated, disconnected, or deleted, that it happened and the display name of the person who did it.
+* **Sync diagnostics:** When Scanfully asks the plugin to sync, the plugin's version, when its last request to Scanfully succeeded, and the time, status, and error message of its last failed request.
 
 Email checks are enabled by default after connection. The plugin sends test messages through your site's mail setup to a Scanfully address. Messages include site and version details and verification identifiers. The sender defaults to your WordPress administration email. The plugin also reports the detected mail plugin or WordPress version and local send errors to the API. You can turn these checks off under Settings > Scanfully.
 
@@ -148,6 +150,17 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.10.0: November 2, 2026 =
+* Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
+* Added: when Scanfully asks the plugin to sync, the plugin answers with its version and how its last requests to Scanfully went
+* Fixed: wp-admin no longer asks to reconnect right after activating the plugin, and the first email ping goes about a minute after it
+* Fixed: a request Scanfully answers with 400 or 429 no longer counts as the plugin failing to reach Scanfully
+
+= 1.9.1: October 27, 2026 =
+* Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie
+* Fixed: test orders of the WooCommerce checkout test no longer email the shop a cancelled order notice, which WooCommerce 11 started sending, and no other WooCommerce email is sent about a test order
+* Fixed: FooEvents tickets, Greyd Forms entries, WP RSS Aggregator feed items and WP User Activity log entries no longer show in the activity log as saved posts
 
 = 1.9.0: October 19, 2026 =
 * Added: the activity log reports what changed in a saved post, posts deleted permanently, categories, tags and other terms, and bulk actions as one row listing every post or term

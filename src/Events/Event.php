@@ -107,13 +107,14 @@ abstract class Event {
 	 * A user's display name, safe to send. WordPress defaults the display
 	 * name to the login, which is often an email address; an email address
 	 * is replaced by the user's first and last name, or left empty, so no
-	 * email address leaves the site.
+	 * email address leaves the site. Public, as the connection's own
+	 * requests name who deactivated or disconnected the plugin the same way.
 	 *
 	 * @param object $user The user (a WP_User).
 	 *
 	 * @return string
 	 */
-	protected static function safe_display_name( object $user ): string {
+	public static function safe_display_name( object $user ): string {
 		$name = trim( (string) ( $user->display_name ?? '' ) );
 		if ( ! self::looks_like_email( $name ) ) {
 			return $name;

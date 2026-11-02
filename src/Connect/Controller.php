@@ -427,21 +427,55 @@ class Controller {
 	 * a database dump) stays valid on the API side until it expires.
 	 *
 	 * Best effort: a failure never blocks the disconnect, and the timeout is
-	 * short so an unreachable API doesn't hold up the admin.
+	 * short so an unreachable API doesn't hold up the admin. It says the
+	 * site was disconnected, and by whom, so the site's owner learns why the
+	 * plugin stopped reporting.
 	 *
 	 * @return void
 	 */
 	public static function revoke_tokens(): void {
+		self::tell_connection( 'revoke', [ 'reason' => 'disconnected' ] );
+	}
+
+	/**
+	 * Tell the API that the plugin is being deactivated, and by whom, so the
+	 * site's owner learns why the plugin stopped reporting. Called from the
+	 * deactivation hook, before the jobs are cancelled. The tokens stay:
+	 * activating the plugin again lets it report with them.
+	 *
+	 * @return void
+	 */
+	public static function report_deactivated(): void {
+		self::tell_connection( 'deactivated', [] );
+	}
+
+	/**
+	 * Send a request about the connection itself to the API: the revoke or
+	 * the deactivation, with who did it. Best effort with a short timeout:
+	 * it never blocks what the user is doing.
+	 *
+	 * @param string $action The connect route: revoke or deactivated.
+	 * @param array  $body   What the request says, besides who did it.
+	 *
+	 * @return void
+	 */
+	private static function tell_connection( string $action, array $body ): void {
 		$site_id      = OptionsController::get_option( 'site_id' );
 		$access_token = OptionsController::get_option( 'access_token' );
 		if ( '' === $site_id || '' === $access_token ) {
 			return;
 		}
 
+		$body['by'] = \Scanfully\Events\Event::safe_display_name( wp_get_current_user() );
+
 		wp_remote_post(
-			Main::get_api_url() . '/sites/' . rawurlencode( $site_id ) . '/connect/revoke',
+			Main::get_api_url() . '/sites/' . rawurlencode( $site_id ) . '/connect/' . $action,
 			[
-				'headers'     => [ 'Authorization' => sprintf( 'Bearer %s', $access_token ) ],
+				'headers'     => [
+					'Authorization' => sprintf( 'Bearer %s', $access_token ),
+					'Content-Type'  => 'application/json',
+				],
+				'body'        => wp_json_encode( $body ),
 				'timeout'     => 5,
 				'blocking'    => true,
 				'httpversion' => '1.0',

@@ -52,14 +52,13 @@ class ProbeGateway extends \WC_Payment_Gateway {
 		add_filter( 'woocommerce_available_payment_gateways', [ self::class, 'filter_available_gateways' ], 99 );
 
 		// Probe-only filters: suppress emails + prevent stock decrement.
-		add_filter( 'woocommerce_email_recipient_new_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
-		add_filter( 'woocommerce_email_recipient_customer_processing_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
-		add_filter( 'woocommerce_email_recipient_customer_on_hold_order', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
-		// WooCommerce Subscriptions: the subscription a probe order creates
-		// is cancelled right away, which would otherwise email the shop.
-		add_filter( 'woocommerce_email_recipient_cancelled_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
-		add_filter( 'woocommerce_email_recipient_expired_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
-		add_filter( 'woocommerce_email_recipient_suspended_subscription', [ self::class, 'suppress_email_for_probe' ], 10, 2 );
+		// Every registered email is covered, not a list: WooCommerce 11 emails
+		// the admin on pending -> cancelled, and WooCommerce Subscriptions
+		// emails the shop when the probe subscription is cancelled.
+		add_action( 'woocommerce_email', [ self::class, 'suppress_probe_emails' ] );
+		if ( did_action( 'woocommerce_email' ) && function_exists( 'WC' ) ) {
+			self::suppress_probe_emails( WC()->mailer() );
+		}
 		add_filter( 'woocommerce_can_reduce_order_stock', [ self::class, 'skip_stock_reduction_for_probe' ], 10, 2 );
 		add_filter( 'woocommerce_webhook_should_deliver', [ self::class, 'skip_webhooks_for_probe' ], 10, 3 );
 
@@ -169,8 +168,9 @@ class ProbeGateway extends \WC_Payment_Gateway {
 	 * plugin-owned stub PSP URL.
 	 *
 	 * The scan ends at the stub PSP, so the order is cancelled right away.
-	 * Cancelling releases the stock WooCommerce reserved at checkout, and
-	 * pending -> cancelled sends no email. Subscriptions the order created
+	 * Cancelling releases the stock WooCommerce reserved at checkout; the
+	 * cancelled order email it triggers is suppressed with every other email
+	 * of a tagged order (suppress_probe_emails). Subscriptions the order created
 	 * (WooCommerce Subscriptions) are tagged before and cancelled after, so
 	 * their emails stay suppressed and the cleanup deletes them too.
 	 *
@@ -261,6 +261,26 @@ class ProbeGateway extends \WC_Payment_Gateway {
 			// A status Subscriptions will not move to cancelled; the cleanup
 			// cancels it later.
 			return;
+		}
+	}
+
+	/**
+	 * Hook the probe suppression into the recipient filter of every email the
+	 * WooCommerce mailer has registered, including those added by other
+	 * plugins through `woocommerce_email_classes`.
+	 *
+	 * @param \WC_Emails|object $mailer The WooCommerce mailer.
+	 *
+	 * @return void
+	 */
+	public static function suppress_probe_emails( $mailer ): void {
+		if ( ! is_object( $mailer ) || ! method_exists( $mailer, 'get_emails' ) ) {
+			return;
+		}
+		foreach ( (array) $mailer->get_emails() as $email ) {
+			if ( is_object( $email ) && ! empty( $email->id ) ) {
+				add_filter( 'woocommerce_email_recipient_' . $email->id, [ self::class, 'suppress_email_for_probe' ], 10, 2 );
+			}
 		}
 	}
 
