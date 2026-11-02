@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, broken media, activity log
 Requires at least: 6.0
 Tested up to: 7.1.0
-Stable tag: 1.9.1
+Stable tag: 1.10.0
 License: GPLv3 or later
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -216,6 +216,8 @@ Once connected, the plugin sends data to the Scanfully API at api.scanfully.com 
 * For accounts with elevated rights only: their email address with their user events, and the IP address and browser of their logins and of the first use of an application password.
 * Failed logins as counts per hour, with the accounts with elevated rights that were tried, but without IP addresses or the usernames tried.
 * When WooCommerce is active: the shop details a test checkout needs, such as the product, shipping method and checkout page, on connect, once a day and when they change. Scanfully only places test orders when WooCommerce checkout monitoring is on for the site, and the plugin cancels and removes them.
+* When the plugin is deactivated, disconnected or deleted: that it happened, and the display name of the person who did it.
+* When Scanfully asks the plugin to sync: the plugin's version, when its last request to Scanfully succeeded, and the time, status and error message of its last failed request.
 
 Email deliverability checks are on by default: the plugin sends test emails to a Scanfully address through your site's own mail setup. You can turn them off under Settings > Scanfully.
 
@@ -225,6 +227,12 @@ Scanfully's [terms and conditions](https://scanfully.com/terms/) and [privacy po
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.10.0: November 2, 2026 =
+* Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
+* Added: when Scanfully asks the plugin to sync, the plugin answers with its version and how its last requests to Scanfully went
+* Fixed: wp-admin no longer asks to reconnect right after activating the plugin, and the first email ping goes about a minute after it
+* Fixed: a request Scanfully answers with 400 or 429 no longer counts as the plugin failing to reach Scanfully
 
 = 1.9.1: October 27, 2026 =
 * Fixed: the WooCommerce checkout test reported a false failure on shops with Mollie

@@ -54,7 +54,10 @@ final class StateCacheTest extends TestCase {
 		Functions\when( 'get_option' )->justReturn( 'site-1' );
 		Functions\when( 'update_option' )->alias(
 			function ( string $name, $value ) {
-				$this->saved[ $name ] = (string) $value;
+				// The request's own record of its last failure is not the cache.
+				if ( \Scanfully\API\Request::OPTION_LAST_ERROR !== $name ) {
+					$this->saved[ $name ] = (string) $value;
+				}
 				return true;
 			}
 		);

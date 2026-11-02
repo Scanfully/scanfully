@@ -198,10 +198,11 @@ class Controller {
 		// Email deliverability runs as a self-scheduling single action (each run
 		// arms the next via EmailHealth\Controller::schedule_next_ping) so the
 		// cadence can adapt without the duplicate pending actions a recurring
-		// action produced. This only bootstraps the chain, or heals it if it stalls.
+		// action produced. This only bootstraps the chain, or heals it if it stalls,
+		// so the first ping goes soon: after activating the plugin again, the Email
+		// page should not wait a whole interval for it.
 		if ( ! as_has_scheduled_action( self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP ) ) {
-			$interval = \Scanfully\EmailHealth\Controller::current_interval_seconds();
-			as_schedule_single_action( time() + $interval, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP, true );
+			as_schedule_single_action( time() + MINUTE_IN_SECONDS, self::ACTION_EMAIL_DELIVERABILITY_PING, [], self::AS_GROUP, true );
 		}
 
 		if ( ! as_has_scheduled_action( self::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], self::AS_GROUP ) ) {
