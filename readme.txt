@@ -154,6 +154,7 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 = 1.10.0: November 2, 2026 =
 * Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
 * Added: when Scanfully asks the plugin to sync, the plugin answers with its version and how its last requests to Scanfully went
+* Changed: a new readme that better explains what Scanfully offers, with a more detailed list of the data the plugin sends
 * Fixed: wp-admin no longer asks to reconnect right after activating the plugin, and the first email ping goes about a minute after it
 * Fixed: a request Scanfully answers with 400 or 429 no longer counts as the plugin failing to reach Scanfully
 
