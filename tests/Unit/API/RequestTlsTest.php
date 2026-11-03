@@ -29,6 +29,9 @@ final class RequestTlsTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Functions\when( 'get_transient' )->justReturn( false );
+		Functions\when( 'set_transient' )->justReturn( true );
+		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
 		$this->captured = [];
 
 		$capture = function ( string $url, array $args ) {
