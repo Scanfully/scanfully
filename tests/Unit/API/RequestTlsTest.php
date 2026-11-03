@@ -93,7 +93,8 @@ final class RequestTlsTest extends TestCase {
 	public function test_every_api_request_verifies_tls_by_default(): void {
 		$this->send_all();
 
-		$this->assertCount( 4, $this->captured );
+		// the refresh of a connection that has not moved tries the OAuth server, then the legacy route.
+		$this->assertCount( 5, $this->captured );
 		foreach ( $this->captured as $args ) {
 			$this->assertTrue( $args['sslverify'] );
 		}

@@ -315,6 +315,28 @@ final class TokenRefreshTest extends TestCase {
 		$this->assertSame( 1, $this->token_requests, 'the move waits a day' );
 	}
 
+	public function test_a_legacy_connection_the_oauth_server_refuses_refreshes_on_the_legacy_route_when_expiring(): void {
+		unset( $this->options['scanfully_connect_flow'] );
+		$replies              = [ [ 400, '{"error":"invalid_grant"}' ], [ 200, $this->token_body( 'legacy-access', 'legacy-refresh' ) ] ];
+		$this->during_request = function () use ( &$replies ) {
+			$this->api_response = array_shift( $replies );
+		};
+
+		$this->refresh();
+
+		$this->assertSame( 2, $this->token_requests );
+		$this->assertSame( 'legacy-access', $this->options['scanfully_connect_access_token'] );
+	}
+
+	public function test_a_moved_connection_the_oauth_server_refuses_is_a_failure(): void {
+		$this->api_response = [ 400, '{"error":"invalid_grant"}' ];
+
+		$this->refresh();
+
+		$this->assertSame( 1, $this->token_requests );
+		$this->assertSame( 1, $this->transients['scanfully_refresh_failures'] ?? 0 );
+	}
+
 	public function test_an_api_without_the_plugin_client_refreshes_an_expiring_token_on_the_legacy_route(): void {
 		unset( $this->options['scanfully_connect_flow'] );
 		$replies = [ [ 400, '{"error":"invalid_client"}' ], [ 200, $this->token_body( 'legacy-access', 'legacy-refresh' ) ] ];

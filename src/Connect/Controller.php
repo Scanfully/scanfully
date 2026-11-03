@@ -455,10 +455,13 @@ class Controller {
 	public static function refresh_access_token( string $refresh_token, string $site, bool $legacy_fallback = true ): array {
 		if ( false === get_transient( self::OAUTH_UNAVAILABLE_TRANSIENT ) ) {
 			$tokens = OAuth::refresh( $refresh_token, $site );
-			if ( null !== $tokens ) {
-				if ( ! empty( $tokens ) ) {
-					self::store_grant( $tokens['scopes'] );
-				}
+			if ( ! empty( $tokens ) ) {
+				self::store_grant( $tokens['scopes'] );
+				return $tokens;
+			}
+			// a connection that has not moved yet keeps the legacy route when
+			// the OAuth server refuses it (the API could not move it yet).
+			if ( null !== $tokens && ( 'oauth' === OptionsController::get_option( 'flow' ) || ! $legacy_fallback ) ) {
 				return $tokens;
 			}
 			// an API that does not connect sites on its OAuth server yet: the
