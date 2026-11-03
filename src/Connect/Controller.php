@@ -58,6 +58,11 @@ class Controller {
 			self::handle_reconnect();
 		}
 
+		// a new connection request that keeps the current one until approved.
+		if ( isset( $_GET['scanfully-change-access'] ) ) {
+			self::handle_change_access();
+		}
+
 		// the OAuth server's answer to a connection request.
 		if ( isset( $_GET[ OAuth::CALLBACK_PARAM ] ) ) {
 			self::handle_oauth_answer();
@@ -126,6 +131,25 @@ class Controller {
 
 		// redirect to base connect page.
 		wp_redirect( Page::get_page_url() );
+		exit;
+	}
+
+	/**
+	 * Handle a request to change what Scanfully may do: a new connection
+	 * request, while the current connection keeps working. Scanfully ends it
+	 * when the admin approves the new one; a cancel leaves it as it was.
+	 *
+	 * @return void
+	 */
+	private static function handle_change_access(): void {
+		if ( ! isset( $_GET['scanfully-change-access-nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['scanfully-change-access-nonce'] ) ), 'scanfully-change-access' ) ) {
+			wp_die( 'Invalid Scanfully nonce' );
+		}
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		wp_redirect( OAuth::authorize_url() ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Scanfully's own OAuth server, on another host.
 		exit;
 	}
 
