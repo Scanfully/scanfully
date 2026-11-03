@@ -144,12 +144,21 @@ class Page {
 								<div class="scanfully-connect-details-value"><span class="scanfully-connect-blob scanfully-connect-blob-info"><?php echo esc_html( $connected ); ?></span></div>
 							</li>
 						<?php endif; ?>
+						<li>
+							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Scanfully may', 'scanfully' ); ?></div>
+							<div class="scanfully-connect-details-value">
+								<?php foreach ( Controller::granted_scopes() as $scope ) : ?>
+									<span class="scanfully-connect-blob scanfully-connect-blob-info"><?php echo esc_html( self::scope_label( $scope ) ); ?></span>
+								<?php endforeach; ?>
+							</div>
+						</li>
 					<?php endif; ?>
 				</ul>
 				<div class="scanfully-connect-button-wrapper">
 					<?php if ( $options->is_connected ) : ?>
 						<p style="display: flex; gap: 1em;">
 							<?php Buttons::dashboard(); ?>
+							<?php Buttons::change_access(); ?>
 							<?php Buttons::disconnect(); ?>
 						</p>
 					<?php else : ?>
@@ -193,5 +202,21 @@ class Page {
 		}
 
 		return $date->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
+	}
+
+	/**
+	 * What a scope lets Scanfully do, as the settings page says it.
+	 *
+	 * @param string $scope The scope.
+	 *
+	 * @return string
+	 */
+	public static function scope_label( string $scope ): string {
+		switch ( $scope ) {
+			case OAuth::SCOPE_READ:
+				return __( 'Read site data: health, plugins and themes, and activity', 'scanfully' );
+			default:
+				return $scope;
+		}
 	}
 }

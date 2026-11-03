@@ -75,9 +75,11 @@ class Controller {
 	}
 
 	/**
-	 * Only the Scanfully API may trigger a sync: the request must carry the
-	 * site's current access token. Unauthenticated requests are rejected
-	 * before they can consume the rate-limit budget.
+	 * Only the Scanfully API may trigger a sync: the request carries a token
+	 * Scanfully signed for this site (SignedRequest), or, from an API that
+	 * still keeps the plugin's tokens, the site's current access token.
+	 * Unauthenticated requests are rejected before they can consume the
+	 * rate-limit budget.
 	 *
 	 * @param \WP_REST_Request $request The request.
 	 *
@@ -85,13 +87,19 @@ class Controller {
 	 */
 	public static function check_permission( \WP_REST_Request $request ): bool {
 		$options = Options\Controller::get_options();
-		if ( ! $options->is_connected || '' === $options->access_token ) {
+		if ( ! $options->is_connected ) {
 			return false;
 		}
 
 		$token = self::get_request_token( $request );
+		if ( '' === $token ) {
+			return false;
+		}
+		if ( SignedRequest::looks_signed( $token ) ) {
+			return SignedRequest::verify( $token, $options->site_id, 'sync', \Scanfully\Connect\OAuth::SCOPE_READ );
+		}
 
-		return '' !== $token && hash_equals( $options->access_token, $token );
+		return '' !== $options->access_token && hash_equals( $options->access_token, $token );
 	}
 
 	/**

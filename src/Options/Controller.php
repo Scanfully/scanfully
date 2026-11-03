@@ -144,6 +144,9 @@ class Controller {
 		delete_option( self::$db_prefix . 'last_used' );
 		delete_option( self::$db_prefix . 'date_connected' );
 		delete_option( self::$db_prefix . 'last_request_error' );
+		delete_option( self::$db_prefix . 'scopes' );
+		delete_option( self::$db_prefix . 'flow' );
+		delete_transient( 'scanfully_oauth_unavailable' );
 
 		// Email deliverability sub-feature: per-site secret + cached state.
 		delete_option( self::$db_prefix . 'email_deliverability_enabled' );

@@ -109,7 +109,7 @@ Yes. This plugin connects your site to Scanfully's external monitoring service. 
 
 = Where do I connect my site? =
 
-Open Settings > Scanfully in WordPress and click "Connect your Scanfully account". Authorize the connection in Scanfully. You will then return to WordPress with your site connected.
+Open Settings > Scanfully in WordPress and click "Connect your Scanfully account". In Scanfully, pick the site, choose what Scanfully may do on it, and approve the connection. You will then return to WordPress with your site connected. To change what Scanfully may do later, click "Change what Scanfully may do" and approve again.
 
 = Can I monitor several WordPress sites? =
 
@@ -129,7 +129,9 @@ Use the [Scanfully documentation](https://docs.scanfully.com/) or email [support
 
 == External services ==
 
-This plugin connects to the Scanfully service at [scanfully.com](https://scanfully.com/) and its API at `api.scanfully.com`. It does not send monitoring data until you connect your site. Starting the connection passes your site URL and return URL to Scanfully.
+This plugin connects to the Scanfully service at [scanfully.com](https://scanfully.com/) and its API at `api.scanfully.com`. It does not send monitoring data until you connect your site. Starting the connection passes your site URL and return URL to Scanfully's authorization server, where you choose what Scanfully may do on the site; reading site data is always included. The plugin then holds tokens that work for this site only.
+
+When Scanfully asks the plugin to sync, it signs the request, and the plugin checks the signature against Scanfully's public keys, which it fetches from `api.scanfully.com` and keeps for a day. This uses PHP's OpenSSL extension.
 
 Once connected, the plugin sends the following data to provide monitoring, diagnostics, and WordPress activity context:
 

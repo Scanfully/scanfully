@@ -58,7 +58,18 @@ class Controller {
 			self::handle_reconnect();
 		}
 
-		// handle connect success return request.
+		// a new connection request that keeps the current one until approved.
+		if ( isset( $_GET['scanfully-change-access'] ) ) {
+			self::handle_change_access();
+		}
+
+		// the OAuth server's answer to a connection request.
+		if ( isset( $_GET[ OAuth::CALLBACK_PARAM ] ) ) {
+			self::handle_oauth_answer();
+		}
+
+		// the answer of the legacy connect page, to a request started before
+		// this version.
 		if ( isset( $_GET['scanfully-connect-success'] ) ) {
 			self::handle_request_connect_success();
 		}
@@ -90,22 +101,9 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// build the connect URL and redirect.
-		// Use home_url() instead of get_site_url() for Bedrock compatibility.
-		// home_url() returns the public-facing URL, while site_url() returns
-		// the WordPress installation URL (which may be in a subdirectory).
-		$connect_url = add_query_arg(
-			[
-				'redirect_uri'          => rawurlencode( Page::get_page_url() ),
-				'site'                  => rawurlencode( home_url() ),
-				'state'                 => self::generate_state(),
-				'code_challenge'        => self::code_challenge( self::generate_code_verifier() ),
-				'code_challenge_method' => 'S256',
-			],
-			Main::get_connect_url()
-		);
-
-		wp_redirect( $connect_url );
+		// the admin approves on Scanfully's OAuth server what Scanfully may do
+		// on this site, and comes back with a code.
+		wp_redirect( OAuth::authorize_url() ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Scanfully's own OAuth server, on another host.
 		exit;
 	}
 
@@ -137,6 +135,25 @@ class Controller {
 	}
 
 	/**
+	 * Handle a request to change what Scanfully may do: a new connection
+	 * request, while the current connection keeps working. Scanfully ends it
+	 * when the admin approves the new one; a cancel leaves it as it was.
+	 *
+	 * @return void
+	 */
+	private static function handle_change_access(): void {
+		if ( ! isset( $_GET['scanfully-change-access-nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['scanfully-change-access-nonce'] ) ), 'scanfully-change-access' ) ) {
+			wp_die( 'Invalid Scanfully nonce' );
+		}
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		wp_redirect( OAuth::authorize_url() ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Scanfully's own OAuth server, on another host.
+		exit;
+	}
+
+	/**
 	 * Handle a reconnect request: disconnect the current account and immediately start a new connect flow.
 	 *
 	 * @return void
@@ -156,20 +173,101 @@ class Controller {
 		self::revoke_tokens();
 		OptionsController::clear();
 
-		// build the connect URL and redirect directly into the connect flow.
-		$connect_url = add_query_arg(
-			[
-				'redirect_uri'          => rawurlencode( Page::get_page_url() ),
-				'site'                  => rawurlencode( home_url() ),
-				'state'                 => self::generate_state(),
-				'code_challenge'        => self::code_challenge( self::generate_code_verifier() ),
-				'code_challenge_method' => 'S256',
-			],
-			Main::get_connect_url()
-		);
-
-		wp_redirect( $connect_url );
+		// straight into a new connection, where the admin can choose again
+		// what Scanfully may do.
+		wp_redirect( OAuth::authorize_url() ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Scanfully's own OAuth server, on another host.
 		exit;
+	}
+
+	/**
+	 * Handle the OAuth server's answer: an error (the admin cancelled), or a
+	 * code to exchange for the site's tokens.
+	 *
+	 * @return void
+	 */
+	private static function handle_oauth_answer(): void {
+		if ( ! self::user_has_access() ) {
+			wp_die( 'You do not have permission to do this.' );
+		}
+
+		// the state is single use: deleted before comparing, and an empty
+		// value never matches. It also ends a cancelled request.
+		$expected_state = self::get_state();
+		$given_state    = isset( $_GET['state'] ) ? sanitize_text_field( wp_unslash( $_GET['state'] ) ) : '';
+		self::delete_state();
+		$verifier = self::get_code_verifier();
+		self::delete_code_verifier();
+
+		if ( isset( $_GET['error'] ) ) {
+			$error = sanitize_key( wp_unslash( $_GET['error'] ) );
+			self::print_notice( 'access_denied' === $error ? __( 'The connection was cancelled.', 'scanfully' ) : __( 'An unknown error occurred.', 'scanfully' ), 'error' );
+			return;
+		}
+		if ( '' === $expected_state || '' === $given_state || ! hash_equals( $expected_state, $given_state ) ) {
+			wp_die( 'Invalid Scanfully connect state' );
+		}
+		// the answer names who issued it (RFC 9207): Scanfully's own server only.
+		if ( isset( $_GET['iss'] ) && untrailingslashit( esc_url_raw( wp_unslash( $_GET['iss'] ) ) ) !== untrailingslashit( Main::get_oauth_url() ) ) {
+			wp_die( 'Invalid Scanfully connect issuer' );
+		}
+		if ( ! isset( $_GET['code'] ) || '' === $verifier ) {
+			wp_die( 'Invalid Scanfully connect parameters' );
+		}
+
+		$tokens = OAuth::exchange_code( sanitize_text_field( wp_unslash( $_GET['code'] ) ), $verifier );
+		// the site ID ends up in API URL paths, so only allow plain ID characters.
+		if ( empty( $tokens ) || 1 !== preg_match( '/^[A-Za-z0-9_-]{1,64}\z/', (string) $tokens['site_id'] ) ) {
+			wp_die( 'Could not complete Scanfully connection: invalid response from the Scanfully API. Please try again or contact support.' );
+		}
+
+		$now = gmdate( self::DATE_FORMAT );
+		OptionsController::set_options(
+			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
+		);
+		self::store_grant( $tokens['scopes'] );
+		self::schedule_first_syncs();
+
+		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
+		exit;
+	}
+
+	/**
+	 * Remember what Scanfully may do on the site, and that the connection
+	 * lives on the OAuth server.
+	 *
+	 * @param string[] $scopes The granted scopes.
+	 *
+	 * @return void
+	 */
+	public static function store_grant( array $scopes ): void {
+		OptionsController::set_option( 'scopes', implode( ' ', $scopes ) );
+		OptionsController::set_option( 'flow', 'oauth' );
+	}
+
+	/**
+	 * The scopes of the site's connection; for a connection from before this
+	 * version, what it always allowed.
+	 *
+	 * @return string[]
+	 */
+	public static function granted_scopes(): array {
+		$scopes = array_values( array_filter( explode( ' ', OptionsController::get_option( 'scopes' ) ) ) );
+
+		return [] === $scopes ? [ OAuth::SCOPE_READ ] : $scopes;
+	}
+
+	/**
+	 * Run the first syncs at once, so the dashboard does not wait for the next job.
+	 *
+	 * @return void
+	 */
+	private static function schedule_first_syncs(): void {
+		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [], 'scanfully' );
+		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], 'scanfully' );
+		if ( \Scanfully\WooCheckout\Controller::is_woocommerce_active() ) {
+			// fetches the probe secret, which is cleared on disconnect.
+			as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_WOOCHECKOUT_CONFIG, [], 'scanfully' );
+		}
 	}
 
 	/**
@@ -371,12 +469,51 @@ class Controller {
 	/**
 	 * Use the refresh token to get a new access and refresh token
 	 *
+	 * @param  string $refresh_token   The refresh token.
+	 * @param  string $site            The Scanfully site ID.
+	 * @param  bool   $legacy_fallback Whether an API without the plugin's
+	 *                                 client gets the refresh on the legacy route.
+	 *
+	 * @return array
+	 */
+	public static function refresh_access_token( string $refresh_token, string $site, bool $legacy_fallback = true ): array {
+		if ( false === get_transient( self::OAUTH_UNAVAILABLE_TRANSIENT ) ) {
+			$tokens = OAuth::refresh( $refresh_token, $site );
+			if ( ! empty( $tokens ) ) {
+				self::store_grant( $tokens['scopes'] );
+				return $tokens;
+			}
+			// a connection that has not moved yet keeps the legacy route when
+			// the OAuth server refuses it (the API could not move it yet).
+			if ( null !== $tokens && ( 'oauth' === OptionsController::get_option( 'flow' ) || ! $legacy_fallback ) ) {
+				return $tokens;
+			}
+			// an API that does not connect sites on its OAuth server yet: the
+			// OAuth server again tomorrow.
+			set_transient( self::OAUTH_UNAVAILABLE_TRANSIENT, 1, DAY_IN_SECONDS );
+		}
+		if ( ! $legacy_fallback ) {
+			return [];
+		}
+
+		return self::refresh_on_legacy_route( $refresh_token, $site );
+	}
+
+	/**
+	 * Transient set while the API's OAuth server does not take the plugin's client.
+	 */
+	public const OAUTH_UNAVAILABLE_TRANSIENT = 'scanfully_oauth_unavailable';
+
+	/**
+	 * Refresh the tokens on the legacy connect route, for an API without the
+	 * plugin's client on its OAuth server.
+	 *
 	 * @param  string $refresh_token The refresh token.
 	 * @param  string $site          The Scanfully site ID.
 	 *
 	 * @return array
 	 */
-	public static function refresh_access_token( string $refresh_token, string $site ): array {
+	private static function refresh_on_legacy_route( string $refresh_token, string $site ): array {
 
 		// request arguments for the requests.
 		$request_args = [
