@@ -67,13 +67,13 @@ Connect supported AI apps through [MCP](https://docs.scanfully.com/account/mcp/)
 
 Protect your Scanfully account with authenticator-based two-factor sign-in, including when you use a social sign-in provider.
 
-= WooCommerce checkout monitoring: beta =
+= WooCommerce checkout monitoring =
 
 A working homepage does not tell you whether a shopper can reach checkout.
 
-For accounts with beta access, Scanfully can test a configured purchase flow through the product, cart, and checkout steps. Tests stop at the payment step without completing a payment. Review the failed step and available screenshots when a test fails.
+With the WooCommerce add-on on a site, Scanfully can test a configured purchase flow through the product, cart, and checkout steps. Tests stop at the payment step without completing a payment. Review the failed step and available screenshots when a test fails.
 
-See the [WooCommerce monitoring documentation](https://docs.scanfully.com/woocommerce/) for requirements and beta access.
+See the [WooCommerce monitoring documentation](https://docs.scanfully.com/woocommerce/) for requirements and pricing.
 
 = How the plugin and service work together =
 
