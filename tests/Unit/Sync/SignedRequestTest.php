@@ -83,6 +83,7 @@ final class SignedRequestTest extends TestCase {
 		parent::setUp();
 		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => $this->transients[ $key ] ?? false );
+		Functions\when( 'delete_transient' )->justReturn( true );
 		Functions\when( 'set_transient' )->alias(
 			function ( string $key, $value ) {
 				$this->transients[ $key ] = $value;

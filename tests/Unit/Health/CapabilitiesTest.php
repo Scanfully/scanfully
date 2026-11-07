@@ -73,7 +73,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertSame(
 			[
 				'plugin_version' => SCANFULLY_VERSION,
-				'actions' => [ 'ping' ],
+				'actions' => [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ],
 				'file_mods_allowed' => true,
 				'auto_updater_enabled' => true,
 				'fs_method' => 'direct',
@@ -100,6 +100,7 @@ final class CapabilitiesTest extends TestCase {
 
 		$this->assertFalse( $capabilities['file_mods_allowed'] );
 		$this->assertFalse( $capabilities['auto_updater_enabled'] );
+		$this->assertSame( [ 'ping' ], $capabilities['actions'], 'no update action where WordPress may not change files' );
 	}
 
 	public function test_the_core_filter_can_turn_the_automatic_updater_off(): void {
@@ -115,12 +116,21 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'get_filesystem_method' )->justReturn( 'ftpext' );
 
 		$this->assertSame( 'ftpext', Capabilities::get()['fs_method'] );
+		$this->assertSame( [ 'ping' ], Capabilities::get()['actions'], 'no update action while WordPress would have to ask for FTP credentials' );
+	}
+
+	public function test_a_method_is_usable_when_it_needs_no_one_to_type_credentials(): void {
+		$this->assertTrue( Capabilities::usable_fs_method( 'direct' ) );
+		$this->assertFalse( Capabilities::usable_fs_method( 'ftpext' ), 'FTP without FTP_HOST and FTP_USER in wp-config.php' );
+		$this->assertFalse( Capabilities::usable_fs_method( null ) );
+		$this->assertFalse( Capabilities::usable_fs_method( 'carrier-pigeon' ) );
 	}
 
 	public function test_no_filesystem_method_is_null(): void {
 		Functions\when( 'get_filesystem_method' )->justReturn( false );
 
 		$this->assertNull( Capabilities::get()['fs_method'] );
+		$this->assertSame( [ 'ping' ], Capabilities::get()['actions'], 'no update action when WordPress names no method' );
 	}
 
 	public function test_a_network(): void {
@@ -199,5 +209,11 @@ final class CapabilitiesTest extends TestCase {
 		} finally {
 			chmod( $this->dir, 0755 );
 		}
+	}
+
+	public function test_a_reader_can_skip_the_check(): void {
+		Functions\expect( 'get_filesystem_method' )->never();
+
+		$this->assertSame( [], Capabilities::skip( [ Capabilities::class, 'get' ] ) );
 	}
 }

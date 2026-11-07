@@ -26,17 +26,52 @@ namespace Scanfully\Health;
 final class Capabilities {
 
 	/**
+	 * Whether get() answers nothing, while skip() runs.
+	 *
+	 * @var bool
+	 */
+	private static bool $skipped = false;
+
+	/**
+	 * Run a callable while get() checks nothing and answers an empty list:
+	 * for a reader of the site data that does not need the capabilities,
+	 * such as the inventory after a Manage job, as the filesystem check
+	 * writes a test file in wp-content on every call.
+	 *
+	 * @param callable $read The reader.
+	 *
+	 * @return mixed What it returns.
+	 */
+	public static function skip( callable $read ) {
+		$before        = self::$skipped;
+		self::$skipped = true;
+		try {
+			return $read();
+		} finally {
+			self::$skipped = $before;
+		}
+	}
+
+	/**
 	 * The capabilities object of the site data.
 	 *
-	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}
+	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}|array{} Empty while skip() runs.
 	 */
 	public static function get(): array {
+		if ( self::$skipped ) {
+			return [];
+		}
+		$file_mods_allowed = self::check( [ self::class, 'file_mods_allowed' ] );
+		$fs_method         = self::check( [ self::class, 'fs_method' ] );
+
 		return [
 			'plugin_version' => defined( 'SCANFULLY_VERSION' ) ? (string) SCANFULLY_VERSION : '',
-			'actions' => \Scanfully\Manage\Runner::actions(),
-			'file_mods_allowed' => self::check( [ self::class, 'file_mods_allowed' ] ),
+			// The update actions only where WordPress may change files and
+			// can write them without asking for credentials.
+			'actions' => \Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
+			'file_mods_allowed' => $file_mods_allowed,
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),
-			'fs_method' => self::check( [ self::class, 'fs_method' ] ),
+			'fs_method' => $fs_method,
 			'multisite' => self::check( 'is_multisite' ),
 			'action_scheduler' => self::check( [ self::class, 'action_scheduler' ] ),
 			'mu_plugin_writable' => self::check(
@@ -110,6 +145,29 @@ final class Capabilities {
 		$method = get_filesystem_method();
 
 		return is_string( $method ) && '' !== $method ? $method : null;
+	}
+
+	/**
+	 * Whether WordPress can write files with a method without asking anyone
+	 * (the update actions are listed only then; the API accepts whatever
+	 * method the plugin reports as usable this way):
+	 * direct, or FTP or SSH with the credentials wp-config.php defines (a
+	 * host, a user, and a password or, for SSH, a key).
+	 *
+	 * @param mixed $method The method get_filesystem_method() names.
+	 *
+	 * @return bool
+	 */
+	public static function usable_fs_method( $method ): bool {
+		if ( 'direct' === $method ) {
+			return true;
+		}
+		if ( ! in_array( $method, [ 'ftpext', 'ftpsockets', 'ssh2' ], true ) || ! defined( 'FTP_HOST' ) || ! defined( 'FTP_USER' ) || '' === (string) constant( 'FTP_HOST' ) ) {
+			return false;
+		}
+
+		return ( defined( 'FTP_PASS' ) && '' !== (string) constant( 'FTP_PASS' ) )
+			|| ( 'ssh2' === $method && defined( 'FTP_PRIKEY' ) && '' !== (string) constant( 'FTP_PRIKEY' ) );
 	}
 
 	/**

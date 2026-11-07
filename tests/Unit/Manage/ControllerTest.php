@@ -7,11 +7,17 @@
 
 namespace Scanfully\Tests\Unit\Manage;
 
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Scanfully\Connect\Address;
 use Scanfully\Connect\Scopes;
 use Scanfully\Manage\Controller;
+use Scanfully\Manage\Inventory;
+use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Ledger;
+use Scanfully\Manage\RunLock;
+use Scanfully\Manage\Updates;
+use Scanfully\Manage\UpgraderSkin;
 use WP_REST_Request;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
@@ -22,6 +28,9 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
  * @covers \Scanfully\API\PluginConnectionRequest
  * @covers \Scanfully\Connect\Scopes
  * @covers \Scanfully\Connect\Address
+ * @covers \Scanfully\Manage\JobToken
+ * @covers \Scanfully\Manage\RunLock
+ * @covers \Scanfully\Manage\JobRun
  */
 final class ControllerTest extends TestCase {
 
@@ -92,6 +101,13 @@ final class ControllerTest extends TestCase {
 	 * @var string
 	 */
 	private string $home = 'https://scanfully.com';
+
+	/**
+	 * Whether the keys endpoint is unreachable.
+	 *
+	 * @var bool
+	 */
+	private bool $keys_down = false;
 
 	/**
 	 * What home_url() answers, call after call: a multilingual plugin's
@@ -173,6 +189,8 @@ final class ControllerTest extends TestCase {
 			}
 		);
 		Functions\when( 'wp_cache_delete' )->justReturn( true );
+		Functions\when( 'wp_strip_all_tags' )->alias( 'strip_tags' );
+		Functions\when( 'wp_generate_uuid4' )->alias( fn() => 'e1e1e1e1-1111-4111-8111-' . bin2hex( random_bytes( 6 ) ) );
 		// The API takes the first heartbeat of the job unless a test says otherwise.
 		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = [
 			'code' => 200,
@@ -241,6 +259,11 @@ final class ControllerTest extends TestCase {
 
 	protected function tearDown(): void {
 		unset( $GLOBALS['wpdb'] );
+		Updates::$upgraders = null;
+		Inventory::$source  = null;
+		if ( is_file( ABSPATH . '.maintenance' ) ) {
+			unlink( ABSPATH . '.maintenance' );
+		}
 		parent::tearDown();
 	}
 
@@ -344,18 +367,57 @@ final class ControllerTest extends TestCase {
 	}
 
 	/**
-	 * A ping job as the API sends it.
+	 * A ping job as the API sends it, signed.
+	 *
+	 * @param array<string, mixed> $claims Claims of its token to change.
 	 *
 	 * @return array<string, mixed>
 	 */
-	private static function ping(): array {
+	private static function ping( array $claims = [] ): array {
 		return [
 			'id'          => self::JOB,
 			'action'      => 'ping',
 			'params'      => new \stdClass(),
+			'attempt'     => 1,
 			'lease_until' => '2026-11-07T12:02:00Z',
 			'created_at'  => '2026-11-07T12:00:00Z',
+			'job_token'   => self::job_token( $claims ),
 		];
+	}
+
+	/**
+	 * A job token as the API signs it for the ping job, with claims changed.
+	 *
+	 * @param array<string, mixed> $claims Claims to change.
+	 */
+	private static function job_token( array $claims = [] ): string {
+		$header  = self::b64url(
+			(string) json_encode(
+				[
+					'alg' => 'RS256',
+					'kid' => 'key-1',
+				]
+			)
+		);
+		$payload = self::b64url(
+			(string) json_encode(
+				array_merge(
+					[
+						'iss'         => self::ISSUER,
+						'sub'         => 'ping',
+						'aud'         => [ self::SITE ],
+						'jti'         => self::JOB,
+						'attempt'     => 1,
+						'params_hash' => hash( 'sha256', '{}' ),
+						'exp'         => time() + 120,
+					],
+					$claims
+				)
+			)
+		);
+		openssl_sign( $header . '.' . $payload, $signature, self::$key, OPENSSL_ALGO_SHA256 );
+
+		return $header . '.' . $payload . '.' . self::b64url( $signature );
 	}
 
 	/**
@@ -455,12 +517,16 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( [ self::JOB ], $this->runs(), 'the job, by its id only, and none of the malformed ones' );
 		$this->assertSame(
 			[
-				'id'     => self::JOB,
-				'action' => 'ping',
-				'params' => [],
+				'id'          => self::JOB,
+				'action'      => 'ping',
+				'params'      => [],
+				'attempt'     => 1,
+				'job_token'   => Ledger::get( self::JOB )['job']['job_token'] ?? '',
+				'lease_until' => '2026-11-07T12:02:00Z',
+				'params_json' => '{}',
 			],
 			Ledger::get( self::JOB )['job'] ?? null,
-			'the job as pulled, without its lease, is kept in the ledger'
+			'the job as pulled, with its attempt, token and its parameters as canonical JSON, is kept in the ledger'
 		);
 		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'nothing runs in the pull' );
 		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'] );
@@ -504,7 +570,8 @@ final class ControllerTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00$/', $sent[0]['started_at'] );
 		$this->assertArrayHasKey( 'finished_at', $sent[0] );
 		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
-		$this->assertSame( [ null ], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'one heartbeat, with no body, before ping runs' );
+		$this->assertSame( [ [ 'attempt' => 1 ] ], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'one heartbeat, with the attempt, before ping runs' );
+		$this->assertSame( 1, $sent[0]['attempt'], 'the result carries the attempt' );
 	}
 
 	public function test_a_result_the_api_could_not_take_is_sent_again_on_the_next_pull(): void {
@@ -546,7 +613,7 @@ final class ControllerTest extends TestCase {
 	}
 
 	public function test_a_run_that_never_ended_reports_that_it_stopped(): void {
-		$started = time() - 20 * MINUTE_IN_SECONDS;
+		$started = time() - 25 * MINUTE_IN_SECONDS;
 		$this->db->add(
 			Ledger::PREFIX . self::JOB,
 			(string) json_encode(
@@ -1494,5 +1561,393 @@ final class ControllerTest extends TestCase {
 			],
 			\Scanfully\Health\Controller::without_copied_capabilities( $data )
 		);
+	}
+
+	/**
+	 * Answer the result of the job with 200.
+	 */
+	private function result_taken(): void {
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"failed"}',
+		];
+	}
+
+	public function test_a_job_without_a_valid_token_is_refused_and_never_runs(): void {
+		$job              = self::ping( [ 'sub' => 'update_core' ] );
+		$job['job_token'] = self::job_token( [ 'sub' => 'update_core' ] );
+		$this->jobs( [ $job ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'no heartbeat: the job never starts' );
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'failed', $sent[0]['state'] );
+		$this->assertSame( 'signature', $sent[0]['error']['class'] );
+		$this->assertSame( 1, $sent[0]['attempt'] );
+		$this->assertSame( [], $sent[0]['result'], 'nothing ran' );
+		$this->assertNull( RunLock::holder( time() ) );
+	}
+
+	public function test_a_job_without_a_token_at_all_is_refused(): void {
+		$job = self::ping();
+		unset( $job['job_token'] );
+		$this->jobs( [ $job ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$this->run_pending();
+
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
+	}
+
+	public function test_parameters_changed_after_signing_are_refused(): void {
+		$job           = self::ping();
+		$job['params'] = [ 'slug' => 'evil' ];
+		$this->jobs( [ $job ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ) );
+		$this->assertSame( 'signature', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['error']['class'] ?? '' );
+	}
+
+	public function test_a_result_the_api_refuses_for_good_is_sent_once_as_its_smallest_form(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 413,
+			'body' => '{"error":"result_too_large"}',
+		];
+
+		Controller::pull();
+		$this->run_pending();
+
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 2, $sent, 'the result, then its smallest form once' );
+		$this->assertSame( [ 'result_dropped' => 'refused' ], $sent[1]['result'] );
+		$this->assertSame( 'succeeded', $sent[1]['state'] );
+		$this->assertSame( 1, $sent[1]['attempt'] );
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertCount( 2, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'never sent again' );
+	}
+
+	public function test_an_expired_job_the_api_no_longer_lists_is_closed_not_rescheduled(): void {
+		$this->jobs( [ self::ping( [ 'exp' => time() - HOUR_IN_SECONDS ] ) ] );
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		$this->jobs( [] );
+		Controller::pull();
+
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertSame( [], $this->runs() );
+		$this->assertSame( [], $this->requests_after_pull() );
+	}
+
+	public function test_the_run_lock_lasts_until_the_lease_at_most(): void {
+		$exp = time() + 120;
+		$this->jobs( [ self::ping( [ 'exp' => $exp ] ) ] );
+		$this->result_taken();
+		$held = null;
+		Functions\when( 'wp_remote_post' )->alias(
+			function ( string $url, array $args ) use ( &$held ) {
+				if ( null === $held && false !== strpos( $url, '/heartbeat' ) ) {
+					$held = json_decode( $this->db->rows[ RunLock::OPTION ] ?? '{}', true );
+				}
+				return $this->answer( 'POST', $url, isset( $args['body'] ) ? json_decode( (string) $args['body'], true ) : null );
+			}
+		);
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( self::JOB, $held['owner'] ?? '' );
+		$this->assertSame( $exp, $held['until'] ?? 0, 'the end of the lease, below the stale threshold' );
+		$this->assertArrayNotHasKey( RunLock::OPTION, $this->db->rows, 'released after the run' );
+	}
+
+	public function test_a_job_changed_in_the_ledger_after_the_pull_is_refused(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->result_taken();
+		Controller::pull();
+
+		// Someone with database access rewrites the pulled job's parameters.
+		$name                    = Ledger::PREFIX . self::JOB;
+		$row                     = json_decode( $this->db->rows[ $name ], true );
+		$row['job']['params']      = [ 'slug' => 'evil' ];
+		$row['job']['params_json'] = '{"slug":"evil"}';
+		$this->db->rows[ $name ]   = (string) json_encode( $row );
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'never started' );
+		$this->assertSame( 'signature', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['error']['class'] ?? '' );
+	}
+
+	public function test_a_job_whose_lease_passed_waits_for_its_next_attempt_and_runs_with_it(): void {
+		$this->jobs( [ self::ping( [ 'exp' => time() - HOUR_IN_SECONDS ] ) ] );
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->requests_after_pull(), 'nothing sent for an expired token' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		// The API queued it again: attempt 2, a new token.
+		$job              = self::ping( [ 'attempt' => 2 ] );
+		$job['attempt']   = 2;
+		$job['job_token'] = self::job_token( [ 'attempt' => 2 ] );
+		$this->jobs( [ $job ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [ [ 'attempt' => 2 ] ], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ) );
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertSame( 'succeeded', $sent[0]['state'] ?? '' );
+		$this->assertSame( 2, $sent[0]['attempt'] ?? 0 );
+	}
+
+	/**
+	 * The requests other than pulls.
+	 *
+	 * @return array<int, array{method: string, url: string, body: mixed}>
+	 */
+	private function requests_after_pull(): array {
+		return array_values( array_filter( $this->requests, fn( array $r ) => 'GET' !== $r['method'] ) );
+	}
+
+	public function test_a_job_waits_while_the_key_set_cannot_be_fetched(): void {
+		$this->keys_down = true;
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( string $url ) {
+				if ( self::ISSUER . '/.well-known/scanfully-plugin-keys.json' === $url ) {
+					return $this->keys_down ? new \WP_Error( 'http_request_failed', 'cURL error 7: Failed to connect' ) : [
+						'code' => 200,
+						'body' => self::$jwks,
+					];
+				}
+				return $this->answer( 'GET', $url, null );
+			}
+		);
+		$this->jobs( [ self::ping() ] );
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->requests_after_pull(), 'no heartbeat and no signature failure: the job waits' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		// The keys are back after the refetch wait.
+		$this->keys_down = false;
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+	}
+
+	public function test_a_job_waits_while_another_job_holds_the_site_lock(): void {
+		RunLock::take( 'b2b2b2b2-2222-4222-8222-222222222222', time() + 600, time() );
+		$this->jobs( [ self::ping() ] );
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->requests_after_pull(), 'no heartbeat, no result' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		RunLock::release( 'b2b2b2b2-2222-4222-8222-222222222222' );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+		$this->assertNull( RunLock::holder( time() ), 'released after the run' );
+	}
+
+	public function test_a_php_fatal_mid_update_leaves_the_site_clean_and_the_next_pull_reports_it(): void {
+		$this->stub_wordpress_for_updates();
+		$job              = self::ping();
+		$job['action']    = 'update_translations';
+		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$this->jobs( [ $job ] );
+		$this->result_taken();
+
+		$captured = null;
+		Filters\expectAdded( 'scanfully_event_data' )->whenHappen(
+			function ( $callback ) use ( &$captured ): void {
+				$captured = $callback[0];
+			}
+		);
+		Updates::$upgraders = function ( string $kind, UpgraderSkin $skin ) use ( &$captured ) {
+			return new class( $skin, $captured ) {
+				/**
+				 * The run, as captured.
+				 *
+				 * @var mixed
+				 */
+				private $run;
+
+				/**
+				 * Constructor.
+				 *
+				 * @param UpgraderSkin $skin The skin.
+				 * @param mixed        $run  The run.
+				 */
+				public function __construct( UpgraderSkin $skin, &$run ) {
+					unset( $skin );
+					$this->run = &$run;
+				}
+
+				/**
+				 * Write the maintenance file, then die as PHP would on a fatal.
+				 *
+				 * @return void
+				 * @throws \RuntimeException Always, to unwind the test.
+				 */
+				public function bulk_upgrade(): void {
+					file_put_contents( ABSPATH . '.maintenance', '<?php $upgrading = time();' );
+					$this->run->shutdown(); // What PHP's shutdown does after a fatal.
+					throw new \RuntimeException( 'unwind the test as the fatal would have ended the request' );
+				}
+			};
+		};
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertInstanceOf( JobRun::class, $captured );
+		$this->assertFileDoesNotExist( ABSPATH . '.maintenance', 'the maintenance file the job caused is gone' );
+		$this->assertNull( RunLock::holder( time() ), 'the lock is released' );
+		$this->assertSame( Ledger::DONE, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'not reported from the shutdown handler' );
+
+		Controller::pull();
+		$this->run_pending();
+
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'failed', $sent[0]['state'] );
+		$this->assertSame( 'fatal', $sent[0]['error']['class'] );
+		$this->assertStringContainsString( 'PHP stopped while the job ran', $sent[0]['error']['message'] );
+		$this->assertSame( 1, $sent[0]['attempt'] );
+	}
+
+	public function test_an_update_runs_once_and_posts_its_result_with_the_inventory(): void {
+		$this->stub_wordpress_for_updates();
+		$job              = self::ping();
+		$job['action']    = 'update_translations';
+		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$this->jobs( [ $job ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		$calls              = 0;
+		Updates::$upgraders = function () use ( &$calls ) {
+			return new class( $calls ) {
+				/**
+				 * Calls.
+				 *
+				 * @var int
+				 */
+				private $calls;
+
+				/**
+				 * Constructor.
+				 *
+				 * @param int $calls Calls, by reference.
+				 */
+				public function __construct( &$calls ) {
+					$this->calls = &$calls;
+				}
+
+				/**
+				 * Update the packs.
+				 *
+				 * @return array<int, bool>
+				 */
+				public function bulk_upgrade(): array {
+					++$this->calls;
+					return [ true ];
+				}
+			};
+		};
+
+		Controller::pull();
+		$this->run_pending();
+		Controller::pull();
+		$this->run_pending();
+		Controller::run_job( self::JOB );
+
+		$this->assertSame( 1, $calls, 'the update ran once' );
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'succeeded', $sent[0]['state'] );
+		$this->assertSame( [ 'plugins', 'themes', 'core', 'translations' ], array_keys( $sent[0]['result']['inventory'] ) );
+		$this->assertSame( 'nl_NL', $sent[0]['result']['translations'][0]['language'] );
+		$this->assertSame( [], $sent[0]['result']['activity_event_ids'] );
+		$this->assertArrayNotHasKey( 'job', Ledger::get( self::JOB ) ?? [], 'the ledger drops the job, its parameters and token, once it ran' );
+	}
+
+	/**
+	 * Stub what the translations update calls.
+	 */
+	private function stub_wordpress_for_updates(): void {
+		Functions\when( 'wp_is_file_mod_allowed' )->justReturn( true );
+		Functions\when( 'get_core_updates' )->justReturn( [] );
+		Functions\when( 'get_plugins' )->justReturn( [] );
+		Functions\when( 'request_filesystem_credentials' )->justReturn( true );
+		Functions\when( 'wp_update_plugins' )->justReturn( null );
+		Functions\when( 'wp_update_themes' )->justReturn( null );
+		Functions\when( 'wp_version_check' )->justReturn( null );
+		Functions\when( 'get_site_transient' )->justReturn( (object) [ 'response' => [] ] );
+		Functions\when( 'wp_clean_plugins_cache' )->justReturn( null );
+		Functions\when( 'wp_clean_themes_cache' )->justReturn( null );
+		Functions\when( 'wp_raise_memory_limit' )->justReturn( '256M' );
+		Functions\when( 'is_multisite' )->justReturn( false );
+		Functions\when( 'wp_kses' )->returnArg();
+		Functions\when( 'wp_delete_file' )->alias(
+			static function ( string $file ): void {
+				if ( is_file( $file ) ) {
+					unlink( $file );
+				}
+			}
+		);
+		Functions\when( 'wp_get_translation_updates' )->justReturn(
+			[
+				(object) [
+					'type'     => 'core',
+					'slug'     => 'default',
+					'language' => 'nl_NL',
+					'version'  => '7.1.3',
+				],
+			]
+		);
+		Inventory::$source = static fn(): array => [
+			'plugins'      => [],
+			'themes'       => [],
+			'core'         => [ 'installed' => '7.1.3' ],
+			'translations' => [ 'available' => 1 ],
+		];
 	}
 }

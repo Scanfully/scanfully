@@ -36,6 +36,21 @@ class SignedRequest {
 	private const REFETCH_TRANSIENT = 'scanfully_plugin_keys_refetched';
 
 	/**
+	 * Transient set while the last fetch of the key set failed (no answer,
+	 * or not a key set), for as long as no new fetch is tried.
+	 */
+	private const FETCH_FAILED_TRANSIENT = 'scanfully_plugin_keys_fetch_failed';
+
+	/**
+	 * Whether the last token checked could not be checked because the key
+	 * set could not be fetched, as opposed to a key id the fetched set does
+	 * not have.
+	 *
+	 * @var bool
+	 */
+	private static bool $keys_unavailable = false;
+
+	/**
 	 * Seconds between two fetches of the key set.
 	 */
 	private const REFETCH_WAIT = 5 * MINUTE_IN_SECONDS;
@@ -69,22 +84,9 @@ class SignedRequest {
 	 * @return bool
 	 */
 	public static function verify( string $token, string $site_id, string $action, string $scope, ?int $now = null ): bool {
-		$now   = $now ?? time();
-		$parts = explode( '.', $token );
-		if ( 3 !== count( $parts ) || '' === $site_id || ! function_exists( 'openssl_verify' ) ) {
-			return false;
-		}
-		$header    = json_decode( self::b64url_decode( $parts[0] ), true );
-		$claims    = json_decode( self::b64url_decode( $parts[1] ), true );
-		$signature = self::b64url_decode( $parts[2] );
-		if ( ! is_array( $header ) || ! is_array( $claims ) || '' === $signature ) {
-			return false;
-		}
-		if ( ( $header['alg'] ?? '' ) !== 'RS256' || ! isset( $header['kid'] ) || ! is_string( $header['kid'] ) ) {
-			return false;
-		}
-		$pem = self::key( $header['kid'] );
-		if ( null === $pem || 1 !== openssl_verify( $parts[0] . '.' . $parts[1], $signature, $pem, OPENSSL_ALGO_SHA256 ) ) {
+		$now    = $now ?? time();
+		$claims = '' === $site_id ? null : self::claims( $token );
+		if ( null === $claims ) {
 			return false;
 		}
 
@@ -112,6 +114,51 @@ class SignedRequest {
 	}
 
 	/**
+	 * The claims of a token Scanfully signed: an RS256 JWT whose signature
+	 * checks out against one of Scanfully's published keys. Only the
+	 * signature is checked here; what the claims must say is the caller's.
+	 *
+	 * @param string $token The token.
+	 *
+	 * @return array<string, mixed>|null The claims, or null when the token is not one Scanfully signed.
+	 */
+	public static function claims( string $token ): ?array {
+		self::$keys_unavailable = false;
+		$parts                  = explode( '.', $token );
+		if ( 3 !== count( $parts ) || ! function_exists( 'openssl_verify' ) ) {
+			return null;
+		}
+		$header    = json_decode( self::b64url_decode( $parts[0] ), true );
+		$claims    = json_decode( self::b64url_decode( $parts[1] ), true );
+		$signature = self::b64url_decode( $parts[2] );
+		if ( ! is_array( $header ) || ! is_array( $claims ) || '' === $signature ) {
+			return null;
+		}
+		if ( ( $header['alg'] ?? '' ) !== 'RS256' || ! isset( $header['kid'] ) || ! is_string( $header['kid'] ) ) {
+			return null;
+		}
+		$pem = self::key( $header['kid'] );
+		if ( null === $pem || 1 !== openssl_verify( $parts[0] . '.' . $parts[1], $signature, $pem, OPENSSL_ALGO_SHA256 ) ) {
+			return null;
+		}
+
+		return $claims;
+	}
+
+	/**
+	 * Whether the last token claims() checked could not be checked because
+	 * Scanfully's key set could not be fetched (no answer, an error, or
+	 * not a key set), now or at the last try a few minutes ago. A key id
+	 * that a fetched key set does not have is not this: that token is not
+	 * Scanfully's.
+	 *
+	 * @return bool
+	 */
+	public static function keys_unavailable(): bool {
+		return self::$keys_unavailable;
+	}
+
+	/**
 	 * The public key with the id, as PEM, from the cached key set, or from a
 	 * fresh one when the cache does not have it.
 	 *
@@ -129,13 +176,17 @@ class SignedRequest {
 		// unknown key ids (or an unreachable key set) costs no outbound
 		// request each.
 		if ( false !== get_transient( self::REFETCH_TRANSIENT ) ) {
+			self::$keys_unavailable = false !== get_transient( self::FETCH_FAILED_TRANSIENT );
 			return null;
 		}
 		set_transient( self::REFETCH_TRANSIENT, 1, self::REFETCH_WAIT );
 		$keys = self::fetch_keys();
 		if ( null === $keys ) {
+			set_transient( self::FETCH_FAILED_TRANSIENT, 1, self::REFETCH_WAIT );
+			self::$keys_unavailable = true;
 			return null;
 		}
+		delete_transient( self::FETCH_FAILED_TRANSIENT );
 		set_transient( self::KEYS_TRANSIENT, $keys, DAY_IN_SECONDS );
 
 		return $keys[ $kid ] ?? null;
@@ -162,7 +213,9 @@ class SignedRequest {
 	}
 
 	/**
-	 * The RSA signing keys of a JWK set, by id, as PEM.
+	 * The RSA signing keys of a JWK set, by id, as PEM; null when it is not
+	 * a key set or holds no RSA key, which counts as a failed fetch, never as
+	 * a set to cache.
 	 *
 	 * @param string $json The key set.
 	 *
@@ -182,7 +235,7 @@ class SignedRequest {
 			$keys[ $jwk['kid'] ] = self::rsa_pem( self::b64url_decode( $jwk['n'] ), self::b64url_decode( $jwk['e'] ) );
 		}
 
-		return $keys;
+		return [] === $keys ? null : $keys;
 	}
 
 	/**
