@@ -215,6 +215,10 @@ class Page {
 		switch ( $scope ) {
 			case OAuth::SCOPE_READ:
 				return __( 'Read site data: health, plugins and themes, and activity', 'scanfully' );
+			case OAuth::SCOPE_MANAGE:
+				return __( 'Update, install, activate, deactivate and remove plugins and themes, update WordPress and translations', 'scanfully' );
+			case OAuth::SCOPE_LOGIN:
+				return __( 'Sign you in to WP admin', 'scanfully' );
 			default:
 				return $scope;
 		}
