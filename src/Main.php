@@ -128,6 +128,9 @@ class Main {
 		/** Register cron */
 		Cron\Controller::setup();
 
+		/** Register PHP error monitoring (the handlers start in the main plugin file or the must-use plugin) */
+		Errors\Controller::setup();
+
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();

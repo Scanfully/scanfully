@@ -33,10 +33,11 @@ abstract class Request {
 	 *
 	 * @param  string $endpoint The endpoint to send the request to.
 	 * @param  array  $data The data to send with the request.
+	 * @param  int    $timeout Seconds to wait for an answer.
 	 *
 	 * @return int|null The HTTP status, or null when the request itself failed.
 	 */
-	public function do_request( string $endpoint, array $data ): ?int {
+	public function do_request( string $endpoint, array $data, int $timeout = 60 ): ?int {
 
 		// headers for the requests.
 		$headers = [
@@ -52,7 +53,7 @@ abstract class Request {
 		// request arguments for the requests.
 		$request_args = [
 			'headers'     => $headers,
-			'timeout'     => 60,
+			'timeout'     => $timeout,
 			'blocking'    => true,
 			'httpversion' => '1.0',
 			'sslverify'   => Main::get_sslverify(),

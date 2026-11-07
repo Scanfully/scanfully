@@ -501,6 +501,8 @@ class Controller {
 			'plugins' => self::get_plugins(),
 			// Must-use plugins, their folders and drop-ins, with content hashes.
 			'mu_plugins' => MuPlugins::scan(),
+			// Whether PHP errors are caught, and from before plugins load.
+			'php_errors' => \Scanfully\Errors\Controller::status(),
 		];
 
 		// filter data.
