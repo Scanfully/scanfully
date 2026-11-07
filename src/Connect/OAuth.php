@@ -32,6 +32,19 @@ class OAuth {
 	public const SCOPE_READ = 'wordpress:read';
 
 	/**
+	 * Scanfully Manage: Scanfully may update, install, activate, deactivate and remove
+	 * plugins and themes, and update WordPress and translations. A connection gains it from
+	 * the dashboard; the plugin does not ask for it.
+	 */
+	public const SCOPE_MANAGE = 'wordpress:manage';
+
+	/**
+	 * Scanfully Manage: Scanfully may sign a Scanfully user in to WP admin. A connection
+	 * gains it from the dashboard; the plugin does not ask for it.
+	 */
+	public const SCOPE_LOGIN = 'wordpress:login';
+
+	/**
 	 * The scopes the plugin asks for. More come with the features that use them.
 	 */
 	public const SCOPES = [ self::SCOPE_READ ];

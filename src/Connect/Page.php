@@ -146,7 +146,7 @@ class Page {
 						<?php endif; ?>
 						<li>
 							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Scanfully may', 'scanfully' ); ?></div>
-							<div class="scanfully-connect-details-value">
+							<div class="scanfully-connect-details-value scanfully-connect-scopes">
 								<?php foreach ( Controller::granted_scopes() as $scope ) : ?>
 									<span class="scanfully-connect-blob scanfully-connect-blob-info"><?php echo esc_html( self::scope_label( $scope ) ); ?></span>
 								<?php endforeach; ?>
@@ -215,6 +215,10 @@ class Page {
 		switch ( $scope ) {
 			case OAuth::SCOPE_READ:
 				return __( 'Read site data: health, plugins and themes, and activity', 'scanfully' );
+			case OAuth::SCOPE_MANAGE:
+				return __( 'Update, install, activate, deactivate and remove plugins and themes, update WordPress and translations', 'scanfully' );
+			case OAuth::SCOPE_LOGIN:
+				return __( 'Sign you in to WP admin', 'scanfully' );
 			default:
 				return $scope;
 		}
