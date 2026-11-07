@@ -157,7 +157,13 @@ final class RunLock {
 			)
 		);
 
-		return 1 === (int) $changed || $from === $to;
+		if ( 1 === (int) $changed ) {
+			return true;
+		}
+		// MySQL counts an UPDATE that writes the same value as no change.
+		$now = self::read();
+
+		return $from === $to && null !== $now && $now['raw'] === $to;
 	}
 
 	/**

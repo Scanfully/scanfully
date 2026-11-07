@@ -352,6 +352,13 @@ final class UpdatesTest extends TestCase {
 		$this->assertSame( '1.0.0', $e->result()['previous_version'] );
 	}
 
+	public function test_no_offer_after_the_update_check_is_not_available(): void {
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertSame( 'not_available', $e->error_class(), 'never a success that hides a failed update check' );
+		$this->assertSame( [], $this->upgrades->getArrayCopy() );
+	}
+
 	public function test_an_offer_without_a_package_needs_a_license(): void {
 		$this->offer_plugin( '1.1.0', '' );
 

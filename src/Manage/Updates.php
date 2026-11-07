@@ -77,7 +77,7 @@ final class Updates {
 		}
 		$previous = self::plugin_version( $file );
 		if ( '' !== $target && $target === $previous ) {
-			return self::done( $previous, $previous, [ sprintf( 'The plugin is at version %s already: nothing to do.', $previous ) ], $run, $started );
+			return self::partial( $previous, $previous, [ sprintf( 'The plugin is at version %s already: nothing to do.', $previous ) ], $run, $started );
 		}
 
 		if ( function_exists( 'wp_clean_plugins_cache' ) ) {
@@ -88,7 +88,9 @@ final class Updates {
 		$offered = (string) ( $offer['new_version'] ?? '' );
 		self::check_offer( $offer, $target, $previous, $run, $started, 'the plugin' );
 		if ( null === $offer || '' === $offered ) {
-			return self::done( $previous, $previous, [ sprintf( 'WordPress offers no newer version of the plugin than %s: nothing to do.', $previous ) ], $run, $started );
+			// Scanfully queues an update only when one was offered: none now
+			// means it went, or WordPress's update check could not be reached.
+			throw new JobFailed( 'not_available', sprintf( 'WordPress offers no newer version of the plugin than %s right now, or its update check could not be reached.', $previous ), self::partial( $previous, $previous, [], $run, $started ) );
 		}
 
 		// The upgrader switches an active plugin off for the update outside
@@ -118,7 +120,7 @@ final class Updates {
 			self::fail( self::wrong_version( $offered, $after ), $previous, $after, $skin, $run, $started );
 		}
 
-		return self::done( $previous, $after, $skin->messages(), $run, $started );
+		return self::partial( $previous, $after, $skin->messages(), $run, $started );
 	}
 
 	/**
@@ -144,7 +146,7 @@ final class Updates {
 			throw new JobFailed( 'not_available', sprintf( 'The theme "%s" is not installed on the site.', $stylesheet ) );
 		}
 		if ( '' !== $target && $target === $previous ) {
-			return self::done( $previous, $previous, [ sprintf( 'The theme is at version %s already: nothing to do.', $previous ) ], $run, $started );
+			return self::partial( $previous, $previous, [ sprintf( 'The theme is at version %s already: nothing to do.', $previous ) ], $run, $started );
 		}
 
 		if ( function_exists( 'wp_clean_themes_cache' ) ) {
@@ -155,7 +157,9 @@ final class Updates {
 		$offered = (string) ( $offer['new_version'] ?? '' );
 		self::check_offer( $offer, $target, $previous, $run, $started, 'the theme' );
 		if ( null === $offer || '' === $offered ) {
-			return self::done( $previous, $previous, [ sprintf( 'WordPress offers no newer version of the theme than %s: nothing to do.', $previous ) ], $run, $started );
+			// Scanfully queues an update only when one was offered: none now
+			// means it went, or WordPress's update check could not be reached.
+			throw new JobFailed( 'not_available', sprintf( 'WordPress offers no newer version of the theme than %s right now, or its update check could not be reached.', $previous ), self::partial( $previous, $previous, [], $run, $started ) );
 		}
 
 		$skin   = new UpgraderSkin( $run );
@@ -172,7 +176,7 @@ final class Updates {
 			self::fail( self::wrong_version( $offered, $after ), $previous, $after, $skin, $run, $started );
 		}
 
-		return self::done( $previous, $after, $skin->messages(), $run, $started );
+		return self::partial( $previous, $after, $skin->messages(), $run, $started );
 	}
 
 	/**
@@ -200,7 +204,7 @@ final class Updates {
 		$wanted = null === $offer ? '' : (string) ( $offer->current ?? '' );
 		if ( '' === $wanted || $wanted === $previous ) {
 			if ( $wanted === $previous || $target === $previous ) {
-				return self::done( $previous, $previous, [ sprintf( 'WordPress is at version %s already: nothing to do.', $previous ) ], $run, $started );
+				return self::partial( $previous, $previous, [ sprintf( 'WordPress is at version %s already: nothing to do.', $previous ) ], $run, $started );
 			}
 			throw new JobFailed(
 				'not_available',
@@ -224,7 +228,7 @@ final class Updates {
 			self::fail( self::wrong_version( $wanted, $after ), $previous, $after, $skin, $run, $started );
 		}
 
-		return self::done( $previous, $after, $skin->messages(), $run, $started );
+		return self::partial( $previous, $after, $skin->messages(), $run, $started );
 	}
 
 	/**
@@ -254,7 +258,7 @@ final class Updates {
 		wp_update_themes();
 		$updates = wp_get_translation_updates();
 		if ( [] === $updates ) {
-			return self::done( '', '', [ 'WordPress offers no translation updates: nothing to do.' ], $run, $started, [ 'translations' => [] ] );
+			return self::partial( '', '', [ 'WordPress offers no translation updates: nothing to do.' ], $run, $started, [ 'translations' => [] ] );
 		}
 
 		$skin    = new UpgraderSkin( $run );
@@ -280,7 +284,7 @@ final class Updates {
 			self::fail( $failure, '', '', $skin, $run, $started, [ 'translations' => $packs ] );
 		}
 
-		return self::done( '', '', $skin->messages(), $run, $started, [ 'translations' => $packs ] );
+		return self::partial( '', '', $skin->messages(), $run, $started, [ 'translations' => $packs ] );
 	}
 
 	/**
@@ -675,23 +679,6 @@ final class Updates {
 			'class'   => 'package',
 			'message' => sprintf( 'WordPress reported the update done, but the files say version %s instead of %s.', '' === $after ? '(none)' : $after, $wanted ),
 		];
-	}
-
-	/**
-	 * The result of an update: the versions, how long it took, the
-	 * inventory now, the activity events it caused and the log.
-	 *
-	 * @param string   $previous The version before.
-	 * @param string   $after    The version now.
-	 * @param string[] $log      The upgrader's messages.
-	 * @param JobRun   $run      The run.
-	 * @param float    $started  When the action started.
-	 * @param array    $extra    More fields.
-	 *
-	 * @return array
-	 */
-	private static function done( string $previous, string $after, array $log, JobRun $run, float $started, array $extra = [] ): array {
-		return self::partial( $previous, $after, $log, $run, $started, $extra );
 	}
 
 	/**
