@@ -77,6 +77,13 @@ final class UpdatesTest extends TestCase {
 	private array $core_offers = [];
 
 	/**
+	 * Update checks run, by kind.
+	 *
+	 * @var string[]
+	 */
+	private array $refreshed = [];
+
+	/**
 	 * Whether WordPress may change files.
 	 *
 	 * @var bool
@@ -136,7 +143,11 @@ final class UpdatesTest extends TestCase {
 		Functions\when( 'request_filesystem_credentials' )->justReturn( true );
 		Functions\when( 'wp_update_plugins' )->justReturn( null );
 		Functions\when( 'wp_update_themes' )->justReturn( null );
-		Functions\when( 'wp_version_check' )->justReturn( null );
+		Functions\when( 'wp_version_check' )->alias(
+			function (): void {
+				$this->refreshed[] = 'core';
+			}
+		);
 		Functions\when( 'wp_clean_plugins_cache' )->justReturn( null );
 		Functions\when( 'wp_clean_themes_cache' )->justReturn( null );
 		Functions\when( 'wp_raise_memory_limit' )->justReturn( '256M' );
@@ -300,7 +311,7 @@ final class UpdatesTest extends TestCase {
 		$this->assertSame( [ 'version' => '7.1.3' ], $result['inventory']['core'] );
 		$this->assertCount( 1, $result['activity_event_ids'] );
 		$this->assertStringNotContainsString( 'SECRET', implode( ' ', $result['log'] ) );
-		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/hello-fixture.zip', $result['log'][0] );
+		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/hello-fixture.zip…', $result['log'][0] );
 		$this->assertSame( 'Scanfully switched the plugin on again after the update, as it was active before.', $run->log_lines()[0] );
 	}
 
@@ -621,6 +632,15 @@ final class UpdatesTest extends TestCase {
 		$this->assertSame( 'package', $e->error_class() );
 		$this->assertStringStartsWith( '1 of 2 language packs did not update.', $e->getMessage() );
 		$this->assertFalse( $e->result()['translations'][1]['updated'] );
+	}
+
+	public function test_the_inventory_refills_update_data_an_upgrader_cleared(): void {
+		$this->transients['update_plugins'] = (object) [ 'response' => [] ];
+		$this->transients['update_themes']  = (object) [ 'response' => [] ];
+
+		Inventory::collect();
+
+		$this->assertSame( [ 'core' ], $this->refreshed, 'only the cleared core update data is fetched again' );
 	}
 
 	public function test_no_translation_updates_is_nothing_to_do(): void {

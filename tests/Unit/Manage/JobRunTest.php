@@ -225,7 +225,8 @@ final class JobRunTest extends TestCase {
 
 		$log = Failure::log( $lines );
 
-		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/akismet.5.3.1.zip', $log[0], 'the query string goes, with what stuck to it' );
+		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/akismet.5.3.1.zip…', $log[0], 'the query string goes, the ellipsis after it stays' );
+		$this->assertSame( 'from https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip… done', Failure::clean( 'from https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip&#8230; done' ), 'an ellipsis right after a URL is not part of it' );
 		$this->assertCount( 2, $log );
 		$this->assertSame( 300, mb_strlen( $log[1] ) );
 		$this->assertCount( 3, Failure::log( array_fill( 0, 10, 'line' ), 3 ) );

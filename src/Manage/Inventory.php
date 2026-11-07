@@ -54,8 +54,32 @@ final class Inventory {
 		if ( function_exists( 'wp_clean_themes_cache' ) ) {
 			wp_clean_themes_cache( false );
 		}
+		self::refill_update_data();
 
 		return self::from_site_data( null !== self::$source ? (array) call_user_func( self::$source ) : Health\Controller::get_site_data() );
+	}
+
+	/**
+	 * Fetch WordPress's update data again where an upgrader cleared it:
+	 * WordPress's own translation update after a plugin, theme or core
+	 * update empties all three caches, and the inventory would then say no
+	 * update is known for anything.
+	 *
+	 * @return void
+	 */
+	private static function refill_update_data(): void {
+		if ( ! function_exists( 'get_site_transient' ) ) {
+			return;
+		}
+		if ( function_exists( 'wp_version_check' ) && false === get_site_transient( 'update_core' ) ) {
+			wp_version_check();
+		}
+		if ( function_exists( 'wp_update_plugins' ) && false === get_site_transient( 'update_plugins' ) ) {
+			wp_update_plugins();
+		}
+		if ( function_exists( 'wp_update_themes' ) && false === get_site_transient( 'update_themes' ) ) {
+			wp_update_themes();
+		}
 	}
 
 	/**

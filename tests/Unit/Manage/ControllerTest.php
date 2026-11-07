@@ -1845,6 +1845,7 @@ final class ControllerTest extends TestCase {
 		Functions\when( 'wp_update_plugins' )->justReturn( null );
 		Functions\when( 'wp_update_themes' )->justReturn( null );
 		Functions\when( 'wp_version_check' )->justReturn( null );
+		Functions\when( 'get_site_transient' )->justReturn( (object) [ 'response' => [] ] );
 		Functions\when( 'wp_clean_plugins_cache' )->justReturn( null );
 		Functions\when( 'wp_clean_themes_cache' )->justReturn( null );
 		Functions\when( 'wp_raise_memory_limit' )->justReturn( '256M' );

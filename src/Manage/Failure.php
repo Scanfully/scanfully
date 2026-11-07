@@ -160,7 +160,9 @@ final class Failure {
 	 */
 	public static function clean( string $text ): string {
 		$text = html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES, 'UTF-8' );
-		$text = (string) preg_replace_callback( '#\b(?:https?|ftps?|ssh2?)://[^\s"\'<>]+#i', [ self::class, 'clean_url' ], $text );
+		// A URL is printable ASCII: what WordPress writes right after one
+		// (an ellipsis, a closing quote) is not part of it.
+		$text = (string) preg_replace_callback( '#\b(?:https?|ftps?|ssh2?)://[\x21\x23-\x26\x28-\x3B\x3D\x3F-\x7E]+#i', [ self::class, 'clean_url' ], $text );
 		$text = self::relative_paths( $text );
 
 		return trim( (string) preg_replace( '/\s+/', ' ', $text ) );
