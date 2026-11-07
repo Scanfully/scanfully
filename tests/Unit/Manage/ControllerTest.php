@@ -1944,9 +1944,10 @@ final class ControllerTest extends TestCase {
 			]
 		);
 		Inventory::$source = static fn(): array => [
-			'plugins' => [],
-			'themes'  => [],
-			'core'    => [ 'version' => '7.1.3' ],
+			'plugins'      => [],
+			'themes'       => [],
+			'core'         => [ 'installed' => '7.1.3' ],
+			'translations' => [ 'available' => 1 ],
 		];
 	}
 }

@@ -322,6 +322,21 @@ final class Updates {
 	 * @return string
 	 */
 	public static function core_version(): string {
+		$version = self::core_version_on_disk();
+		if ( null !== $version ) {
+			return $version;
+		}
+
+		return function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : '';
+	}
+
+	/**
+	 * WordPress's version as its version file says now, or null when the
+	 * file cannot be read.
+	 *
+	 * @return string|null
+	 */
+	public static function core_version_on_disk(): ?string {
 		$file = self::$version_file ?? ( defined( 'ABSPATH' ) ? ABSPATH : '' ) . ( defined( 'WPINC' ) ? WPINC : 'wp-includes' ) . '/version.php';
 		if ( is_readable( $file ) ) {
 			$source = (string) file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- A local file.
@@ -330,7 +345,7 @@ final class Updates {
 			}
 		}
 
-		return function_exists( 'get_bloginfo' ) ? (string) get_bloginfo( 'version' ) : '';
+		return null;
 	}
 
 	/**

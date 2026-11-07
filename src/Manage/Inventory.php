@@ -15,14 +15,11 @@ use Scanfully\Health;
  * so Scanfully can compare it with the job's baseline without waiting for
  * the next sync.
  *
- * INVENTORY SEAM (M1.1): the software lists come from the Health collector,
- * Health\Controller::get_site_data(). When M1.1's extended collector adds
- * `themes`, `core` and `translations` to the site data, they are taken from
- * there as they are (from_site_data()); until then this class fills in a
- * minimal view of its own for each missing key (fallback_themes(),
- * fallback_core(), fallback_translations()). At the merge, keep
- * from_site_data() and drop the fallbacks once the collector always sends
- * the keys.
+ * It is the site data report's own inventory, from Health\Controller and
+ * Health\Inventory, read without the capabilities check (the API keeps the
+ * stored row, and the check writes a test file in wp-content) and without
+ * the plugins' and themes' descriptions (long text a comparison does not
+ * need, which would push a large site's result past the size the API takes).
  */
 final class Inventory {
 
@@ -89,18 +86,26 @@ final class Inventory {
 	}
 
 	/**
-	 * The inventory from the site data report.
+	 * The inventory from the site data report. WordPress's version is read
+	 * from its version file, so a core update made in this request shows the
+	 * new one even while the running code still knows the old.
 	 *
 	 * @param array $data The site data, as Health\Controller::get_site_data() makes it.
 	 *
-	 * @return array{plugins: array, themes: array, core: array, translations: array}
+	 * @return array{plugins: array, themes: array|null, core: array|null, translations: array|null}
 	 */
 	public static function from_site_data( array $data ): array {
+		$core      = isset( $data['core'] ) && is_array( $data['core'] ) ? $data['core'] : null;
+		$installed = Updates::core_version_on_disk();
+		if ( null !== $core && null !== $installed && ( $core['installed'] ?? null ) !== $installed ) {
+			$core = Health\Inventory::core( $installed );
+		}
+
 		return [
 			'plugins'      => self::slim( isset( $data['plugins'] ) && is_array( $data['plugins'] ) ? $data['plugins'] : [] ),
-			'themes'       => isset( $data['themes'] ) && is_array( $data['themes'] ) ? self::slim( $data['themes'] ) : self::fallback_themes(),
-			'core'         => isset( $data['core'] ) && is_array( $data['core'] ) ? $data['core'] : self::fallback_core( $data ),
-			'translations' => isset( $data['translations'] ) && is_array( $data['translations'] ) ? $data['translations'] : self::fallback_translations(),
+			'themes'       => isset( $data['themes'] ) && is_array( $data['themes'] ) ? self::slim( $data['themes'] ) : null,
+			'core'         => $core,
+			'translations' => isset( $data['translations'] ) && is_array( $data['translations'] ) ? $data['translations'] : null,
 		];
 	}
 
@@ -123,65 +128,5 @@ final class Inventory {
 		}
 
 		return $out;
-	}
-
-	/**
-	 * Fallback until M1.1: the installed themes, by stylesheet, with their
-	 * version, the version WordPress offers and whether each is the active
-	 * theme or its parent.
-	 *
-	 * @return array<int, array{stylesheet: string, name: string, version: string, latest_version: string|null, active: bool, parent: bool}>
-	 */
-	private static function fallback_themes(): array {
-		if ( ! function_exists( 'wp_get_themes' ) ) {
-			return [];
-		}
-		$offers     = function_exists( 'get_site_transient' ) ? get_site_transient( 'update_themes' ) : false;
-		$stylesheet = get_stylesheet();
-		$template   = get_template();
-		$out        = [];
-		foreach ( wp_get_themes() as $slug => $theme ) {
-			$offer = is_object( $offers ) && isset( $offers->response[ $slug ] ) ? (array) $offers->response[ $slug ] : [];
-			$out[] = [
-				'stylesheet'     => (string) $slug,
-				'name'           => (string) $theme->get( 'Name' ),
-				'version'        => (string) $theme->get( 'Version' ),
-				'latest_version' => isset( $offer['new_version'] ) ? (string) $offer['new_version'] : null,
-				'active'         => $slug === $stylesheet,
-				'parent'         => $slug === $template && $template !== $stylesheet,
-			];
-		}
-
-		return $out;
-	}
-
-	/**
-	 * Fallback until M1.1: WordPress's version, read from its version file so
-	 * a core update made in this request shows the new one.
-	 *
-	 * @param array $data The site data.
-	 *
-	 * @return array{version: string}
-	 */
-	private static function fallback_core( array $data ): array {
-		$version = Updates::core_version();
-
-		return [ 'version' => '' !== $version ? $version : (string) ( $data['data']['wp_version'] ?? '' ) ];
-	}
-
-	/**
-	 * Fallback until M1.1: the language packs WordPress still offers.
-	 *
-	 * @return array{pending: array<int, array{type: string, slug: string, language: string, version: string}>}
-	 */
-	private static function fallback_translations(): array {
-		$pending = [];
-		if ( function_exists( 'wp_get_translation_updates' ) ) {
-			foreach ( wp_get_translation_updates() as $update ) {
-				$pending[] = Updates::translation_of( $update );
-			}
-		}
-
-		return [ 'pending' => $pending ];
 	}
 }

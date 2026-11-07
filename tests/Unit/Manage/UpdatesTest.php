@@ -128,8 +128,9 @@ final class UpdatesTest extends TestCase {
 					'description' => str_repeat( 'long text ', 50 ),
 				],
 			],
-			'themes'  => [],
-			'core'    => [ 'version' => Updates::core_version() ],
+			'themes'       => [],
+			'core'         => [ 'installed' => Updates::core_version() ],
+			'translations' => [ 'available' => 0 ],
 		];
 		$this->upgrade         = static fn() => true;
 		$this->upgrades        = new \ArrayObject();
@@ -308,7 +309,8 @@ final class UpdatesTest extends TestCase {
 		$this->assertTrue( $result['inventory']['plugins'][0]['active'], 'the inventory is read after the plugin is on again' );
 		$this->assertSame( '1.1.0', $result['inventory']['plugins'][0]['version'] );
 		$this->assertArrayNotHasKey( 'description', $result['inventory']['plugins'][0], 'long text stays out of the result' );
-		$this->assertSame( [ 'version' => '7.1.3' ], $result['inventory']['core'] );
+		$this->assertSame( [ 'installed' => '7.1.3' ], $result['inventory']['core'] );
+		$this->assertSame( [ 'available' => 0 ], $result['inventory']['translations'] );
 		$this->assertCount( 1, $result['activity_event_ids'] );
 		$this->assertStringNotContainsString( 'SECRET', implode( ' ', $result['log'] ) );
 		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/…/hello-fixture.zip…', $result['log'][0] );
@@ -628,7 +630,7 @@ final class UpdatesTest extends TestCase {
 
 		$this->assertSame( '7.1.3', $result['previous_version'] );
 		$this->assertSame( '7.1.4', $result['new_version'] );
-		$this->assertSame( [ 'version' => '7.1.4' ], $result['inventory']['core'], 'the inventory reads the new version file' );
+		$this->assertSame( [ 'installed' => '7.1.4' ], $result['inventory']['core'], 'the inventory reads the new version file' );
 		$this->assertCount( 1, $result['activity_event_ids'] );
 	}
 
@@ -701,6 +703,32 @@ final class UpdatesTest extends TestCase {
 		Inventory::collect();
 
 		$this->assertSame( [ 'core' ], $this->refreshed, 'only the cleared core update data is fetched again' );
+	}
+
+	public function test_the_inventory_reads_core_from_the_version_file_after_a_core_update(): void {
+		$this->write_core( '7.1.4' );
+		Functions\when( 'get_site_option' )->alias( static fn( string $name, $fallback = false ) => $fallback );
+		$this->transients['update_core'] = (object) [
+			'updates' => [
+				(object) [
+					'response' => 'latest',
+					'current'  => '7.1.4',
+					'packages' => (object) [ 'full' => 'https://downloads.wordpress.org/release/wordpress-7.1.4.zip' ],
+				],
+			],
+		];
+		Inventory::$source = static fn(): array => [
+			'plugins'      => [],
+			'themes'       => [],
+			'core'         => [ 'installed' => '7.1.3' ], // What the running code still knows.
+			'translations' => [ 'available' => 0 ],
+		];
+
+		$core = Inventory::collect()['core'];
+
+		$this->assertSame( '7.1.4', $core['installed'] ?? '' );
+		$this->assertSame( '7.1.4', $core['latest'] ?? '' );
+		$this->assertArrayHasKey( 'auto_update', $core, 'in the collector\'s shape' );
 	}
 
 	public function test_no_translation_updates_is_nothing_to_do(): void {

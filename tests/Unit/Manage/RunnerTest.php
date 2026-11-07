@@ -305,8 +305,8 @@ final class RunnerTest extends TestCase {
 		Inventory::$source = static fn(): array => [
 			'plugins'      => $plugins,
 			'themes'       => [],
-			'core'         => [ 'version' => '7.1.4' ],
-			'translations' => [],
+			'core'         => [ 'installed' => '7.1.4' ],
+			'translations' => [ 'available' => 0 ],
 		];
 		$registry          = [
 			'update_plugin' => [
