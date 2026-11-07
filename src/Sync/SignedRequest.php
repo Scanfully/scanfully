@@ -29,10 +29,16 @@ class SignedRequest {
 	private const KEYS_TRANSIENT = 'scanfully_plugin_keys';
 
 	/**
-	 * Transient set when the keys were fetched for a key id the cache did
-	 * not have, so an unknown id costs one fetch per few minutes at most.
+	 * Transient set when the keys are fetched for a key id the cache does
+	 * not have, before the fetch and whether it works or not, so an unknown
+	 * id or an unreachable key set costs one fetch per few minutes at most.
 	 */
 	private const REFETCH_TRANSIENT = 'scanfully_plugin_keys_refetched';
+
+	/**
+	 * Seconds between two fetches of the key set.
+	 */
+	private const REFETCH_WAIT = 5 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Seconds of clock difference the times of a request may have.
@@ -118,15 +124,19 @@ class SignedRequest {
 		if ( is_array( $keys ) && isset( $keys[ $kid ] ) ) {
 			return $keys[ $kid ];
 		}
-		if ( is_array( $keys ) && false !== get_transient( self::REFETCH_TRANSIENT ) ) {
+		// One fetch per few minutes at most, whether it works or not: the
+		// marker is set before the fetch, so a stream of requests with
+		// unknown key ids (or an unreachable key set) costs no outbound
+		// request each.
+		if ( false !== get_transient( self::REFETCH_TRANSIENT ) ) {
 			return null;
 		}
+		set_transient( self::REFETCH_TRANSIENT, 1, self::REFETCH_WAIT );
 		$keys = self::fetch_keys();
 		if ( null === $keys ) {
 			return null;
 		}
 		set_transient( self::KEYS_TRANSIENT, $keys, DAY_IN_SECONDS );
-		set_transient( self::REFETCH_TRANSIENT, 1, 5 * MINUTE_IN_SECONDS );
 
 		return $keys[ $kid ] ?? null;
 	}
