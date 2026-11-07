@@ -128,7 +128,11 @@ final class InventoryTest extends TestCase {
 		);
 		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
 		Functions\when( 'wp_is_auto_update_enabled_for_type' )->justReturn( true );
-		Functions\when( 'wp_is_auto_update_forced_for_item' )->justReturn( null );
+		Functions\when( 'wp_parse_args' )->alias(
+			static function ( $args, $defaults = [] ) {
+				return array_merge( (array) $defaults, is_object( $args ) ? get_object_vars( $args ) : (array) $args );
+			}
+		);
 		Functions\when( 'wp_is_file_mod_allowed' )->justReturn( true );
 		Functions\when( 'get_bloginfo' )->justReturn( '6.4.2' );
 		Functions\when( 'plugin_basename' )->returnArg();
@@ -370,14 +374,132 @@ final class InventoryTest extends TestCase {
 		$this->assertSame( 'none', Inventory::core()['auto_update'] );
 	}
 
-	public function test_a_forced_auto_update_wins(): void {
-		Functions\when( 'wp_is_auto_update_forced_for_item' )->justReturn( true );
+	public function test_the_auto_update_filter_decides_last(): void {
+		// It may force an update on, also when auto-updates of the type are
+		// off, and off when the option has the item.
+		Functions\when( 'wp_is_auto_update_enabled_for_type' )->justReturn( false );
+		Filters\expectApplied( 'auto_update_plugin' )->andReturn( true );
 		$plugins = $this->plugins( [ 'premium/premium.php' => $this->header( 'Premium', '2.0' ) ] );
 		$this->assertTrue( $plugins['premium']['auto_update'] );
+	}
 
+	public function test_auto_updates_of_a_type_that_is_off(): void {
 		Functions\when( 'wp_is_auto_update_enabled_for_type' )->justReturn( false );
 		$plugins = $this->plugins( [ 'akismet/akismet.php' => $this->header( 'Akismet', '5.3' ) ] );
-		$this->assertFalse( $plugins['akismet']['auto_update'], 'Auto-updates of the type are off.' );
+		$this->assertFalse( $plugins['akismet']['auto_update'], 'The option counts only while auto-updates of the type are on.' );
+	}
+
+	public function test_the_items_own_autoupdate_flags(): void {
+		$this->transients['update_plugins']->response['premium/premium.php']['autoupdate'] = true;
+		$this->transients['update_plugins']->response['akismet/akismet.php']->disable_autoupdate = true;
+		$plugins = $this->plugins(
+			[
+				'akismet/akismet.php' => $this->header( 'Akismet', '5.3' ),
+				'premium/premium.php' => $this->header( 'Premium', '2.0' ),
+			]
+		);
+		$this->assertTrue( $plugins['premium']['auto_update'], 'The update offer says it updates itself.' );
+		$this->assertFalse( $plugins['akismet']['auto_update'], 'disable_autoupdate wins over the option.' );
+	}
+
+	/**
+	 * Filters written for the Plugins and Themes screens read the item's
+	 * fields without checking them: they get the same padded item, so a
+	 * plugin or theme the update check does not know raises no warning.
+	 */
+	public function test_the_auto_update_filters_get_the_padded_item(): void {
+		$seen = [];
+		Filters\expectApplied( 'auto_update_plugin' )->andReturnUsing(
+			static function ( $update, $item ) use ( &$seen ) {
+				$seen[] = 'plugin:' . $item->slug . '|' . $item->new_version . '|' . $item->plugin . '|' . $item->id . '|' . get_object_vars( $item )['Name'];
+				return $update;
+			}
+		);
+		Filters\expectApplied( 'auto_update_theme' )->andReturnUsing(
+			static function ( $update, $item ) use ( &$seen ) {
+				$seen[] = 'theme:' . $item->theme . '|' . $item->new_version . '|' . $item->package . '|' . $item->requires;
+				return $update;
+			}
+		);
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_set_error_handler -- warnings fail the test.
+		set_error_handler(
+			static function ( int $severity, string $message ): bool {
+				throw new \ErrorException( $message, 0, $severity ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+		);
+		try {
+			$this->plugins(
+				[
+					'akismet/akismet.php'      => $this->header( 'Akismet', '5.3' ),
+					'custom-plugin/custom.php' => $this->header( 'Custom', '1.0' ),
+				]
+			);
+			$this->transients['update_themes'] = false;
+			Inventory::themes();
+		} finally {
+			restore_error_handler();
+		}
+
+		$this->assertContains( 'plugin:akismet|5.3.1|akismet/akismet.php|akismet/akismet.php|Akismet', $seen );
+		$this->assertContains( 'plugin:||custom-plugin/custom.php|custom-plugin/custom.php|Custom', $seen, 'A plugin the update check does not know gets the defaults.' );
+		$this->assertContains( 'theme:child-theme|1.0||', $seen );
+		$this->assertContains( 'theme:parent-theme|1.1||5.9', $seen );
+	}
+
+	public function test_core_minor_and_development_options(): void {
+		$this->options['auto_update_core_minor'] = 'disabled';
+		$this->assertSame( 'none', Inventory::core()['auto_update'], 'Minor updates switched off, major ones not on.' );
+
+		$this->options['auto_update_core_minor'] = 'enabled';
+		$this->options['auto_update_core_dev']   = 'disabled';
+		$this->assertSame( 'none', Inventory::core( '6.8-beta1' )['auto_update'], 'A development build without development updates.' );
+		$this->assertSame( 'minor', Inventory::core( '6.7.1' )['auto_update'], 'The development option leaves releases alone.' );
+	}
+
+	public function test_a_broken_theme_header_and_odd_packages(): void {
+		Functions\when( 'wp_get_themes' )->justReturn(
+			[
+				'broken' => new class() {
+					/**
+					 * Every header is missing.
+					 *
+					 * @param string $header The header.
+					 *
+					 * @return false
+					 */
+					public function get( string $header ) {
+						unset( $header );
+						return false;
+					}
+
+					/**
+					 * No template either.
+					 *
+					 * @return string
+					 */
+					public function get_template(): string {
+						return '';
+					}
+				},
+			]
+		);
+		$this->transients['update_themes']->response['broken'] = [
+			'new_version' => '2.0',
+			'package'     => [ 'not', 'a', 'url' ],
+		];
+		$this->transients['update_plugins']->response['premium/premium.php']['package'] = false;
+
+		$theme = Inventory::themes()[0];
+		$this->assertSame( '', $theme['name'] );
+		$this->assertSame( '', $theme['version'] );
+		$this->assertNull( $theme['parent'] );
+		$this->assertNull( $theme['requires_php'] );
+		$this->assertFalse( $theme['package'], 'A package that is not a text is no package.' );
+		$this->assertNull( $theme['source'] );
+
+		$plugins = $this->plugins( [ 'premium/premium.php' => $this->header( 'Premium', '2.0' ) ] );
+		$this->assertFalse( $plugins['premium']['package'] );
+		$this->assertNull( $plugins['premium']['source'] );
 	}
 
 	public function test_translations(): void {

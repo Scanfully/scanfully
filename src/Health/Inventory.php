@@ -49,7 +49,7 @@ final class Inventory {
 			[
 				'requires_php' => self::text( $headers['RequiresPHP'] ?? null ),
 				'requires_wp' => self::text( $headers['RequiresWP'] ?? null ),
-				'auto_update' => self::auto_update( 'plugin', $plugin_path, $update ),
+				'auto_update' => self::auto_update( 'plugin', $plugin_path, self::plugin_payload( $updates, $plugin_path, $headers ) ),
 			]
 		);
 	}
@@ -83,7 +83,7 @@ final class Inventory {
 					'parent' => '' !== $template && $template !== $stylesheet ? $template : null,
 					'requires_php' => self::text( $theme->get( 'RequiresPHP' ) ),
 					'requires_wp' => self::text( $theme->get( 'RequiresWP' ) ),
-					'auto_update' => self::auto_update( 'theme', $stylesheet, $update ),
+					'auto_update' => self::auto_update( 'theme', $stylesheet, self::theme_payload( $updates, $stylesheet, $theme ) ),
 				],
 				self::update_fields( $update )
 			);
@@ -133,7 +133,7 @@ final class Inventory {
 			'same_line_latest' => $same_line,
 			'package' => null === $latest ? null : $packages[ $latest ],
 			'same_line_package' => null === $same_line ? null : $packages[ $same_line ],
-			'auto_update' => self::core_auto_update(),
+			'auto_update' => self::core_auto_update( $installed ),
 		];
 	}
 
@@ -144,6 +144,11 @@ final class Inventory {
 	 * @return array{available: int|null}
 	 */
 	public static function translations(): array {
+		// wp-includes/update.php, which wp-settings.php loads; loaded here
+		// when something runs the sync without it.
+		if ( ! function_exists( 'wp_get_translation_updates' ) && defined( 'ABSPATH' ) && defined( 'WPINC' ) && file_exists( ABSPATH . WPINC . '/update.php' ) ) {
+			require_once ABSPATH . WPINC . '/update.php';
+		}
 		if ( ! function_exists( 'wp_get_translation_updates' ) ) {
 			return [ 'available' => null ];
 		}
@@ -199,6 +204,25 @@ final class Inventory {
 	}
 
 	/**
+	 * The entry of an item in an update transient, with an update
+	 * ("response") or without ("no_update"); null when it has none.
+	 *
+	 * @param mixed  $updates The update_plugins or update_themes site transient.
+	 * @param string $key     The plugin's file or the theme's stylesheet.
+	 *
+	 * @return array<string, mixed>|object|null
+	 */
+	private static function transient_entry( $updates, string $key ) {
+		$entry = self::update_entry( $updates, $key );
+		if ( null !== $entry || ! is_object( $updates ) || ! isset( $updates->no_update ) || ! is_array( $updates->no_update ) ) {
+			return $entry;
+		}
+		$item = $updates->no_update[ $key ] ?? null;
+
+		return is_array( $item ) || is_object( $item ) ? $item : null;
+	}
+
+	/**
 	 * The fields of an available update: whether it has a package, the
 	 * package's host, and what the update requires. All null without an
 	 * update.
@@ -243,55 +267,116 @@ final class Inventory {
 	}
 
 	/**
-	 * Whether WordPress updates a plugin or theme by itself: auto-updates of
-	 * the type are on and the item is in the auto_update_plugins or
-	 * auto_update_themes option, unless a filter forces it either way. Null
-	 * when WordPress cannot say.
+	 * The item the auto_update_plugin filter gets, padded as the Plugins
+	 * screen pads it (WP_Plugins_List_Table::prepare_items): the defaults a
+	 * filter may read, such as slug and new_version, merged with the
+	 * plugin's headers and its update check entry. Filters written for that
+	 * screen read these fields without checking them first.
 	 *
-	 * @param string                           $type   plugin or theme.
-	 * @param string                           $key    The plugin's file or the theme's stylesheet.
-	 * @param array<string, mixed>|object|null $update The update's transient entry, for the filters.
+	 * @param mixed                $updates     The update_plugins site transient.
+	 * @param string               $plugin_path The plugin's file.
+	 * @param array<string, mixed> $headers     The plugin's headers.
+	 *
+	 * @return object
+	 */
+	private static function plugin_payload( $updates, string $plugin_path, array $headers ) {
+		$defaults = [
+			'id' => $plugin_path,
+			'slug' => '',
+			'plugin' => $plugin_path,
+			'new_version' => '',
+			'url' => '',
+			'package' => '',
+			'icons' => [],
+			'banners' => [],
+			'banners_rtl' => [],
+			'tested' => '',
+			'requires_php' => '',
+			'compatibility' => new \stdClass(),
+		];
+		$entry    = self::transient_entry( $updates, $plugin_path );
+
+		return (object) wp_parse_args( array_merge( null === $entry ? [] : (array) $entry, $headers ), $defaults );
+	}
+
+	/**
+	 * The item the auto_update_theme filter gets, as the Themes screen builds
+	 * it (wp_prepare_themes_for_js): the theme's update check entry, or for a
+	 * theme the check does not know, the defaults built from its headers.
+	 *
+	 * @param mixed     $updates    The update_themes site transient.
+	 * @param string    $stylesheet The theme's stylesheet.
+	 * @param \WP_Theme $theme      The theme.
+	 *
+	 * @return object
+	 */
+	private static function theme_payload( $updates, string $stylesheet, $theme ) {
+		$defaults = [
+			'theme' => $stylesheet,
+			'new_version' => $theme->get( 'Version' ),
+			'url' => '',
+			'package' => '',
+			'requires' => $theme->get( 'RequiresWP' ),
+			'requires_php' => $theme->get( 'RequiresPHP' ),
+		];
+		$entry    = self::transient_entry( $updates, $stylesheet );
+
+		return (object) wp_parse_args( null === $entry ? [] : (array) $entry, $defaults );
+	}
+
+	/**
+	 * Whether WordPress updates a plugin or theme by itself, decided as
+	 * WP_Automatic_Updater::should_update() decides it: the item's
+	 * autoupdate flag, else the auto_update_plugins or auto_update_themes
+	 * option when auto-updates of the type are on, no update when the item
+	 * says disable_autoupdate, and the auto_update_{type} filter last, which
+	 * may force it either way. The filesystem and version control checks of
+	 * a real background update are left out. Null when WordPress cannot say.
+	 *
+	 * @param string $type    plugin or theme.
+	 * @param string $key     The plugin's file or the theme's stylesheet.
+	 * @param object $payload The item, padded as WordPress pads it.
 	 *
 	 * @return bool|null
 	 */
-	private static function auto_update( string $type, string $key, $update ): ?bool {
+	private static function auto_update( string $type, string $key, $payload ): ?bool {
 		if ( ! function_exists( 'wp_is_auto_update_enabled_for_type' ) && defined( 'ABSPATH' ) && file_exists( ABSPATH . 'wp-admin/includes/update.php' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/update.php';
 		}
 		if ( ! function_exists( 'wp_is_auto_update_enabled_for_type' ) ) {
 			return null;
 		}
-		if ( ! wp_is_auto_update_enabled_for_type( $type ) ) {
-			return false;
+
+		$update = ! empty( $payload->autoupdate );
+		if ( ! $update && wp_is_auto_update_enabled_for_type( $type ) ) {
+			$enabled = get_site_option( 'auto_update_' . $type . 's', [] );
+			$update  = in_array( $key, (array) $enabled, true );
+		}
+		if ( ! empty( $payload->disable_autoupdate ) ) {
+			$update = false;
 		}
 
-		if ( function_exists( 'wp_is_auto_update_forced_for_item' ) ) {
-			$item = is_object( $update ) ? clone $update : (object) ( is_array( $update ) ? $update : [] );
-			if ( 'plugin' === $type ) {
-				$item->plugin = $key;
-			} else {
-				$item->theme = $key;
-			}
-			$forced = wp_is_auto_update_forced_for_item( $type, null, $item );
-			if ( null !== $forced ) {
-				return (bool) $forced;
-			}
-		}
-
-		$enabled = get_site_option( 'auto_update_' . $type . 's', [] );
-
-		return is_array( $enabled ) && in_array( $key, $enabled, true );
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core's own filter.
+		return (bool) apply_filters( 'auto_update_' . $type, $update, $payload );
 	}
 
 	/**
-	 * How WordPress updates itself: major (major and minor releases), minor
-	 * (minor releases only) or none, as WP_AUTO_UPDATE_CORE, the major
-	 * releases setting of the Updates screen and the core update filters
-	 * decide it.
+	 * How WordPress updates itself: major (to new major releases too), minor
+	 * (releases of its own line only) or none, as
+	 * Core_Upgrader::should_update_to_version() reads it: the
+	 * auto_update_core_dev, auto_update_core_minor and auto_update_core_major
+	 * options of the Updates screen, WP_AUTO_UPDATE_CORE over them, then the
+	 * allow_*_auto_core_updates filters; a development build updates only
+	 * when development updates are allowed. Left out, as a site report
+	 * cannot know them: the version control checkout rule
+	 * (WP_Automatic_Updater::is_vcs_checkout(), which needs the folder that
+	 * would be updated) and a failed earlier core update.
+	 *
+	 * @param string $installed The installed version.
 	 *
 	 * @return string
 	 */
-	private static function core_auto_update(): string {
+	private static function core_auto_update( string $installed ): string {
 		$disabled = ( defined( 'AUTOMATIC_UPDATER_DISABLED' ) && AUTOMATIC_UPDATER_DISABLED )
 			|| ! wp_is_file_mod_allowed( 'automatic_updater' );
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core's own filter.
@@ -299,18 +384,29 @@ final class Inventory {
 			return 'none';
 		}
 
+		$dev   = 'enabled' === get_site_option( 'auto_update_core_dev', 'enabled' );
+		$minor = 'enabled' === get_site_option( 'auto_update_core_minor', 'enabled' );
 		$major = 'enabled' === get_site_option( 'auto_update_core_major', 'unset' );
-		$minor = true;
 		if ( defined( 'WP_AUTO_UPDATE_CORE' ) ) {
 			$setting = WP_AUTO_UPDATE_CORE;
 			if ( false === $setting ) {
-				$major = false;
+				$dev   = false;
 				$minor = false;
-			} elseif ( 'minor' === $setting ) {
 				$major = false;
 			} elseif ( true === $setting || in_array( $setting, [ 'beta', 'rc', 'development', 'branch-development' ], true ) ) {
+				$dev   = true;
+				$minor = true;
 				$major = true;
+			} elseif ( 'minor' === $setting ) {
+				$dev   = false;
+				$minor = true;
+				$major = false;
 			}
+		}
+
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core's own filter.
+		if ( false !== strpos( $installed, '-' ) && ! apply_filters( 'allow_dev_auto_core_updates', $dev ) ) {
+			return 'none';
 		}
 		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- WordPress core's own filter.
 		$major = (bool) apply_filters( 'allow_major_auto_core_updates', $major );
@@ -341,14 +437,15 @@ final class Inventory {
 
 	/**
 	 * The major line of a WordPress version: its first two numbers (6.4 for
-	 * 6.4.2).
+	 * 6.4.2 and 6.4-beta1), split as Core_Upgrader splits it.
 	 *
 	 * @param string $version The version.
 	 *
 	 * @return string
 	 */
 	private static function major_line( string $version ): string {
-		$parts = explode( '.', $version );
+		$parts = preg_split( '/[.-]/', $version );
+		$parts = false === $parts ? [] : $parts;
 
 		return ( $parts[0] ?? '' ) . '.' . ( $parts[1] ?? '0' );
 	}
