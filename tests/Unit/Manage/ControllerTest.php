@@ -103,6 +103,13 @@ final class ControllerTest extends TestCase {
 	private string $home = 'https://scanfully.com';
 
 	/**
+	 * Whether the keys endpoint is unreachable.
+	 *
+	 * @var bool
+	 */
+	private bool $keys_down = false;
+
+	/**
 	 * What home_url() answers, call after call: a multilingual plugin's
 	 * filter, which the address check must not follow.
 	 *
@@ -1644,6 +1651,40 @@ final class ControllerTest extends TestCase {
 	 */
 	private function requests_after_pull(): array {
 		return array_values( array_filter( $this->requests, fn( array $r ) => 'GET' !== $r['method'] ) );
+	}
+
+	public function test_a_job_waits_while_the_key_set_cannot_be_fetched(): void {
+		$this->keys_down = true;
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( string $url ) {
+				if ( self::ISSUER . '/.well-known/scanfully-plugin-keys.json' === $url ) {
+					return $this->keys_down ? new \WP_Error( 'http_request_failed', 'cURL error 7: Failed to connect' ) : [
+						'code' => 200,
+						'body' => self::$jwks,
+					];
+				}
+				return $this->answer( 'GET', $url, null );
+			}
+		);
+		$this->jobs( [ self::ping() ] );
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->requests_after_pull(), 'no heartbeat and no signature failure: the job waits' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		// The keys are back after the refetch wait.
+		$this->keys_down = false;
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
 	}
 
 	public function test_a_job_waits_while_another_job_holds_the_site_lock(): void {

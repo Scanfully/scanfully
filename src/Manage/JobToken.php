@@ -36,6 +36,13 @@ final class JobToken {
 	public const EXPIRED = 'expired';
 
 	/**
+	 * The token could not be checked: Scanfully's key set could not be
+	 * fetched. The job waits for the next pull, as an expired one does, so
+	 * an outage during a key rotation does not use up its one attempt.
+	 */
+	public const UNVERIFIED = 'unverified';
+
+	/**
 	 * No token, or one that does not check out: the job never runs.
 	 */
 	public const INVALID = 'invalid';
@@ -47,7 +54,7 @@ final class JobToken {
 	 * @param string                                                                                                    $site_id The site's Scanfully id.
 	 * @param int|null                                                                                                  $now     The time.
 	 *
-	 * @return string One of VALID, EXPIRED, INVALID.
+	 * @return string One of VALID, EXPIRED, UNVERIFIED, INVALID.
 	 */
 	public static function check( array $job, string $site_id, ?int $now = null ): string {
 		$now   = $now ?? time();
@@ -57,7 +64,7 @@ final class JobToken {
 		}
 		$claims = SignedRequest::claims( $token );
 		if ( null === $claims ) {
-			return self::INVALID;
+			return SignedRequest::keys_unavailable() ? self::UNVERIFIED : self::INVALID;
 		}
 
 		$hash = isset( $job['params_hash'] ) && is_string( $job['params_hash'] ) && '' !== $job['params_hash']

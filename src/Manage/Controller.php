@@ -501,9 +501,11 @@ class Controller {
 				}
 				$attempt = $job['attempt'];
 				$check   = JobToken::check( $job, (string) Options\Controller::get_options()->site_id, $now );
-				if ( JobToken::EXPIRED === $check ) {
-					// Its lease passed before it could start: the API hands
-					// it out again with a new attempt and token.
+				if ( JobToken::EXPIRED === $check || JobToken::UNVERIFIED === $check ) {
+					// Its lease passed before it could start (the API hands
+					// it out again with a new attempt and token), or the key
+					// set to check it could not be fetched: it waits for the
+					// next pull, and nothing runs.
 					return;
 				}
 				if ( JobToken::INVALID !== $check && ! RunLock::take( $id, $now + self::STALE_RUN, $now ) ) {

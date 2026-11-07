@@ -50,6 +50,13 @@ final class JobTokenTest extends TestCase {
 	 */
 	private array $transients = [];
 
+	/**
+	 * The status the keys endpoint answers.
+	 *
+	 * @var int
+	 */
+	private int $keys_status = 200;
+
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 		$settings        = [
@@ -85,8 +92,14 @@ final class JobTokenTest extends TestCase {
 				return true;
 			}
 		);
+		Functions\when( 'delete_transient' )->alias(
+			function ( string $key ) {
+				unset( $this->transients[ $key ] );
+				return true;
+			}
+		);
 		Functions\when( 'is_wp_error' )->justReturn( false );
-		Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( 200 );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( fn() => $this->keys_status );
 		Functions\when( 'wp_remote_retrieve_body' )->alias( fn() => self::$jwks );
 		Functions\when( 'wp_remote_get' )->justReturn( [] );
 	}
@@ -283,5 +296,33 @@ final class JobTokenTest extends TestCase {
 			'printf %s \'{"slug":"akismet","target_version":"5.3.1"}\' | shasum -a 256'
 		);
 		$this->assertSame( '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', JobToken::params_hash( [] ), 'sha256 of {}' );
+	}
+
+	public function test_a_key_set_that_cannot_be_fetched_leaves_the_job_unverified_not_invalid(): void {
+		$this->keys_status = 503;
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( self::job(), self::SITE ), 'the keys endpoint answers 503' );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( self::job(), self::SITE ), 'within the refetch wait, still unverified' );
+
+		// The next fetch works: a token Scanfully signed checks out.
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->keys_status = 200;
+		$this->assertSame( JobToken::VALID, JobToken::check( self::job(), self::SITE ) );
+		$this->assertArrayNotHasKey( 'scanfully_plugin_keys_fetch_failed', $this->transients );
+	}
+
+	public function test_a_key_id_the_fetched_set_does_not_have_is_invalid(): void {
+		$header = self::b64url(
+			(string) json_encode(
+				[
+					'alg' => 'RS256',
+					'kid' => 'key-unknown',
+				]
+			)
+		);
+		[ , $payload, $signature ] = explode( '.', self::token() );
+		$job                       = self::job( [ 'job_token' => $header . '.' . $payload . '.' . $signature ] );
+
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'the key set was fetched and has no such key' );
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
 	}
 }

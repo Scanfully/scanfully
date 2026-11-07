@@ -52,6 +52,7 @@ final class ControllerTest extends TestCase {
 			fn( string $name, $default = false ) => $this->options[ str_replace( 'scanfully_connect_', '', $name ) ] ?? $default
 		);
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => $this->transients[ $key ] ?? false );
+		Functions\when( 'delete_transient' )->justReturn( true );
 		Functions\when( 'set_transient' )->alias(
 			function ( string $key, $value ) {
 				$this->transients[ $key ] = $value;

@@ -36,6 +36,21 @@ class SignedRequest {
 	private const REFETCH_TRANSIENT = 'scanfully_plugin_keys_refetched';
 
 	/**
+	 * Transient set while the last fetch of the key set failed (no answer,
+	 * or not a key set), for as long as no new fetch is tried.
+	 */
+	private const FETCH_FAILED_TRANSIENT = 'scanfully_plugin_keys_fetch_failed';
+
+	/**
+	 * Whether the last token checked could not be checked because the key
+	 * set could not be fetched, as opposed to a key id the fetched set does
+	 * not have.
+	 *
+	 * @var bool
+	 */
+	private static bool $keys_unavailable = false;
+
+	/**
 	 * Seconds between two fetches of the key set.
 	 */
 	private const REFETCH_WAIT = 5 * MINUTE_IN_SECONDS;
@@ -108,7 +123,8 @@ class SignedRequest {
 	 * @return array<string, mixed>|null The claims, or null when the token is not one Scanfully signed.
 	 */
 	public static function claims( string $token ): ?array {
-		$parts = explode( '.', $token );
+		self::$keys_unavailable = false;
+		$parts                  = explode( '.', $token );
 		if ( 3 !== count( $parts ) || ! function_exists( 'openssl_verify' ) ) {
 			return null;
 		}
@@ -130,6 +146,19 @@ class SignedRequest {
 	}
 
 	/**
+	 * Whether the last token claims() checked could not be checked because
+	 * Scanfully's key set could not be fetched (no answer, an error, or
+	 * not a key set), now or at the last try a few minutes ago. A key id
+	 * that a fetched key set does not have is not this: that token is not
+	 * Scanfully's.
+	 *
+	 * @return bool
+	 */
+	public static function keys_unavailable(): bool {
+		return self::$keys_unavailable;
+	}
+
+	/**
 	 * The public key with the id, as PEM, from the cached key set, or from a
 	 * fresh one when the cache does not have it.
 	 *
@@ -147,13 +176,17 @@ class SignedRequest {
 		// unknown key ids (or an unreachable key set) costs no outbound
 		// request each.
 		if ( false !== get_transient( self::REFETCH_TRANSIENT ) ) {
+			self::$keys_unavailable = false !== get_transient( self::FETCH_FAILED_TRANSIENT );
 			return null;
 		}
 		set_transient( self::REFETCH_TRANSIENT, 1, self::REFETCH_WAIT );
 		$keys = self::fetch_keys();
 		if ( null === $keys ) {
+			set_transient( self::FETCH_FAILED_TRANSIENT, 1, self::REFETCH_WAIT );
+			self::$keys_unavailable = true;
 			return null;
 		}
+		delete_transient( self::FETCH_FAILED_TRANSIENT );
 		set_transient( self::KEYS_TRANSIENT, $keys, DAY_IN_SECONDS );
 
 		return $keys[ $kid ] ?? null;
