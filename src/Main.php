@@ -157,6 +157,7 @@ class Main {
 
 		// Scanfully Manage: the poke route, the clock and the jobs.
 		Manage\Controller::setup();
+		Connect\Scopes::setup();
 	}
 
 	/**

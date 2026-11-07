@@ -224,6 +224,7 @@ class Controller {
 		OptionsController::set_options(
 			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
 		);
+		Scopes::forget_change();
 		self::store_grant( $tokens['scopes'] );
 		self::schedule_first_syncs();
 
@@ -489,6 +490,12 @@ class Controller {
 		if ( false === get_transient( self::OAUTH_UNAVAILABLE_TRANSIENT ) ) {
 			$tokens = OAuth::refresh( $refresh_token, $site );
 			if ( ! empty( $tokens ) ) {
+				// The token answer reports the grant's scopes: a connection on
+				// the OAuth server learns a change made in the dashboard here too.
+				$scopes = Scopes::of( $tokens['scopes'] );
+				if ( null !== $scopes && 'oauth' === OptionsController::get_option( 'flow' ) ) {
+					Scopes::note_change( $scopes );
+				}
 				self::store_grant( $tokens['scopes'] );
 				return $tokens;
 			}

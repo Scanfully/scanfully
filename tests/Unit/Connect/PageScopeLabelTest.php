@@ -14,6 +14,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Connect\Page
+ * @covers \Scanfully\Connect\Scopes
  */
 final class PageScopeLabelTest extends TestCase {
 
@@ -39,5 +40,22 @@ final class PageScopeLabelTest extends TestCase {
 		$this->assertSame( [ 'wordpress:read' ], OAuth::SCOPES );
 		$this->assertSame( 'wordpress:manage', OAuth::SCOPE_MANAGE );
 		$this->assertSame( 'wordpress:login', OAuth::SCOPE_LOGIN );
+	}
+	public function test_scopes_changed_in_the_dashboard_say_so_with_when(): void {
+		$changed = 0;
+		Functions\when( 'get_option' )->alias(
+			function ( string $name, $default = false ) use ( &$changed ) {
+				if ( 'scanfully_connect_scopes_changed' === $name ) {
+					return $changed;
+				}
+				return 'date_format' === $name ? 'j F Y' : ( 'time_format' === $name ? 'H:i' : $default );
+			}
+		);
+		Functions\when( 'wp_date' )->alias( fn( string $format, int $at ) => gmdate( $format, $at ) );
+
+		$this->assertSame( '', Page::scopes_changed_note(), 'as approved when connecting' );
+
+		$changed = 1794052800;
+		$this->assertSame( 'Changed in your Scanfully dashboard on 7 November 2026 @ 12:00.', Page::scopes_changed_note() );
 	}
 }

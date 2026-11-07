@@ -160,6 +160,16 @@ class Controller {
 	}
 
 	/**
+	 * End a pause: the grant holds wordpress:manage again, changed in the
+	 * Scanfully dashboard. The clock follows when the grant is stored.
+	 *
+	 * @return void
+	 */
+	public static function resume(): void {
+		delete_option( self::PAUSED_OPTION );
+	}
+
+	/**
 	 * Only a request Scanfully signed for this site and the action manage,
 	 * with wordpress:manage in it and in the plugin's own copy of the grant,
 	 * may poke. The site's access token is never accepted here.

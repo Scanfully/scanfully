@@ -8,6 +8,7 @@
 namespace Scanfully\Tests\Unit\Manage;
 
 use Brain\Monkey\Functions;
+use Scanfully\Connect\Scopes;
 use Scanfully\Manage\Controller;
 use Scanfully\Manage\Ledger;
 use WP_REST_Request;
@@ -17,6 +18,8 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
  * @covers \Scanfully\Manage\Controller
  * @covers \Scanfully\Manage\Ledger
  * @covers \Scanfully\API\ManageJobsRequest
+ * @covers \Scanfully\API\PluginConnectionRequest
+ * @covers \Scanfully\Connect\Scopes
  */
 final class ControllerTest extends TestCase {
 
@@ -764,5 +767,129 @@ final class ControllerTest extends TestCase {
 		);
 
 		$this->assertSame( [ self::JOB ], Ledger::open( time() - 900 ) );
+	}
+
+	/**
+	 * The API's answer to the plugin's read of its connection.
+	 *
+	 * @param string[] $scopes The scopes.
+	 */
+	private function connection( array $scopes ): void {
+		$this->answers['GET /plugin-connection'] = [
+			'code' => 200,
+			'body' => (string) json_encode(
+				[
+					'site_id' => self::SITE,
+					'scopes'  => $scopes,
+					'scope'   => implode( ' ', $scopes ),
+				]
+			),
+		];
+	}
+
+	private function scopes_poke( string $token ): bool {
+		$request = new WP_REST_Request();
+		$request->set_header( 'Authorization', 'Bearer ' . $token );
+		return Scopes::check_permission( $request );
+	}
+
+	public function test_a_scopes_poke_needs_a_signed_request_for_scopes_on_an_oauth_connection(): void {
+		$this->options['scopes'] = 'wordpress:read';
+		$this->assertTrue(
+			$this->scopes_poke(
+				$this->signed(
+					[
+						'sub' => 'scopes',
+						'scope' => 'wordpress:read',
+					]
+				)
+			),
+			'a read-only site takes it'
+		);
+		$this->assertFalse( $this->scopes_poke( $this->signed( [ 'sub' => 'manage' ] ) ), 'a manage poke' );
+		$this->assertFalse(
+			$this->scopes_poke(
+				$this->signed(
+					[
+						'sub' => 'scopes',
+						'aud' => [ 'another-site' ],
+					]
+				)
+			),
+			'another site'
+		);
+		$this->assertFalse( $this->scopes_poke( 'sfy_sat_token' ), 'the site token itself' );
+
+		$this->options['flow'] = 'legacy';
+		$this->assertFalse( $this->scopes_poke( $this->signed( [ 'sub' => 'scopes' ] ) ), 'a connection on connect tokens' );
+	}
+
+	public function test_a_scopes_poke_schedules_a_read_and_is_rate_limited(): void {
+		$response = Scopes::handle_poke();
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( [ 'status' => 'scheduled' ], $response->get_data() );
+		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ) );
+		$this->assertSame( [], $this->requests, 'the poke itself fetches nothing' );
+		$this->assertSame( 429, Scopes::handle_poke()->get_status() );
+	}
+
+	public function test_manage_switched_on_in_the_dashboard_starts_the_clock_and_ends_a_pause(): void {
+		$this->options['scopes']                  = 'wordpress:read';
+		$this->options['scanfully_manage_paused'] = 'wordpress:read';
+		Controller::sync_clock();
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ) );
+
+		$this->connection( [ 'wordpress:read', 'wordpress:manage' ] );
+		Scopes::refresh();
+		Controller::sync_clock(); // What scanfully_grant_stored runs.
+
+		$this->assertSame( 'wordpress:read wordpress:manage', $this->options['scopes'] );
+		$this->assertArrayNotHasKey( 'scanfully_manage_paused', $this->options );
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
+		$this->assertGreaterThan( 0, Scopes::changed_at(), 'the settings page says it changed in the dashboard' );
+	}
+
+	public function test_manage_switched_off_in_the_dashboard_stops_the_clock(): void {
+		Controller::sync_clock();
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
+
+		$this->connection( [ 'wordpress:read' ] );
+		Scopes::refresh();
+		Controller::sync_clock();
+
+		$this->assertSame( 'wordpress:read', $this->options['scopes'] );
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ) );
+	}
+
+	public function test_an_answer_without_scopes_or_the_same_scopes_changes_nothing(): void {
+		$this->answers['GET /plugin-connection'] = [
+			'code' => 404,
+			'body' => '{"error":"not_found"}',
+		];
+		Scopes::refresh();
+		$this->connection( [ 'wordpress:manage' ] );
+		Scopes::refresh();
+		$this->connection( [ 'wordpress:manage', 'wordpress:read', 'wordpress:database' ] );
+		Scopes::refresh();
+
+		$this->assertSame( 'wordpress:read wordpress:manage', $this->options['scopes'] );
+		$this->assertSame( 0, Scopes::changed_at() );
+		$this->assertArrayNotHasKey( 'last_request_error', $this->options, 'an older API is no broken connection' );
+	}
+
+	public function test_the_hourly_check_runs_on_an_oauth_connection_only(): void {
+		Functions\when( 'is_admin' )->justReturn( true );
+		Scopes::maybe_sync_clock();
+		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK ) );
+
+		$this->options['flow'] = 'legacy';
+		Scopes::sync_clock();
+		$this->assertFalse( $this->pending( Scopes::ACTION_CHECK ) );
+
+		$this->options['flow'] = 'oauth';
+		Scopes::sync_clock();
+		Scopes::clear();
+		$this->assertFalse( $this->pending( Scopes::ACTION_CHECK ) );
 	}
 }
