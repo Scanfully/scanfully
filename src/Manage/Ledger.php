@@ -200,6 +200,24 @@ class Ledger {
 	}
 
 	/**
+	 * The jobs scheduled to start: pulled, not started yet, or whose first
+	 * heartbeat got no yes.
+	 *
+	 * @return string[] The job ids.
+	 */
+	public static function scheduled(): array {
+		$ids = [];
+		foreach ( self::rows() as $name => $value ) {
+			$row = json_decode( $value, true );
+			if ( is_array( $row ) && self::SCHEDULED === ( $row['state'] ?? '' ) ) {
+				$ids[] = substr( $name, strlen( self::PREFIX ) );
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
 	 * The ledger's rows, by option name, in the order they were written,
 	 * read a page at a time so a long ledger is read to its end.
 	 *

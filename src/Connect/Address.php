@@ -17,13 +17,20 @@ use Scanfully\Options\Controller as OptionsController;
  * this check both copies would pull and run the same site's Scanfully Manage
  * jobs, each job on whichever copy pulled first.
  *
- * The plugin keeps home_url() as it was at connect: host plus path,
- * lowercased, without the scheme and without a trailing slash, so a move from
- * http to https is the same site. While the current address differs,
+ * The plugin keeps the site's address as it was at connect: the raw home
+ * option (which honours WP_HOME, but not the home_url filters that
+ * multilingual plugins and domain mappers use to change the address between
+ * wp-admin, REST and cron), as host, port and path, lowercased, without the
+ * scheme and without a trailing slash, so a move from http to https is the
+ * same site. While the current address differs,
  * Scanfully Manage is paused: no clock, no pull, no run, no result sent, and
- * the manage and scopes pokes are answered 409 site_moved. The site's admin
- * decides: keep the connection (the same site at a new address) or reconnect
- * the copy as a site of its own. Regular monitoring is not affected.
+ * the manage and scopes pokes are answered 409 site_moved. The copy never
+ * refreshes the tokens (they are the original's: a refresh would rotate them
+ * away from it) and leaves its capabilities out of its site data. The site's
+ * admin decides: keep the connection (the same site at a new address) or
+ * reconnect the copy as a site of its own; reconnecting or disconnecting a
+ * copy revokes nothing. Regular monitoring otherwise goes on, under the
+ * original site's id, until the access token expires.
  */
 class Address {
 
@@ -64,8 +71,8 @@ class Address {
 	}
 
 	/**
-	 * An address in the stored form: host plus path, lowercased, without the
-	 * scheme and without a trailing slash.
+	 * An address in the stored form: host, port when there is one, and path,
+	 * lowercased, without the scheme and without a trailing slash.
 	 *
 	 * @param string $url The address.
 	 *
@@ -76,18 +83,22 @@ class Address {
 		if ( ! is_array( $parts ) || ! isset( $parts['host'] ) || '' === $parts['host'] ) {
 			return '';
 		}
+		$port = isset( $parts['port'] ) ? ':' . (int) $parts['port'] : '';
 		$path = isset( $parts['path'] ) ? rtrim( $parts['path'], '/' ) : '';
 
-		return strtolower( $parts['host'] . $path );
+		return strtolower( $parts['host'] . $port . $path );
 	}
 
 	/**
-	 * The site's address now, normalized.
+	 * The site's address now, normalized, from the raw home option: the
+	 * same in wp-admin, REST and cron, whatever a home_url filter does.
 	 *
 	 * @return string
 	 */
 	public static function current(): string {
-		return self::normalize( home_url() );
+		$home = get_option( 'home' );
+
+		return is_string( $home ) ? self::normalize( $home ) : '';
 	}
 
 	/**
@@ -225,14 +236,36 @@ class Address {
 	}
 
 	/**
-	 * What the notice says, with the stored address.
+	 * What the notice says, with the stored address: Manage is paused on a
+	 * connection that allows it, and will not run on one that never did.
 	 *
 	 * @return string
 	 */
 	public static function notice_text(): string {
+		if ( ! in_array( OAuth::SCOPE_MANAGE, Controller::granted_scopes(), true ) ) {
+			return sprintf(
+				/* translators: %s: the address the site was connected from, such as scanfully.com. */
+				__( 'This WordPress site looks like a copy of %s. Scanfully Manage will not run here. If this is the same site at a new address, keep the connection; if it is a copy (staging, a backup), reconnect it as its own site.', 'scanfully' ),
+				self::stored()
+			);
+		}
+
 		return sprintf(
 			/* translators: %s: the address the site was connected from, such as scanfully.com. */
 			__( 'This WordPress site looks like a copy of %s. Scanfully Manage is paused here. If this is the same site at a new address, keep the connection; if it is a copy (staging, a backup), reconnect it as its own site.', 'scanfully' ),
+			self::stored()
+		);
+	}
+
+	/**
+	 * What reconnecting or disconnecting a copy does to the original site.
+	 *
+	 * @return string
+	 */
+	public static function original_stays_text(): string {
+		return sprintf(
+			/* translators: %s: the address the site was connected from, such as scanfully.com. */
+			__( 'Reconnecting or disconnecting this copy leaves the Scanfully connection of %s in place.', 'scanfully' ),
 			self::stored()
 		);
 	}
@@ -266,6 +299,7 @@ class Address {
 		<div class="notice notice-warning scanfully-site-moved-notice">
 			<p><strong><?php esc_html_e( 'Scanfully', 'scanfully' ); ?></strong></p>
 			<p><?php echo esc_html( self::notice_text() ); ?></p>
+			<p><?php echo esc_html( self::original_stays_text() ); ?></p>
 			<p>
 				<a href="<?php echo esc_url( self::keep_url() ); ?>" class="button button-primary"><?php esc_html_e( 'Keep the connection', 'scanfully' ); ?></a>
 				<a href="<?php echo esc_url( self::reconnect_url() ); ?>" class="button"><?php esc_html_e( 'Reconnect as its own site', 'scanfully' ); ?></a>
@@ -295,6 +329,7 @@ class Address {
 		?>
 		<div class="scanfully-connect-notice scanfully-connect-notice-error scanfully-site-moved-notice">
 			<p><?php echo esc_html( self::notice_text() ); ?></p>
+			<p><?php echo esc_html( self::original_stays_text() ); ?></p>
 			<p style="display: flex; gap: 1em;">
 				<a href="<?php echo esc_url( self::keep_url() ); ?>" class="button button-primary"><?php esc_html_e( 'Keep the connection', 'scanfully' ); ?></a>
 				<a href="<?php echo esc_url( self::reconnect_url() ); ?>" class="button"><?php esc_html_e( 'Reconnect as its own site', 'scanfully' ); ?></a>

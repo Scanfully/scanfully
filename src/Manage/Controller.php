@@ -318,11 +318,24 @@ class Controller {
 			return;
 		}
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
+			$listed = [];
 			foreach ( $answer['body']['jobs'] as $raw ) {
 				$job = self::job_of( $raw );
-				if ( null !== $job && self::take( $job, $now ) ) {
+				if ( null === $job ) {
+					continue;
+				}
+				$listed[] = $job['id'];
+				if ( self::take( $job, $now ) ) {
 					$scheduled = true;
 				}
+			}
+			// A job waiting to start that the API no longer lists: its
+			// first heartbeat may have reached the API (the job runs there)
+			// while its answer got lost. The run sends it again and starts
+			// only when the API answers that the job runs; any other answer
+			// leaves it waiting, as before.
+			foreach ( array_diff( Ledger::scheduled(), $listed ) as $id ) {
+				$scheduled = self::schedule_run( $id ) || $scheduled;
 			}
 		}
 		if ( $scheduled ) {

@@ -401,6 +401,14 @@ class Controller {
 		if ( ! $options->is_connected || ! self::token_needs_refresh( $options ) ) {
 			return;
 		}
+		// A copy of the site (its address differs from the one it was
+		// connected from) never refreshes: the tokens are the original
+		// site's, and a refresh here would rotate them away from it. The copy
+		// runs on the access token until it expires, and its admin then sees
+		// that the connection needs reconnecting.
+		if ( Connect\Address::moved() ) {
+			return;
+		}
 
 		if ( ! self::acquire_refresh_lock() ) {
 			// another process is refreshing; the current token stays valid until
