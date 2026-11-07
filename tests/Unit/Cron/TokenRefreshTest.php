@@ -15,6 +15,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 /**
  * @covers \Scanfully\Cron\Controller
  * @covers \Scanfully\Connect\Controller::refresh_access_token
+ * @covers \Scanfully\Connect\Scopes
  * @covers \Scanfully\Options\Controller::get_fresh_options
  */
 final class TokenRefreshTest extends TestCase {
@@ -163,6 +164,31 @@ final class TokenRefreshTest extends TestCase {
 		$method = new ReflectionMethod( Controller::class, 'refresh_access_token_if_needed' );
 		$method->setAccessible( true );
 		$method->invoke( null );
+	}
+
+	public function test_a_refresh_learns_a_change_made_in_the_dashboard_with_the_same_checked_list(): void {
+		Functions\when( 'delete_option' )->alias(
+			function ( string $name ) {
+				unset( $this->options[ $name ] );
+				return true;
+			}
+		);
+		$this->options['scanfully_connect_scopes']   = 'wordpress:read';
+		$this->options['scanfully_manage_paused']    = 'wordpress:read';
+		$this->api_response                          = [ 200, str_replace( '"wordpress:read"', '"wordpress:read wordpress:manage wordpress:later"', $this->token_body( 'new-access', 'new-refresh' ) ) ];
+
+		$this->refresh();
+
+		// The scope this version does not know is left out, as the hourly read leaves it out.
+		$this->assertSame( 'wordpress:read wordpress:manage', $this->options['scanfully_connect_scopes'] );
+		$this->assertArrayHasKey( 'scanfully_connect_scopes_changed', $this->options, 'noted as changed in the dashboard' );
+		$this->assertArrayNotHasKey( 'scanfully_manage_paused', $this->options, 'the pause ends' );
+
+		// The next refresh with the same answer is no change.
+		unset( $this->options['scanfully_connect_scopes_changed'] );
+		$this->options['scanfully_connect_expires'] = gmdate( 'Y-m-d H:i:s', time() + HOUR_IN_SECONDS );
+		$this->refresh();
+		$this->assertArrayNotHasKey( 'scanfully_connect_scopes_changed', $this->options );
 	}
 
 	public function test_a_token_far_from_expiry_is_not_refreshed(): void {

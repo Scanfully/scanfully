@@ -150,6 +150,10 @@ class Page {
 								<?php foreach ( Controller::granted_scopes() as $scope ) : ?>
 									<span class="scanfully-connect-blob scanfully-connect-blob-info"><?php echo esc_html( self::scope_label( $scope ) ); ?></span>
 								<?php endforeach; ?>
+								<?php $changed = self::scopes_changed_note(); ?>
+								<?php if ( '' !== $changed ) : ?>
+									<p class="description scanfully-connect-scopes-changed"><?php echo esc_html( $changed ); ?></p>
+								<?php endif; ?>
 							</div>
 						</li>
 					<?php endif; ?>
@@ -202,6 +206,24 @@ class Page {
 		}
 
 		return $date->format( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ) );
+	}
+
+	/**
+	 * The note under the scopes when they last changed in the Scanfully
+	 * dashboard, with when, or '' when they are as the connection approved
+	 * them.
+	 *
+	 * @return string
+	 */
+	public static function scopes_changed_note(): string {
+		$at = Scopes::changed_at();
+		if ( $at <= 0 ) {
+			return '';
+		}
+		$when = wp_date( get_option( 'date_format' ) . ' @ ' . get_option( 'time_format' ), $at );
+
+		/* translators: %s: the date and time of the change. */
+		return sprintf( __( 'Changed in your Scanfully dashboard on %s.', 'scanfully' ), false === $when ? '-' : $when );
 	}
 
 	/**
