@@ -235,9 +235,7 @@ try {
 	 */
 	public static function maybe_install(): void {
 		try {
-			if ( Monitor::should_run() && ! self::is_current() ) {
-				self::install();
-			}
+			self::install();
 		} catch ( \Throwable $e ) {
 			// Never break the admin; the Scanfully plugin catches errors itself.
 			return;

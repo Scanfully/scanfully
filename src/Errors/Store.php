@@ -336,10 +336,10 @@ final class Store {
 	}
 
 	/**
-	 * Take sent counts off: the counts drop by what was sent, and the sample
-	 * and last time go, so the next occurrence starts a new sample. A count
-	 * that reaches zero goes too; one that grew while sending stays for the
-	 * next send.
+	 * Take sent counts off: the counts drop by what was sent. A count that
+	 * reaches zero goes with its sample and last time, so the next
+	 * occurrence starts a new sample; one that grew while sending stays,
+	 * with its sample, for the next send.
 	 *
 	 * @param array<string, int> $sent Count sent by key.
 	 *
@@ -355,8 +355,13 @@ final class Store {
 				continue;
 			}
 			$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = option_value - %d WHERE option_name = %s", $count, self::PREFIX . $key . '_n' ) );
-			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name IN (%s, %s)", self::PREFIX . $key . '_s', self::PREFIX . $key . '_l' ) );
 			$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s AND CAST(option_value AS SIGNED) <= 0", self::PREFIX . $key . '_n' ) );
+			// The sample and last time go with the count; a count that grew
+			// while sending keeps them, so the next send still has a sample.
+			$left = $wpdb->get_var( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name = %s", self::PREFIX . $key . '_n' ) );
+			if ( null === $left ) {
+				$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name IN (%s, %s)", self::PREFIX . $key . '_s', self::PREFIX . $key . '_l' ) );
+			}
 		}
 		// phpcs:enable
 	}

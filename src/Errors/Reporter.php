@@ -93,7 +93,7 @@ final class Reporter {
 		$order   = [];
 		foreach ( $stored['errors'] as $key => $error ) {
 			// Nothing left to send, or kept too long.
-			if ( $error['count'] < 1 || ( $error['last_seen'] > 0 && $error['last_seen'] < $now - self::KEEP ) ) {
+			if ( $error['count'] < 1 || $error['last_seen'] < $now - self::KEEP ) {
 				Store::delete( $key );
 				continue;
 			}

@@ -46,7 +46,7 @@ final class Scrubber {
 		// A long hexadecimal value: a hash, a session id, a token.
 		'/\b(?=[0-9a-f]*\d)[0-9a-f]{32,}\b/i' => '[key]',
 		// A long value of letters and digits with no spaces: a key.
-		'/(?<![A-Za-z0-9_\-\/+=])(?=[A-Za-z0-9_\-\/+=]*\d)(?=[A-Za-z0-9_\-\/+=]*[A-Za-z])[A-Za-z0-9_\-\/+=]{40,}(?![A-Za-z0-9_\-\/+=])/' => '[key]',
+		'/(?<![A-Za-z0-9_\-+=\/.])(?=[A-Za-z0-9_\-+=]*\d)(?=[A-Za-z0-9_\-+=]*[A-Za-z])[A-Za-z0-9_\-+=]{40,}(?![A-Za-z0-9_\-+=\/.])/' => '[key]',
 	];
 
 	/**

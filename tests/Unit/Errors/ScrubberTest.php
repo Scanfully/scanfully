@@ -49,6 +49,7 @@ final class ScrubberTest extends TestCase {
 			'file_get_contents(wp-content/uploads/2026/11/export.csv): Failed to open stream: No such file or directory',
 			'Allowed memory size of 134217728 bytes exhausted (tried to allocate 20480 bytes)',
 			'Attempt to read property "ID" on null',
+			'include(wp-content/plugins/mail-smtp2/vendor_prefixed/monolog/Handler.php): Failed to open stream',
 			'foreach() argument must be of type array|object, string given',
 		];
 		foreach ( $messages as $message ) {

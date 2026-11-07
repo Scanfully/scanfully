@@ -110,13 +110,6 @@ final class Monitor {
 	private static int $dropped = 0;
 
 	/**
-	 * Whether an update finished in this request.
-	 *
-	 * @var bool
-	 */
-	private static bool $updated = false;
-
-	/**
 	 * Start catching errors, once per request: when the site is connected,
 	 * capture isn't turned off, and (from the must-use plugin) the
 	 * Scanfully plugin is active.
@@ -293,7 +286,9 @@ final class Monitor {
 			self::$errors[ $id ]['last_seen'] = $now;
 			return;
 		}
-		if ( count( self::$errors ) >= self::MAX_PER_REQUEST ) {
+		// Past the cap only warnings are dropped: the fatal error that ends
+		// the request is the one that matters most.
+		if ( count( self::$errors ) >= self::MAX_PER_REQUEST && 0 === ( $type & Builder::FATAL ) ) {
 			++self::$dropped;
 			return;
 		}
@@ -308,15 +303,6 @@ final class Monitor {
 			'first_seen' => $now,
 			'last_seen'  => $now,
 		];
-	}
-
-	/**
-	 * `upgrader_process_complete`: an update finished in this request.
-	 *
-	 * @return void
-	 */
-	public static function note_update(): void {
-		self::$updated = true;
 	}
 
 	/**
@@ -416,8 +402,8 @@ final class Monitor {
 
 		Store::add( $errors, $hour, count( $new ), $overflow );
 
-		if ( [] !== $unknown || self::$updated ) {
-			Reporter::schedule( self::$updated ? Reporter::TRIGGER_UPDATE : Reporter::TRIGGER_NEW );
+		if ( [] !== $unknown ) {
+			Reporter::schedule( Reporter::TRIGGER_NEW );
 		}
 	}
 
@@ -498,7 +484,6 @@ final class Monitor {
 		self::$busy      = false;
 		self::$errors    = [];
 		self::$dropped   = 0;
-		self::$updated   = false;
 	}
 
 	/**

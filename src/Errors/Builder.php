@@ -124,7 +124,7 @@ final class Builder {
 		$body  = is_array( $parts ) && isset( $parts[1] ) ? (string) $parts[1] : '';
 
 		// The place it was thrown is already the error's file and line.
-		$head = (string) preg_replace( '/ in \S+:\d+\s*$/', '', rtrim( $head ) );
+		$head = (string) preg_replace( '/ in (?:[A-Za-z]:)?[\/\\\\][^\n]*:\d+\s*$/', '', rtrim( $head ) );
 
 		$lines = preg_split( '/\R/', $body );
 		foreach ( is_array( $lines ) ? $lines : [] as $line ) {

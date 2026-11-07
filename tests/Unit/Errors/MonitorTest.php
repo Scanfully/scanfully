@@ -131,6 +131,15 @@ final class MonitorTest extends TestCase {
 		$this->assertSame( 'Again 0', $recorded[ E_WARNING . ':/srv/site/a.php:1' ]['message'] );
 	}
 
+	public function test_the_fatal_error_is_kept_past_the_cap(): void {
+		for ( $line = 1; $line <= Monitor::MAX_PER_REQUEST; $line++ ) {
+			Monitor::handle( E_WARNING, 'Noise', '/srv/site/a.php', $line );
+		}
+		Monitor::record( E_ERROR, 'Allowed memory size exhausted', '/srv/site/b.php', 9 );
+
+		$this->assertArrayHasKey( E_ERROR . ':/srv/site/b.php:9', Monitor::recorded() );
+	}
+
 	public function test_errors_on_two_lines_with_the_same_fingerprint_are_added_up(): void {
 		Monitor::handle( E_WARNING, 'Undefined array key "a"', '/srv/site/wp-content/plugins/shop/a.php', 10 );
 		Monitor::handle( E_WARNING, 'Undefined array key "b"', '/srv/site/wp-content/plugins/shop/a.php', 12 );

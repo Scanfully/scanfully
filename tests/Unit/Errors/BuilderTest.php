@@ -141,6 +141,12 @@ final class BuilderTest extends TestCase {
 		$this->assertSame( 'shop', $error['source']['slug'] );
 	}
 
+	public function test_an_exception_thrown_in_a_path_with_spaces_loses_its_place(): void {
+		$split = Builder::split_exception( "Uncaught Exception: boom in C:\\Program Files\\site\\x.php:88\nStack trace:\n#0 {main}\n  thrown" );
+
+		$this->assertSame( 'Uncaught Exception: boom', $split['message'] );
+	}
+
 	public function test_a_fatal_error_without_a_trace(): void {
 		$error = Builder::build(
 			[

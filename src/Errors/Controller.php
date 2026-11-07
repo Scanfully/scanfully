@@ -36,7 +36,6 @@ final class Controller {
 	 * @return void
 	 */
 	public static function setup(): void {
-		add_action( 'upgrader_process_complete', [ Monitor::class, 'note_update' ], 10, 0 );
 		add_action( 'upgrader_process_complete', [ self::class, 'send_after_update' ], 10, 0 );
 		add_action( 'admin_init', [ MuPlugin::class, 'maybe_install' ] );
 		add_action( 'admin_post_' . self::ADMIN_POST_TOGGLE, [ self::class, 'handle_toggle' ] );
