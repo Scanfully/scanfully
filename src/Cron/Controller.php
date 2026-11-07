@@ -421,6 +421,21 @@ class Controller {
 	}
 
 	/**
+	 * Have the next request refresh the access token first: the API refused
+	 * it (401), so it was replaced or revoked before its expiry date. The
+	 * stored expiry moves to now, which the next
+	 * refresh_access_token_if_needed() acts on.
+	 *
+	 * @return void
+	 */
+	public static function refresh_access_token_soon(): void {
+		if ( ! Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+		Options\Controller::set_option( 'expires', gmdate( Connect\Controller::DATE_FORMAT, time() ) );
+	}
+
+	/**
 	 * Whether the access token expires within two days, or the connection is
 	 * still a legacy one. An expiry date that cannot be parsed also needs a
 	 * refresh, which stores a fresh one.

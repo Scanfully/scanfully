@@ -26,6 +26,9 @@ use Scanfully\Sync;
  *   on;
  * - once an hour, for a site whose host blocks the poke;
  * - with every token refresh, whose answer reports the scopes too.
+ *
+ * A copy of the site (see Address) answers the poke 409 site_moved and reads
+ * nothing until its admin decides.
  */
 class Scopes {
 
@@ -154,6 +157,11 @@ class Scopes {
 	 * @return \WP_REST_Response
 	 */
 	public static function handle_poke(): \WP_REST_Response {
+		// A copy of the site, or the site at a new address: it does not take
+		// the original site's changes until the site's admin decides.
+		if ( Address::moved() ) {
+			return Address::moved_response();
+		}
 		$last = (int) get_transient( self::RATE_LIMIT_TRANSIENT );
 		if ( $last > 0 && time() - $last < self::RATE_LIMIT_WINDOW ) {
 			// A second change soon after the first: read the scopes again once
@@ -230,6 +238,13 @@ class Scopes {
 	 */
 	public static function refresh(): void {
 		if ( ! self::applies() ) {
+			return;
+		}
+		// A connection made before the plugin kept its address adopts the
+		// current one; a copy of the site reads nothing (a read tells the
+		// dashboard the original site took a change) and refreshes no token.
+		Address::adopt_if_missing();
+		if ( Address::moved() ) {
 			return;
 		}
 		Cron\Controller::refresh_access_token_if_needed();

@@ -11,8 +11,9 @@ namespace Scanfully\Manage;
  * Runs one Scanfully Manage job by its action and says how it went, in the
  * shape the API takes as the job's result. The actions are a registry: the
  * name the API queues, the callable that runs it, and whether it is long.
- * Every job sends a first heartbeat before its action runs, so the API sees
- * it running: a job whose PHP dies mid-run then ends stuck at the API and is
+ * Every job sends a first heartbeat before its action runs, and runs only
+ * when the API answers that it is running, so the API sees every started job
+ * running: a job whose PHP dies mid-run then ends stuck at the API and is
  * never run again, and a job that is still leased when its lease passes is
  * one the plugin never started. A long action also sends one every 30
  * seconds while it runs, so the API knows it still works on it; none is long
@@ -79,11 +80,11 @@ class Runner {
 	 * Run a job.
 	 *
 	 * @param array         $job       The job as pulled: id, action and params.
-	 * @param callable      $send_beat Sends a heartbeat for the job to the API; returns false when the API says the job is not the site's to run (any more).
+	 * @param callable      $send_beat Sends a heartbeat for the job to the API; returns true only when the API answered that the job runs.
 	 * @param callable|null $now       The clock, for tests; time() when null.
 	 * @param array|null    $registry  The actions, for tests; this version's when null.
 	 *
-	 * @return array{state: string, started_at: string, finished_at: string, result: object, error: array{class: string, message: string}}|null The result, or null when the first heartbeat was refused and nothing ran.
+	 * @return array{state: string, started_at: string, finished_at: string, result: object, error: array{class: string, message: string}}|null The result, or null when the first heartbeat was not answered with running and nothing ran.
 	 */
 	public static function run( array $job, callable $send_beat, ?callable $now = null, ?array $registry = null ): ?array {
 		$now     = $now ?? 'time';
@@ -91,7 +92,8 @@ class Runner {
 		$action  = isset( $job['action'] ) && is_string( $job['action'] ) ? $job['action'] : '';
 		$params  = isset( $job['params'] ) && is_array( $job['params'] ) ? $job['params'] : [];
 
-		// The first heartbeat, for every action: the job runs.
+		// The first heartbeat, for every action: the job runs only when the
+		// API says it does.
 		$beat = new Heartbeat( $send_beat, self::HEARTBEAT_EVERY, $now );
 		if ( ! $beat->start() ) {
 			return null;

@@ -123,8 +123,11 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// make the API forget the tokens before the site does.
-		self::revoke_tokens();
+		// make the API forget the tokens before the site does; not from a
+		// copy of the site, whose tokens are the original site's.
+		if ( ! Address::moved() ) {
+			self::revoke_tokens();
+		}
 
 		// remove all options / settings.
 		OptionsController::clear();
@@ -169,8 +172,12 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// revoke and clear the existing connection.
-		self::revoke_tokens();
+		// revoke and clear the existing connection. A copy of the site (its
+		// address differs from the one it was connected from) only forgets
+		// it: its tokens are the original site's, which keeps working.
+		if ( ! Address::moved() ) {
+			self::revoke_tokens();
+		}
 		OptionsController::clear();
 
 		// straight into a new connection, where the admin can choose again
@@ -225,6 +232,7 @@ class Controller {
 			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
 		);
 		Scopes::forget_change();
+		Address::remember();
 		self::store_grant( Scopes::of( $tokens['scopes'] ) ?? [ OAuth::SCOPE_READ ] );
 		self::schedule_first_syncs();
 
@@ -358,6 +366,7 @@ class Controller {
 
 		// save options.
 		OptionsController::set_options( $options );
+		Address::remember();
 
 		// run cron jobs a single time so user doesn't have to wait for the next cron job.
 		as_schedule_single_action( time(), \Scanfully\Cron\Controller::ACTION_SYNC_DIRECTORIES, [], 'scanfully' );

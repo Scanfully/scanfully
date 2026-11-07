@@ -8,6 +8,7 @@
 namespace Scanfully\Tests\Unit\Manage;
 
 use Brain\Monkey\Functions;
+use Scanfully\Connect\Address;
 use Scanfully\Connect\Scopes;
 use Scanfully\Manage\Controller;
 use Scanfully\Manage\Ledger;
@@ -20,6 +21,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
  * @covers \Scanfully\API\ManageJobsRequest
  * @covers \Scanfully\API\PluginConnectionRequest
  * @covers \Scanfully\Connect\Scopes
+ * @covers \Scanfully\Connect\Address
  */
 final class ControllerTest extends TestCase {
 
@@ -83,6 +85,13 @@ final class ControllerTest extends TestCase {
 	 * @var FakeWpdb
 	 */
 	private FakeWpdb $db;
+
+	/**
+	 * What home_url() answers.
+	 *
+	 * @var string
+	 */
+	private string $home = 'https://scanfully.com';
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
@@ -148,8 +157,15 @@ final class ControllerTest extends TestCase {
 		);
 		Functions\when( 'delete_transient' )->justReturn( true );
 		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
+		Functions\when( 'home_url' )->alias( fn() => $this->home );
+		Functions\when( 'wp_cache_delete' )->justReturn( true );
+		// The API takes the first heartbeat of the job unless a test says otherwise.
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"running"}',
+		];
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
-		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'is_wp_error' )->alias( fn( $thing ) => $thing instanceof \WP_Error );
 		Functions\when( 'did_action' )->justReturn( 1 );
 		Functions\when( 'add_query_arg' )->alias( fn( array $query, string $url ) => $url . '?' . http_build_query( $query ) );
 		Functions\when( 'wp_remote_retrieve_response_code' )->alias( fn( $resp ) => $resp['code'] );
@@ -166,7 +182,7 @@ final class ControllerTest extends TestCase {
 			}
 		);
 		Functions\when( 'wp_remote_post' )->alias(
-			fn( string $url, array $args ) => $this->answer( 'POST', $url, isset( $args['body'] ) ? json_decode( $args['body'], true ) : null )
+			fn( string $url, array $args ) => $this->answer( 'POST', $url, isset( $args['body'] ) ? ( is_string( $args['body'] ) ? json_decode( $args['body'], true ) : $args['body'] ) : null )
 		);
 
 		Functions\when( 'as_schedule_single_action' )->alias(
@@ -233,19 +249,23 @@ final class ControllerTest extends TestCase {
 	 * @param string $url    The URL.
 	 * @param mixed  $body   The decoded body.
 	 *
-	 * @return array{code: int, body: string}
+	 * @return array{code: int, body: string}|\WP_Error
 	 */
-	private function answer( string $method, string $url, $body ): array {
+	private function answer( string $method, string $url, $body ) {
 		$this->requests[] = [
 			'method' => $method,
 			'url'    => $url,
 			'body'   => $body,
 		];
-		$path = substr( $url, strlen( self::API . '/sites/' . self::SITE ) );
-		return $this->answers[ $method . ' ' . $path ] ?? [
+		$path   = substr( $url, strlen( self::API . '/sites/' . self::SITE ) );
+		$answer = $this->answers[ $method . ' ' . $path ] ?? [
 			'code' => 500,
 			'body' => '',
 		];
+		if ( isset( $answer['none'] ) ) {
+			return new \WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out' );
+		}
+		return $answer;
 	}
 
 	/**
@@ -689,6 +709,158 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
 	}
 
+	/**
+	 * The first request sent since the requests were last cleared.
+	 *
+	 * @return array{method: string, url: string, body: mixed}|null
+	 */
+	private function first_request(): ?array {
+		return $this->requests[0] ?? null;
+	}
+
+	/**
+	 * Pull the ping job, with its first heartbeat answered so, and run it.
+	 *
+	 * @param array<string, mixed> $heartbeat The API's answer to the heartbeat.
+	 */
+	private function run_with_heartbeat( array $heartbeat ): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = $heartbeat;
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ]    = [
+			'code' => 200,
+			'body' => '{"state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+	}
+
+	/**
+	 * First heartbeats that are no yes: the job does not run.
+	 *
+	 * @return array<string, array{0: array<string, mixed>}>
+	 */
+	public function not_running_answers(): array {
+		return [
+			'500 from the API'        => [
+				[
+					'code' => 500,
+					'body' => '',
+				],
+			],
+			'503 from a firewall'     => [
+				[
+					'code' => 503,
+					'body' => '<html>Checking your browser</html>',
+				],
+			],
+			'no answer'               => [ [ 'none' => true ] ],
+			'200 without the state'   => [
+				[
+					'code' => 200,
+					'body' => '<html>Home</html>',
+				],
+			],
+			'200 with another state'  => [
+				[
+					'code' => 200,
+					'body' => '{"state":"queued"}',
+				],
+			],
+			'another 403'             => [
+				[
+					'code' => 403,
+					'body' => '{"error":"forbidden"}',
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider not_running_answers
+	 *
+	 * @param array<string, mixed> $heartbeat The API's answer to the heartbeat.
+	 */
+	public function test_a_job_starts_only_when_its_first_heartbeat_is_answered_running( array $heartbeat ): void {
+		$this->run_with_heartbeat( $heartbeat );
+
+		$this->assertCount( 1, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ) );
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'nothing ran, nothing is reported' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '', 'the job is the next pull\'s again' );
+		$this->assertFalse( Controller::paused() );
+
+		// The next pull schedules it again; answered running, it runs once.
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = [
+			'code' => 200,
+			'body' => '{"state":"running"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+		$this->assertCount( 1, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+	}
+
+	public function test_a_first_heartbeat_answered_401_refreshes_the_token_on_the_next_pull(): void {
+		$this->options['refresh_token'] = 'sfy_srt_refresh';
+		$this->run_with_heartbeat(
+			[
+				'code' => 401,
+				'body' => '{"error":"invalid_token"}',
+			]
+		);
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertLessThanOrEqual( time(), strtotime( $this->options['expires'] . ' UTC' ), 'the token counts as expired' );
+		$this->assertFalse( Controller::paused() );
+
+		$this->requests = [];
+		Controller::pull();
+		$first = $this->first_request();
+		$this->assertSame( self::ISSUER . '/oauth/token', $first['url'] ?? '', 'the next pull refreshes the token first' );
+		$this->assertSame( 'refresh_token', $first['body']['grant_type'] ?? '' );
+	}
+
+	public function test_a_first_heartbeat_refused_for_the_scope_or_beta_pauses_the_clock_and_leaves_the_job(): void {
+		foreach ( [ 'insufficient_scope', 'beta_required' ] as $code ) {
+			$this->setUp();
+			$this->actions  = [];
+			$this->requests = [];
+			Controller::sync_clock();
+			$this->assertTrue( $this->pending( Controller::ACTION_PULL ), $code );
+
+			$this->run_with_heartbeat(
+				[
+					'code' => 403,
+					'body' => '{"error":"' . $code . '"}',
+				]
+			);
+
+			$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), $code . ': nothing ran' );
+			$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '', $code . ': the job is left alone' );
+			$this->assertTrue( Controller::paused(), $code );
+			$this->assertFalse( $this->pending( Controller::ACTION_PULL ), $code . ': the clock stops' );
+			$this->assertArrayNotHasKey( 'last_request_error', $this->options, $code . ': not a broken connection' );
+
+			$this->requests = [];
+			Controller::pull();
+			Controller::run_job( self::JOB );
+			$this->assertSame( [], $this->requests, $code . ': a paused clock pulls and runs nothing' );
+		}
+	}
+
+	public function test_a_first_heartbeat_answered_404_is_left_for_the_next_pull(): void {
+		$this->run_with_heartbeat(
+			[
+				'code' => 404,
+				'body' => '{"error":"not_found"}',
+			]
+		);
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertFalse( Controller::paused() );
+	}
+
 	public function test_a_pull_refused_for_the_scope_or_beta_pauses_the_clock_until_the_grant_changes(): void {
 		foreach ( [ 'insufficient_scope', 'beta_required' ] as $code ) {
 			$this->actions = [];
@@ -896,5 +1068,157 @@ final class ControllerTest extends TestCase {
 		Scopes::sync_clock();
 		Scopes::clear();
 		$this->assertFalse( $this->pending( Scopes::ACTION_CHECK ) );
+	}
+
+	public function test_the_address_is_host_and_path_without_scheme_case_or_trailing_slash(): void {
+		$this->assertSame( 'scanfully.com', Address::normalize( 'https://scanfully.com/' ) );
+		$this->assertSame( 'scanfully.com', Address::normalize( 'http://Scanfully.COM' ) );
+		$this->assertSame( 'scanfully.com/blog', Address::normalize( 'https://scanfully.com/Blog/' ) );
+		$this->assertSame( 'staging.scanfully.com', Address::normalize( 'https://staging.scanfully.com' ) );
+		$this->assertSame( '', Address::normalize( 'not an address' ) );
+	}
+
+	public function test_a_move_to_https_or_another_case_is_the_same_site(): void {
+		$this->home = 'http://scanfully.com';
+		Address::remember();
+		$this->home = 'https://SCANFULLY.com/';
+
+		$this->assertFalse( Address::moved() );
+	}
+
+	public function test_a_copy_of_the_site_pulls_runs_reports_and_takes_pokes_for_nothing(): void {
+		// Connected at scanfully.com, with a job pulled and one result to send.
+		Address::remember();
+		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		Controller::sync_clock();
+		$this->jobs( [ self::ping() ] );
+		Controller::pull();
+		$this->assertSame( [ self::JOB ], $this->runs() );
+		$done = 'b2b2b2b2-2222-4222-8222-222222222222';
+		$this->db->add(
+			Ledger::PREFIX . $done,
+			(string) json_encode(
+				[
+					'state'  => Ledger::DONE,
+					'at'     => time(),
+					'result' => [ 'state' => 'succeeded' ],
+				]
+			)
+		);
+		$this->connection( [ 'wordpress:read' ] );
+
+		// The database is copied to staging.
+		$this->home     = 'https://staging.scanfully.com';
+		$this->requests = [];
+		$this->assertTrue( Address::moved() );
+
+		Controller::pull();
+		$this->run_pending();
+		Controller::run_job( $done );
+		Scopes::refresh();
+		$this->assertSame( [], $this->requests, 'no pull, no heartbeat, no result, no scopes read, no token refresh' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertSame( Ledger::DONE, Ledger::get( $done )['state'] ?? '' );
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ), 'the clock stops' );
+
+		Controller::sync_clock();
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ), 'and stays stopped' );
+
+		foreach ( [ Controller::handle_poke(), Scopes::handle_poke() ] as $poke ) {
+			$this->assertSame( 409, $poke->get_status() );
+			$this->assertSame( 'site_moved', $poke->get_data()['code'] ?? '' );
+			$this->assertSame( 'site_moved', $poke->get_data()['status'] ?? '' );
+		}
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL_NOW ), 'a poke schedules no pull' );
+		$this->assertFalse( $this->pending( Scopes::ACTION_CHECK_NOW ), 'a scopes poke schedules no read' );
+		$this->assertSame( [], $this->requests );
+	}
+
+	public function test_keeping_the_connection_adopts_the_new_address_and_resumes(): void {
+		Address::remember();
+		$this->home = 'https://www.scanfully.com';
+		Controller::sync_clock();
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ) );
+
+		Address::keep();
+
+		$this->assertSame( 'www.scanfully.com', $this->options['address'] ?? '' );
+		$this->assertFalse( Address::moved() );
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ), 'the clock runs again' );
+		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ), 'the scopes are read now' );
+
+		$this->jobs( [ self::ping() ] );
+		Controller::pull();
+		$this->assertSame( [ self::JOB ], $this->runs() );
+		$this->assertSame( 200, Controller::handle_poke()->get_status() );
+	}
+
+	public function test_a_connection_without_an_address_adopts_the_current_one_once(): void {
+		$this->assertArrayNotHasKey( 'address', $this->options, 'a connection from before this version' );
+		$this->jobs( [] );
+
+		Controller::pull();
+		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
+
+		// Moved after that: the stored address stays, Manage pauses.
+		$this->home = 'https://scanfully-copy.com';
+		Controller::pull();
+		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
+
+		// The scopes read adopts too, on a connection without Manage.
+		unset( $this->options['address'] );
+		$this->options['scopes'] = 'wordpress:read';
+		$this->connection( [ 'wordpress:read' ] );
+		Scopes::refresh();
+		$this->assertSame( 'scanfully-copy.com', $this->options['address'] ?? '' );
+		$this->assertCount( 1, $this->sent( 'GET', '/plugin-connection' ) );
+	}
+
+	public function test_nothing_is_adopted_or_moved_while_disconnected(): void {
+		$this->options['is_connected'] = 'no';
+		Address::adopt_if_missing();
+		$this->assertArrayNotHasKey( 'address', $this->options );
+
+		$this->options['address'] = 'scanfully.com';
+		$this->home               = 'https://scanfully-copy.com';
+		$this->assertFalse( Address::moved() );
+	}
+
+	public function test_a_copy_shows_the_notice_with_both_actions(): void {
+		$this->stubTranslationFunctions();
+		$this->stubEscapeFunctions();
+		Functions\when( 'current_user_can' )->justReturn( true );
+		Functions\when( 'wp_create_nonce' )->justReturn( 'nonce' );
+		Functions\when( 'admin_url' )->alias( fn( string $path ) => 'https://scanfully.com/wp-admin/' . $path );
+		Address::remember();
+
+		ob_start();
+		Address::print_page_notice();
+		Address::print_admin_notice();
+		$this->assertSame( '', trim( (string) ob_get_clean() ), 'no notice at the connected address' );
+
+		$this->home = 'https://staging.scanfully.com';
+		$this->assertSame(
+			'This WordPress site looks like a copy of scanfully.com. Scanfully Manage is paused here. If this is the same site at a new address, keep the connection; if it is a copy (staging, a backup), reconnect it as its own site.',
+			Address::notice_text()
+		);
+		foreach ( [ 'print_page_notice', 'print_admin_notice' ] as $print ) {
+			ob_start();
+			Address::$print();
+			$html = (string) ob_get_clean();
+			$this->assertStringContainsString( Address::notice_text(), $html, $print );
+			$this->assertStringContainsString( 'Keep the connection', $html, $print );
+			$this->assertStringContainsString( 'scanfully-keep-address=1', $html, $print );
+			$this->assertStringContainsString( 'Reconnect as its own site', $html, $print );
+			$this->assertStringContainsString( 'scanfully-reconnect=1', $html, $print );
+		}
+
+		// Without Manage in the grant only the settings page says it.
+		$this->options['scopes'] = 'wordpress:read';
+		ob_start();
+		Address::print_admin_notice();
+		$this->assertSame( '', trim( (string) ob_get_clean() ) );
 	}
 }
