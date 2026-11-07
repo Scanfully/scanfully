@@ -110,7 +110,7 @@ class Controller {
 	 *
 	 * @return string The token, or an empty string when none was sent.
 	 */
-	private static function get_request_token( \WP_REST_Request $request ): string {
+	public static function get_request_token( \WP_REST_Request $request ): string {
 		$authorization = (string) $request->get_header( 'authorization' );
 		if ( 1 === preg_match( '/^Bearer\s+(\S+)\s*\z/i', $authorization, $matches ) ) {
 			return $matches[1];
@@ -205,7 +205,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	private static function run_queue_now(): void {
+	public static function run_queue_now(): void {
 		if ( ! class_exists( 'ActionScheduler' ) || ! class_exists( 'ActionScheduler_AsyncRequest_QueueRunner' ) ) {
 			return;
 		}

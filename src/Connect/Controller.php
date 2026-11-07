@@ -242,6 +242,15 @@ class Controller {
 	public static function store_grant( array $scopes ): void {
 		OptionsController::set_option( 'scopes', implode( ' ', $scopes ) );
 		OptionsController::set_option( 'flow', 'oauth' );
+
+		/**
+		 * Fires when the scopes of the site's connection were stored, on
+		 * connect and on every token refresh, so what depends on them (the
+		 * Scanfully Manage clock) follows.
+		 *
+		 * @param string[] $scopes The granted scopes.
+		 */
+		do_action( 'scanfully_grant_stored', $scopes );
 	}
 
 	/**

@@ -396,7 +396,7 @@ class Controller {
 	 *
 	 * @return void
 	 */
-	private static function refresh_access_token_if_needed(): void {
+	public static function refresh_access_token_if_needed(): void {
 		$options = Options\Controller::get_options();
 		if ( ! $options->is_connected || ! self::token_needs_refresh( $options ) ) {
 			return;
