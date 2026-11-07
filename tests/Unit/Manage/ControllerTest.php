@@ -831,7 +831,12 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( [ 'status' => 'scheduled' ], $response->get_data() );
 		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ) );
 		$this->assertSame( [], $this->requests, 'the poke itself fetches nothing' );
+
+		// A second change within the window: the read that ran meanwhile
+		// may have missed it, so another one is scheduled for the window's end.
+		$this->actions = [];
 		$this->assertSame( 429, Scopes::handle_poke()->get_status() );
+		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ), 'a read after the window' );
 	}
 
 	public function test_manage_switched_on_in_the_dashboard_starts_the_clock_and_ends_a_pause(): void {

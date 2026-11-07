@@ -156,6 +156,11 @@ class Scopes {
 	public static function handle_poke(): \WP_REST_Response {
 		$last = (int) get_transient( self::RATE_LIMIT_TRANSIENT );
 		if ( $last > 0 && time() - $last < self::RATE_LIMIT_WINDOW ) {
+			// A second change soon after the first: read the scopes again once
+			// the window ends, so it is not left to the hourly check.
+			if ( function_exists( 'as_schedule_single_action' ) ) {
+				as_schedule_single_action( $last + self::RATE_LIMIT_WINDOW, self::ACTION_CHECK_NOW, [], self::AS_GROUP, true );
+			}
 			$response = new \WP_REST_Response( [ 'status' => 'rate_limited' ], 429 );
 			$response->header( 'Retry-After', (string) max( 1, self::RATE_LIMIT_WINDOW - ( time() - $last ) ) );
 
