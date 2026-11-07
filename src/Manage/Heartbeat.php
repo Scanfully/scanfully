@@ -56,12 +56,14 @@ class Heartbeat {
 	}
 
 	/**
-	 * Send the first heartbeat: the job runs.
+	 * Send the first heartbeat: the job runs only when the API answered that
+	 * it does.
 	 *
-	 * @return bool False when the API refused it: the job is not the site's to run.
+	 * @return bool True only when the sender said the API took it: anything
+	 *              else, no answer included, means the job does not start.
 	 */
 	public function start(): bool {
-		return false !== $this->send_now();
+		return true === $this->send_now();
 	}
 
 	/**

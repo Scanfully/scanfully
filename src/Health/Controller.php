@@ -504,9 +504,30 @@ class Controller {
 			// What the site can do for Scanfully, read before it queues a job.
 			'capabilities' => Capabilities::get(),
 		];
+		$data = self::without_copied_capabilities( $data );
 
 		// filter data.
 		$data = apply_filters( 'scanfully_health_data', $data );
+
+		return $data;
+	}
+
+	/**
+	 * The site data without its capabilities on a copy of the site (its
+	 * address differs from the one it was connected from): the copy reports
+	 * under the original site's id, and its capabilities must not replace
+	 * the original's. It says it left them out, and the API keeps what it
+	 * has (an absent key would make the API forget them).
+	 *
+	 * @param array<string, mixed> $data The site data.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function without_copied_capabilities( array $data ): array {
+		if ( \Scanfully\Connect\Address::moved() ) {
+			unset( $data['capabilities'] );
+			$data['capabilities_skipped'] = \Scanfully\Connect\Address::MOVED_CODE;
+		}
 
 		return $data;
 	}

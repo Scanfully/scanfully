@@ -47,6 +47,13 @@ final class SignedRequestTest extends TestCase {
 	 */
 	private int $fetches = 0;
 
+	/**
+	 * The status the keys endpoint answers.
+	 *
+	 * @var int
+	 */
+	private int $keys_status = 200;
+
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 		self::$key  = openssl_pkey_new(
@@ -90,7 +97,7 @@ final class SignedRequestTest extends TestCase {
 				return [ 'body' => self::$jwks ];
 			}
 		);
-		Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( 200 );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( fn() => $this->keys_status );
 		Functions\when( 'wp_remote_retrieve_body' )->alias( fn( $resp ) => $resp['body'] );
 	}
 
@@ -198,6 +205,21 @@ final class SignedRequestTest extends TestCase {
 		$this->assertFalse( $this->verify( $this->signed( [], 'key-2' ) ) );
 		$this->assertFalse( $this->verify( $this->signed( [], 'key-3' ) ) );
 		$this->assertSame( 1, $this->fetches, 'one fetch, then the refetch waits' );
+	}
+
+	public function test_a_key_set_that_cannot_be_fetched_is_tried_once_per_few_minutes(): void {
+		$this->keys_status = 503;
+		for ( $i = 0; $i < 5; $i++ ) {
+			$this->assertFalse( $this->verify( $this->signed( [], 'forged-' . $i ) ), 'a forged request with an unknown key id' );
+		}
+		$this->assertFalse( $this->verify( $this->signed() ), 'a real request while the key set is unreachable' );
+		$this->assertSame( 1, $this->fetches, 'one failed fetch, then the refetch waits' );
+
+		// The wait ends and the key set answers again.
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->keys_status = 200;
+		$this->assertTrue( $this->verify( $this->signed() ) );
+		$this->assertSame( 2, $this->fetches );
 	}
 
 	public function test_the_key_set_becomes_pem_keys(): void {

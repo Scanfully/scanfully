@@ -43,8 +43,9 @@ final class RunnerTest extends TestCase {
 	private function run_job( array $job ): array {
 		return Runner::run(
 			$job,
-			function (): void {
+			function (): bool {
 				++$this->beats;
+				return true;
 			},
 			fn(): int => $this->now
 		);
@@ -100,8 +101,9 @@ final class RunnerTest extends TestCase {
 
 	public function test_heartbeats_go_at_most_once_per_interval(): void {
 		$beat = new Heartbeat(
-			function (): void {
+			function (): bool {
 				++$this->beats;
+				return true;
 			},
 			Runner::HEARTBEAT_EVERY,
 			fn(): int => $this->now
@@ -121,8 +123,9 @@ final class RunnerTest extends TestCase {
 
 	public function test_a_beat_before_start_sends_one(): void {
 		$beat = new Heartbeat(
-			function (): void {
+			function (): bool {
 				++$this->beats;
+				return true;
 			},
 			30,
 			fn(): int => $this->now
@@ -148,6 +151,9 @@ final class RunnerTest extends TestCase {
 
 		$this->assertNull( $result );
 		$this->assertFalse( $ran );
+
+		// A sender that said nothing is no yes either.
+		$this->assertNull( Runner::run( [ 'action' => 'ping' ], static function (): void {}, fn(): int => $this->now, $registry ) );
 	}
 
 	public function test_an_action_that_throws_fails_with_its_class_or_as_fatal(): void {
@@ -165,7 +171,7 @@ final class RunnerTest extends TestCase {
 				'long' => false,
 			],
 		];
-		$beat     = static function (): void {};
+		$beat     = static fn(): bool => true;
 		$clock    = fn(): int => $this->now;
 
 		$named = Runner::run( [ 'action' => 'named' ], $beat, $clock, $registry );
@@ -193,8 +199,9 @@ final class RunnerTest extends TestCase {
 
 		$result = Runner::run(
 			[ 'action' => 'slow' ],
-			function (): void {
+			function (): bool {
 				++$this->beats;
+				return true;
 			},
 			fn(): int => $this->now,
 			$registry

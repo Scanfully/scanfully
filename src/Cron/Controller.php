@@ -401,6 +401,14 @@ class Controller {
 		if ( ! $options->is_connected || ! self::token_needs_refresh( $options ) ) {
 			return;
 		}
+		// A copy of the site (its address differs from the one it was
+		// connected from) never refreshes: the tokens are the original
+		// site's, and a refresh here would rotate them away from it. The copy
+		// runs on the access token until it expires, and its admin then sees
+		// that the connection needs reconnecting.
+		if ( Connect\Address::moved() ) {
+			return;
+		}
 
 		if ( ! self::acquire_refresh_lock() ) {
 			// another process is refreshing; the current token stays valid until
@@ -418,6 +426,21 @@ class Controller {
 		} finally {
 			self::release_refresh_lock();
 		}
+	}
+
+	/**
+	 * Have the next request refresh the access token first: the API refused
+	 * it (401), so it was replaced or revoked before its expiry date. The
+	 * stored expiry moves to now, which the next
+	 * refresh_access_token_if_needed() acts on.
+	 *
+	 * @return void
+	 */
+	public static function refresh_access_token_soon(): void {
+		if ( ! Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+		Options\Controller::set_option( 'expires', gmdate( Connect\Controller::DATE_FORMAT, time() ) );
 	}
 
 	/**

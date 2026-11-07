@@ -197,6 +197,12 @@ class Controller {
 	 * @return \WP_REST_Response
 	 */
 	public static function handle_poke(): \WP_REST_Response {
+		// A copy of the site, or the site at a new address: Scanfully Manage
+		// is paused until the site's admin decides.
+		if ( Connect\Address::moved() ) {
+			self::sync_clock();
+			return Connect\Address::moved_response();
+		}
 		$last = (int) get_transient( self::RATE_LIMIT_TRANSIENT );
 		if ( $last > 0 && time() - $last < self::RATE_LIMIT_WINDOW ) {
 			$response = new \WP_REST_Response( [ 'status' => 'rate_limited' ], 429 );
@@ -234,8 +240,9 @@ class Controller {
 	}
 
 	/**
-	 * Schedule the 5-minute pull while the grant allows management actions,
-	 * and remove it when it does not.
+	 * Schedule the 5-minute pull while the grant allows management actions
+	 * and the site runs at the address it was connected from, and remove it
+	 * when it does not.
 	 *
 	 * @return void
 	 */
@@ -243,7 +250,7 @@ class Controller {
 		if ( ! function_exists( 'as_has_scheduled_action' ) || ! did_action( 'action_scheduler_init' ) ) {
 			return;
 		}
-		$wanted    = self::allowed() && ! self::paused();
+		$wanted    = self::allowed() && ! self::paused() && ! Connect\Address::moved();
 		$scheduled = as_has_scheduled_action( self::ACTION_PULL, [], self::AS_GROUP );
 		if ( $wanted && ! $scheduled ) {
 			as_schedule_recurring_action( time(), self::CLOCK_INTERVAL, self::ACTION_PULL, [], self::AS_GROUP, true );
@@ -279,6 +286,14 @@ class Controller {
 	 * @return void
 	 */
 	public static function pull(): void {
+		Connect\Address::adopt_if_missing();
+		if ( Connect\Address::moved() ) {
+			// A copy of the site pulls nothing, runs nothing and reports
+			// nothing: the jobs are the original site's. It does not refresh
+			// the tokens either, which would take them from the original.
+			self::sync_clock();
+			return;
+		}
 		Cron\Controller::refresh_access_token_if_needed();
 		if ( ! self::allowed() || self::paused() ) {
 			return;
@@ -299,21 +314,44 @@ class Controller {
 			// The API says this grant may not pull (no wordpress:manage on
 			// the token, or no beta access): no pull every 5 minutes until
 			// that changes.
-			update_option( self::PAUSED_OPTION, implode( ' ', Connect\Controller::granted_scopes() ), false );
-			self::sync_clock();
+			self::pause();
 			return;
 		}
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
+			$listed = [];
 			foreach ( $answer['body']['jobs'] as $raw ) {
 				$job = self::job_of( $raw );
-				if ( null !== $job && self::take( $job, $now ) ) {
+				if ( null === $job ) {
+					continue;
+				}
+				$listed[] = $job['id'];
+				if ( self::take( $job, $now ) ) {
 					$scheduled = true;
 				}
+			}
+			// A job waiting to start that the API no longer lists: its
+			// first heartbeat may have reached the API (the job runs there)
+			// while its answer got lost. The run sends it again and starts
+			// only when the API answers that the job runs; any other answer
+			// leaves it waiting, as before.
+			foreach ( array_diff( Ledger::scheduled(), $listed ) as $id ) {
+				$scheduled = self::schedule_run( $id ) || $scheduled;
 			}
 		}
 		if ( $scheduled ) {
 			Sync\Controller::run_queue_now();
 		}
+	}
+
+	/**
+	 * Pause the clock: the API refused a request for the scope or for beta
+	 * access, with the grant as it still is.
+	 *
+	 * @return void
+	 */
+	private static function pause(): void {
+		update_option( self::PAUSED_OPTION, implode( ' ', Connect\Controller::granted_scopes() ), false );
+		self::sync_clock();
 	}
 
 	/**
@@ -385,14 +423,14 @@ class Controller {
 	 * again until the API took it; a job whose last sign of life is long ago
 	 * reports that it stopped. Only a job the plugin pulled itself is in the
 	 * ledger, and the plugin checks its own copy of the grant before it runs
-	 * anything.
+	 * anything; a paused clock, or a copy of the site, runs nothing.
 	 *
 	 * @param mixed $id The job id.
 	 *
 	 * @return void
 	 */
 	public static function run_job( $id ): void {
-		if ( ! Ledger::valid_id( $id ) || ! self::allowed() ) {
+		if ( ! Ledger::valid_id( $id ) || ! self::allowed() || self::paused() || Connect\Address::moved() ) {
 			return;
 		}
 		$row = Ledger::get( $id );
@@ -418,14 +456,7 @@ class Controller {
 				$result = Runner::run(
 					$job,
 					static function () use ( $id ): bool {
-						$answer = ( new ManageJobsRequest() )->heartbeat( $id );
-						Ledger::touch( $id, time() );
-
-						// A 409: the lease passed and the job went back to the
-						// queue, or it finished there; a 404: it is not this
-						// site's. A heartbeat that got no answer does not stop
-						// the job.
-						return null === $answer || ! in_array( (int) $answer['status'], [ 404, 409 ], true );
+						return self::send_heartbeat( $id );
 					}
 				);
 				if ( null === $result ) {
@@ -458,6 +489,40 @@ class Controller {
 				self::report( $id );
 				break;
 		}
+	}
+
+	/**
+	 * Send a heartbeat of a job. The first one decides whether the job
+	 * starts: only when the API answers 2xx with the job running. Every other
+	 * answer, no answer included, leaves the job for the next pull: a 409
+	 * (the lease passed and the job went back to the queue, or it finished
+	 * there), a 404 (not this site's job), a server error or a firewall's
+	 * page. A 401 has the next pull refresh the access token first; a 403
+	 * for the scope or beta access (Scanfully Manage was switched off in the
+	 * dashboard after the pull) pauses the clock, as a refused pull does, and
+	 * leaves the job to the API, which cancels or expires it.
+	 *
+	 * @param string $id The job id.
+	 *
+	 * @return bool Whether the API answered that the job runs.
+	 */
+	public static function send_heartbeat( string $id ): bool {
+		$answer = ( new ManageJobsRequest() )->heartbeat( $id );
+		Ledger::touch( $id, time() );
+		if ( null === $answer ) {
+			return false;
+		}
+		$status = (int) $answer['status'];
+		if ( $status >= 200 && $status < 300 ) {
+			return is_array( $answer['body'] ) && isset( $answer['body']['state'] ) && 'running' === $answer['body']['state'];
+		}
+		if ( 401 === $status ) {
+			Cron\Controller::refresh_access_token_soon();
+		} elseif ( ManageJobsRequest::is_permission_answer( $status, $answer['body'] ) ) {
+			self::pause();
+		}
+
+		return false;
 	}
 
 	/**
