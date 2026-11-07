@@ -122,9 +122,20 @@ final class ControllerTest extends TestCase {
 		];
 
 		Functions\when( 'get_option' )->alias(
-			fn( string $name, $default = false ) => $this->options[ str_replace( 'scanfully_connect_', '', $name ) ] ?? ''
+			fn( string $name, $default = '' ) => $this->options[ str_replace( 'scanfully_connect_', '', $name ) ] ?? ( false === $default ? false : '' )
 		);
-		Functions\when( 'update_option' )->justReturn( true );
+		Functions\when( 'update_option' )->alias(
+			function ( string $name, $value ) {
+				$this->options[ str_replace( 'scanfully_connect_', '', $name ) ] = $value;
+				return true;
+			}
+		);
+		Functions\when( 'delete_option' )->alias(
+			function ( string $name ) {
+				unset( $this->options[ str_replace( 'scanfully_connect_', '', $name ) ] );
+				return true;
+			}
+		);
 		Functions\when( 'get_transient' )->alias( fn( string $key ) => $this->transients[ $key ] ?? false );
 		Functions\when( 'set_transient' )->alias(
 			function ( string $key, $value ) {
@@ -449,7 +460,7 @@ final class ControllerTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\+00:00$/', $sent[0]['started_at'] );
 		$this->assertArrayHasKey( 'finished_at', $sent[0] );
 		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
-		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'ping sends no heartbeat' );
+		$this->assertSame( [ null ], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'one heartbeat, with no body, before ping runs' );
 	}
 
 	public function test_a_result_the_api_could_not_take_is_sent_again_on_the_next_pull(): void {
@@ -492,12 +503,15 @@ final class ControllerTest extends TestCase {
 
 	public function test_a_run_that_never_ended_reports_that_it_stopped(): void {
 		$started = time() - 20 * MINUTE_IN_SECONDS;
-		$this->db->rows[ Ledger::PREFIX . self::JOB ] = (string) json_encode(
-			[
-				'state'      => Ledger::RUNNING,
-				'at'         => $started,
-				'started_at' => $started,
-			]
+		$this->db->add(
+			Ledger::PREFIX . self::JOB,
+			(string) json_encode(
+				[
+					'state'      => Ledger::RUNNING,
+					'at'         => $started,
+					'started_at' => $started,
+				]
+			)
 		);
 		$this->jobs( [ self::ping() ] );
 		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
@@ -516,12 +530,15 @@ final class ControllerTest extends TestCase {
 	}
 
 	public function test_a_run_that_just_started_is_left_alone(): void {
-		$this->db->rows[ Ledger::PREFIX . self::JOB ] = (string) json_encode(
-			[
-				'state'      => Ledger::RUNNING,
-				'at'         => time(),
-				'started_at' => time(),
-			]
+		$this->db->add(
+			Ledger::PREFIX . self::JOB,
+			(string) json_encode(
+				[
+					'state'      => Ledger::RUNNING,
+					'at'         => time(),
+					'started_at' => time(),
+				]
+			)
 		);
 		$this->jobs( [ self::ping() ] );
 
@@ -598,12 +615,15 @@ final class ControllerTest extends TestCase {
 
 	public function test_a_heartbeat_keeps_a_long_run_from_counting_as_stopped(): void {
 		$started = time() - 20 * MINUTE_IN_SECONDS;
-		$this->db->rows[ Ledger::PREFIX . self::JOB ] = (string) json_encode(
-			[
-				'state'      => Ledger::RUNNING,
-				'at'         => $started,
-				'started_at' => $started,
-			]
+		$this->db->add(
+			Ledger::PREFIX . self::JOB,
+			(string) json_encode(
+				[
+					'state'      => Ledger::RUNNING,
+					'at'         => $started,
+					'started_at' => $started,
+				]
+			)
 		);
 		Ledger::touch( self::JOB, time() );
 		$this->jobs( [] );
@@ -637,5 +657,112 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 1, Ledger::prune( time() ) );
 		$this->assertNull( Ledger::get( self::JOB ) );
 		$this->assertNotNull( Ledger::get( 'b2b2b2b2-2222-4222-8222-222222222222' ) );
+	}
+
+	public function test_a_job_whose_first_heartbeat_is_refused_is_left_for_the_next_pull(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = [
+			'code' => 409,
+			'body' => '{"error":"job_conflict","state":"queued"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'the lease had passed: nothing ran' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		// Handed out again: now it runs, once.
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/heartbeat' ] = [
+			'code' => 200,
+			'body' => '{"state":"running"}',
+		];
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ]    = [
+			'code' => 200,
+			'body' => '{"state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+		$this->assertCount( 1, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+	}
+
+	public function test_a_pull_refused_for_the_scope_or_beta_pauses_the_clock_until_the_grant_changes(): void {
+		foreach ( [ 'insufficient_scope', 'beta_required' ] as $code ) {
+			$this->actions = [];
+			unset( $this->options['scanfully_manage_paused'], $this->options['last_request_error'] );
+			Controller::sync_clock();
+			$this->answers['GET /manage/jobs'] = [
+				'code' => 403,
+				'body' => '{"error":"' . $code . '","message":"No."}',
+			];
+
+			Controller::pull();
+
+			$this->assertTrue( Controller::paused(), $code );
+			$this->assertFalse( $this->pending( Controller::ACTION_PULL ), $code . ': the clock stops' );
+			$this->assertArrayNotHasKey( 'last_request_error', $this->options, $code . ': not a broken connection' );
+
+			$this->requests = [];
+			Controller::pull();
+			$this->assertSame( [], $this->requests, $code . ': a paused clock pulls nothing' );
+		}
+
+		// The grant changes: the clock goes on.
+		$this->options['scopes'] = 'wordpress:read wordpress:manage wordpress:login';
+		Controller::sync_clock();
+		$this->assertFalse( Controller::paused() );
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
+	}
+
+	public function test_a_poke_ends_the_pause(): void {
+		$this->answers['GET /manage/jobs'] = [
+			'code' => 403,
+			'body' => '{"error":"beta_required"}',
+		];
+		Controller::pull();
+		$this->assertTrue( Controller::paused() );
+
+		Controller::handle_poke();
+
+		$this->assertFalse( Controller::paused() );
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL_NOW ) );
+	}
+
+	public function test_another_403_still_counts_as_a_failed_request(): void {
+		$this->answers['GET /manage/jobs'] = [
+			'code' => 403,
+			'body' => '',
+		];
+		Controller::pull();
+
+		$this->assertFalse( Controller::paused() );
+		$this->assertArrayHasKey( 'last_request_error', $this->options );
+	}
+
+	public function test_a_long_ledger_is_read_to_its_end(): void {
+		for ( $i = 0; $i < 1200; $i++ ) {
+			$this->db->add(
+				Ledger::PREFIX . sprintf( '00000000-0000-4000-8000-%012d', $i ),
+				(string) json_encode(
+					[
+						'state' => Ledger::REPORTED,
+						'at'    => time(),
+					]
+				)
+			);
+		}
+		$this->db->add(
+			Ledger::PREFIX . self::JOB,
+			(string) json_encode(
+				[
+					'state'  => Ledger::DONE,
+					'at'     => time(),
+					'result' => [ 'state' => 'succeeded' ],
+				]
+			)
+		);
+
+		$this->assertSame( [ self::JOB ], Ledger::open( time() - 900 ) );
 	}
 }

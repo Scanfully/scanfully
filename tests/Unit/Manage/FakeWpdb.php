@@ -29,6 +29,33 @@ final class FakeWpdb {
 	public array $rows = [];
 
 	/**
+	 * The option ids, by option name, as the table hands them out.
+	 *
+	 * @var array<string, int>
+	 */
+	private array $ids = [];
+
+	/**
+	 * The last option id handed out.
+	 *
+	 * @var int
+	 */
+	private int $last_id = 0;
+
+	/**
+	 * Add a row as WordPress would, with the next option id.
+	 *
+	 * @param string $name  The option name.
+	 * @param string $value The value.
+	 *
+	 * @return void
+	 */
+	public function add( string $name, string $value ): void {
+		$this->rows[ $name ] = $value;
+		$this->ids[ $name ]  = ++$this->last_id;
+	}
+
+	/**
 	 * Escape LIKE wildcards, as wpdb does.
 	 *
 	 * @param string $text The text.
@@ -64,7 +91,7 @@ final class FakeWpdb {
 			if ( isset( $this->rows[ $args[0] ] ) ) {
 				return 0;
 			}
-			$this->rows[ $args[0] ] = (string) $args[1];
+			$this->add( (string) $args[0], (string) $args[1] );
 			return 1;
 		}
 		if ( 0 === strpos( $sql, 'UPDATE' ) ) {
@@ -99,23 +126,30 @@ final class FakeWpdb {
 	}
 
 	/**
-	 * Read the rows of a prefix.
+	 * Read a page of the rows of a prefix: after an option id, in id order,
+	 * up to a limit.
 	 *
 	 * @param array{0: string, 1: array<int, mixed>} $prepared The prepared statement.
 	 * @param string                                 $output   Unused.
 	 *
-	 * @return array<int, array{option_name: string, option_value: string}>
+	 * @return array<int, array{option_id: int, option_name: string, option_value: string}>
 	 */
 	public function get_results( array $prepared, string $output = '' ): array {
 		unset( $output );
-		$out = [];
-		foreach ( $this->names( (string) $prepared[1][0] ) as $name ) {
-			$out[] = [
-				'option_name'  => $name,
-				'option_value' => $this->rows[ $name ],
-			];
+		[ $pattern, $after, $limit ] = $prepared[1];
+		$out                         = [];
+		foreach ( $this->names( (string) $pattern ) as $name ) {
+			$id = $this->ids[ $name ] ?? 0;
+			if ( $id > (int) $after ) {
+				$out[ $id ] = [
+					'option_id'    => $id,
+					'option_name'  => $name,
+					'option_value' => $this->rows[ $name ],
+				];
+			}
 		}
-		return $out;
+		ksort( $out );
+		return array_slice( array_values( $out ), 0, (int) $limit );
 	}
 
 	/**

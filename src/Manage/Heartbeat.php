@@ -8,8 +8,9 @@
 namespace Scanfully\Manage;
 
 /**
- * Sends a long job's heartbeats, at most one per interval: a long action
- * calls beat() as often as it likes, for example once per file it writes.
+ * Sends a job's heartbeats: the first as the job starts, then at most one
+ * per interval, as a long action calls beat() as often as it likes, for
+ * example once per file it writes.
  */
 class Heartbeat {
 
@@ -57,10 +58,10 @@ class Heartbeat {
 	/**
 	 * Send the first heartbeat: the job runs.
 	 *
-	 * @return void
+	 * @return bool False when the API refused it: the job is not the site's to run.
 	 */
-	public function start(): void {
-		$this->send_now();
+	public function start(): bool {
+		return false !== $this->send_now();
 	}
 
 	/**
@@ -77,10 +78,11 @@ class Heartbeat {
 	/**
 	 * Send a heartbeat now.
 	 *
-	 * @return void
+	 * @return mixed What the sender returned.
 	 */
-	private function send_now(): void {
+	private function send_now() {
 		$this->last = (int) call_user_func( $this->now );
-		call_user_func( $this->send );
+
+		return call_user_func( $this->send );
 	}
 }

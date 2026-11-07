@@ -82,6 +82,12 @@ class Controller {
 	private const STALE_RUN = 15 * MINUTE_IN_SECONDS;
 
 	/**
+	 * Option holding the grant's scopes when the API refused a pull for the
+	 * scope or for beta access: the clock stops until they change.
+	 */
+	private const PAUSED_OPTION = 'scanfully_manage_paused';
+
+	/**
 	 * Transient set when the ledger was pruned, once a day.
 	 */
 	private const PRUNE_TRANSIENT = 'scanfully_manage_ledger_pruned';
@@ -141,6 +147,19 @@ class Controller {
 	}
 
 	/**
+	 * Whether the clock is paused: the API refused a pull for the scope or
+	 * for beta access, with the grant as it still is. A change of the grant,
+	 * or a poke (the API pokes only a site that may pull), ends the pause.
+	 *
+	 * @return bool
+	 */
+	public static function paused(): bool {
+		$paused = get_option( self::PAUSED_OPTION, '' );
+
+		return is_string( $paused ) && '' !== $paused && implode( ' ', Connect\Controller::granted_scopes() ) === $paused;
+	}
+
+	/**
 	 * Only a request Scanfully signed for this site and the action manage,
 	 * with wordpress:manage in it and in the plugin's own copy of the grant,
 	 * may poke. The site's access token is never accepted here.
@@ -177,6 +196,12 @@ class Controller {
 		}
 		set_transient( self::RATE_LIMIT_TRANSIENT, time(), self::RATE_LIMIT_WINDOW );
 
+		// The API pokes only a site that may pull: a paused clock goes on.
+		if ( false !== get_option( self::PAUSED_OPTION, false ) ) {
+			delete_option( self::PAUSED_OPTION );
+			self::sync_clock();
+		}
+
 		if ( function_exists( 'as_schedule_single_action' ) ) {
 			as_schedule_single_action( time(), self::ACTION_PULL_NOW, [], self::AS_GROUP, true );
 		}
@@ -208,10 +233,11 @@ class Controller {
 		if ( ! function_exists( 'as_has_scheduled_action' ) || ! did_action( 'action_scheduler_init' ) ) {
 			return;
 		}
+		$wanted    = self::allowed() && ! self::paused();
 		$scheduled = as_has_scheduled_action( self::ACTION_PULL, [], self::AS_GROUP );
-		if ( self::allowed() && ! $scheduled ) {
+		if ( $wanted && ! $scheduled ) {
 			as_schedule_recurring_action( time(), self::CLOCK_INTERVAL, self::ACTION_PULL, [], self::AS_GROUP, true );
-		} elseif ( ! self::allowed() && $scheduled ) {
+		} elseif ( ! $wanted && $scheduled ) {
 			as_unschedule_all_actions( self::ACTION_PULL, [], self::AS_GROUP );
 		}
 	}
@@ -230,6 +256,7 @@ class Controller {
 			as_unschedule_all_actions( self::ACTION_PULL, [], self::AS_GROUP );
 			as_unschedule_all_actions( self::ACTION_PULL_NOW, [], self::AS_GROUP );
 		}
+		delete_option( self::PAUSED_OPTION );
 	}
 
 	/**
@@ -243,7 +270,7 @@ class Controller {
 	 */
 	public static function pull(): void {
 		Cron\Controller::refresh_access_token_if_needed();
-		if ( ! self::allowed() ) {
+		if ( ! self::allowed() || self::paused() ) {
 			return;
 		}
 		$now = time();
@@ -258,6 +285,14 @@ class Controller {
 		}
 
 		$answer = ( new ManageJobsRequest() )->pull();
+		if ( null !== $answer && ManageJobsRequest::is_permission_answer( (int) $answer['status'], $answer['body'] ) ) {
+			// The API says this grant may not pull (no wordpress:manage on
+			// the token, or no beta access): no pull every 5 minutes until
+			// that changes.
+			update_option( self::PAUSED_OPTION, implode( ' ', Connect\Controller::granted_scopes() ), false );
+			self::sync_clock();
+			return;
+		}
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
 			foreach ( $answer['body']['jobs'] as $raw ) {
 				$job = self::job_of( $raw );
@@ -372,11 +407,33 @@ class Controller {
 				}
 				$result = Runner::run(
 					$job,
-					static function () use ( $id ): void {
-						( new ManageJobsRequest() )->heartbeat( $id );
+					static function () use ( $id ): bool {
+						$answer = ( new ManageJobsRequest() )->heartbeat( $id );
 						Ledger::touch( $id, time() );
+
+						// A 409: the lease passed and the job went back to the
+						// queue, or it finished there; a 404: it is not this
+						// site's. A heartbeat that got no answer does not stop
+						// the job.
+						return null === $answer || ! in_array( (int) $answer['status'], [ 404, 409 ], true );
 					}
 				);
+				if ( null === $result ) {
+					// Not started: the job is the next pull's again.
+					$row = Ledger::get( $id );
+					if ( null !== $row && Ledger::RUNNING === $row['state'] ) {
+						Ledger::move(
+							$id,
+							$row,
+							[
+								'state' => Ledger::SCHEDULED,
+								'at'    => time(),
+								'job'   => $job,
+							]
+						);
+					}
+					return;
+				}
 				self::finish( $id, $now, $result );
 				break;
 			case Ledger::RUNNING:

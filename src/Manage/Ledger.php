@@ -39,6 +39,11 @@ class Ledger {
 	private const KEEP = 7 * DAY_IN_SECONDS;
 
 	/**
+	 * Rows read per query.
+	 */
+	private const PAGE = 500;
+
+	/**
 	 * Whether a job id has the form of one: a UUID.
 	 *
 	 * @param mixed $id The id.
@@ -195,25 +200,33 @@ class Ledger {
 	}
 
 	/**
-	 * The ledger's rows, by option name, at most 500.
+	 * The ledger's rows, by option name, in the order they were written,
+	 * read a page at a time so a long ledger is read to its end.
 	 *
 	 * @return array<string, string>
 	 */
 	private static function rows(): array {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The ledger's own rows, past the options cache.
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
-				$wpdb->esc_like( self::PREFIX ) . '%'
-			),
-			ARRAY_A
-		);
-		$out  = [];
-		foreach ( (array) $rows as $row ) {
-			$out[ (string) $row['option_name'] ] = (string) $row['option_value'];
-		}
+		$out   = [];
+		$after = 0;
+		do {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The ledger's own rows, past the options cache.
+			$page = (array) $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT option_id, option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_id > %d ORDER BY option_id LIMIT %d",
+					$wpdb->esc_like( self::PREFIX ) . '%',
+					$after,
+					self::PAGE
+				),
+				ARRAY_A
+			);
+			foreach ( $page as $row ) {
+				$out[ (string) $row['option_name'] ] = (string) $row['option_value'];
+				$after                               = (int) $row['option_id'];
+			}
+			$full = self::PAGE === count( $page );
+		} while ( $full );
 
 		return $out;
 	}

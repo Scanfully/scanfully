@@ -70,7 +70,7 @@ final class RunnerTest extends TestCase {
 			],
 			$result['error']
 		);
-		$this->assertSame( 0, $this->beats, 'ping is not long: no heartbeat' );
+		$this->assertSame( 1, $this->beats, 'the first heartbeat, before the action runs' );
 		$this->assertSame( '{"plugin_version":"0.0.0-test"}', json_encode( $result['result'] ) );
 	}
 
@@ -130,6 +130,24 @@ final class RunnerTest extends TestCase {
 
 		$beat->beat();
 		$this->assertSame( 1, $this->beats );
+	}
+
+	public function test_nothing_runs_when_the_first_heartbeat_is_refused(): void {
+		$ran      = false;
+		$registry = [
+			'ping' => [
+				'run'  => static function () use ( &$ran ): array {
+					$ran = true;
+					return [];
+				},
+				'long' => false,
+			],
+		];
+
+		$result = Runner::run( [ 'action' => 'ping' ], static fn(): bool => false, fn(): int => $this->now, $registry );
+
+		$this->assertNull( $result );
+		$this->assertFalse( $ran );
 	}
 
 	public function test_an_action_that_throws_fails_with_its_class_or_as_fatal(): void {

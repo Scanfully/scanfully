@@ -195,7 +195,14 @@ abstract class Request {
 		}
 		$status   = (int) wp_remote_retrieve_response_code( $response );
 		$raw_body = wp_remote_retrieve_body( $response );
-		if ( $status < 200 || $status >= 300 ) {
+		$decoded  = null;
+		if ( '' !== $raw_body ) {
+			$decoded = json_decode( $raw_body, true );
+			if ( JSON_ERROR_NONE !== json_last_error() ) {
+				$decoded = null;
+			}
+		}
+		if ( ( $status < 200 || $status >= 300 ) && ! self::is_permission_answer( $status, $decoded ) ) {
 			self::record_failure( $status, '' );
 		}
 
@@ -206,18 +213,30 @@ abstract class Request {
 			self::record_success();
 		}
 
-		$decoded  = null;
-		if ( '' !== $raw_body ) {
-			$decoded = json_decode( $raw_body, true );
-			if ( JSON_ERROR_NONE !== json_last_error() ) {
-				$decoded = null;
-			}
-		}
 		return [
 			'status' => $status,
 			'body'   => $decoded,
 			'raw'    => (string) $raw_body,
 		];
+	}
+
+	/**
+	 * The codes of a 403 that says what the connection may do, not that it
+	 * is broken: the grant lacks the scope of the route, or the account may
+	 * not use a closed-beta feature (Scanfully Manage).
+	 */
+	public const PERMISSION_CODES = [ 'insufficient_scope', 'beta_required' ];
+
+	/**
+	 * Whether an answer is a 403 about what the connection may do.
+	 *
+	 * @param int   $status The HTTP status.
+	 * @param mixed $body   The decoded body.
+	 *
+	 * @return bool
+	 */
+	public static function is_permission_answer( int $status, $body ): bool {
+		return 403 === $status && is_array( $body ) && isset( $body['error'] ) && in_array( $body['error'], self::PERMISSION_CODES, true );
 	}
 
 	/**
