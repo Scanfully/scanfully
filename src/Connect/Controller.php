@@ -225,7 +225,7 @@ class Controller {
 			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
 		);
 		Scopes::forget_change();
-		self::store_grant( $tokens['scopes'] );
+		self::store_grant( Scopes::of( $tokens['scopes'] ) ?? [ OAuth::SCOPE_READ ] );
 		self::schedule_first_syncs();
 
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
@@ -492,11 +492,15 @@ class Controller {
 			if ( ! empty( $tokens ) ) {
 				// The token answer reports the grant's scopes: a connection on
 				// the OAuth server learns a change made in the dashboard here too.
+				// The same checked list as the hourly read, so the two never
+				// disagree about a scope this version does not know.
 				$scopes = Scopes::of( $tokens['scopes'] );
-				if ( null !== $scopes && 'oauth' === OptionsController::get_option( 'flow' ) ) {
+				if ( null === $scopes ) {
+					$scopes = self::granted_scopes();
+				} elseif ( 'oauth' === OptionsController::get_option( 'flow' ) ) {
 					Scopes::note_change( $scopes );
 				}
-				self::store_grant( $tokens['scopes'] );
+				self::store_grant( $scopes );
 				return $tokens;
 			}
 			// a connection that has not moved yet keeps the legacy route when
