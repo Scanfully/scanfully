@@ -304,9 +304,9 @@ final class ControllerTest extends TestCase {
 	}
 
 	/**
-	 * The run actions pending, by job.
+	 * The run actions pending, by job id.
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int, string>
 	 */
 	private function runs(): array {
 		$out = [];
@@ -323,9 +323,9 @@ final class ControllerTest extends TestCase {
 	 * off the queue.
 	 */
 	private function run_pending(): void {
-		foreach ( $this->runs() as $job ) {
+		foreach ( $this->runs() as $id ) {
 			$this->actions = array_values( array_filter( $this->actions, fn( array $a ) => Controller::ACTION_RUN_JOB !== $a['hook'] ) );
-			Controller::run_job( $job );
+			Controller::run_job( $id );
 		}
 	}
 
@@ -397,16 +397,15 @@ final class ControllerTest extends TestCase {
 
 		Controller::pull();
 
+		$this->assertSame( [ self::JOB ], $this->runs(), 'the job, by its id only, and none of the malformed ones' );
 		$this->assertSame(
 			[
-				[
-					'id'     => self::JOB,
-					'action' => 'ping',
-					'params' => [],
-				],
+				'id'     => self::JOB,
+				'action' => 'ping',
+				'params' => [],
 			],
-			$this->runs(),
-			'the job, without its lease, and none of the malformed ones'
+			Ledger::get( self::JOB )['job'] ?? null,
+			'the job as pulled, without its lease, is kept in the ledger'
 		);
 		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'nothing runs in the pull' );
 		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'] );
@@ -430,9 +429,7 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( [], $this->runs() );
 
 		// Two actions of one job: the second one does nothing.
-		$job = Controller::job_of( self::ping() );
-		$this->assertNotNull( $job );
-		Controller::run_job( $job );
+		Controller::run_job( self::JOB );
 		$this->assertCount( 1, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
 	}
 
@@ -560,21 +557,82 @@ final class ControllerTest extends TestCase {
 		$this->assertFalse( $this->pending( Controller::ACTION_PULL ) );
 	}
 
-	public function test_a_disconnect_forgets_the_clock_and_the_ledger(): void {
+	public function test_a_disconnect_stops_the_clock_and_keeps_the_ledger(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"state":"succeeded"}',
+		];
 		Controller::sync_clock();
-		$this->assertTrue( Ledger::claim( self::JOB, time() ) );
-		$this->db->rows['scanfully_connect_site_id'] = self::SITE;
+		Controller::pull();
+		$this->run_pending();
 
 		Controller::clear();
-
 		$this->assertSame( [], $this->actions );
-		$this->assertSame( [ 'scanfully_connect_site_id' ], array_keys( $this->db->rows ) );
+
+		// A reconnect within the lease: the API hands the job out again.
+		Controller::sync_clock();
+		Controller::pull();
+		$this->run_pending();
+		$this->assertCount( 1, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'the job never runs twice' );
+	}
+
+	public function test_a_result_is_sent_again_on_the_clock_when_the_job_is_not_handed_out(): void {
+		$this->jobs( [ self::ping() ] );
+		Controller::pull();
+		$this->run_pending(); // The API answers 500.
+		$this->assertSame( Ledger::DONE, Ledger::get( self::JOB )['state'] ?? '' );
+
+		// The job got stuck at the API, which hands out no stuck job but takes its late result.
+		$this->jobs( [] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertCount( 2, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+	}
+
+	public function test_a_heartbeat_keeps_a_long_run_from_counting_as_stopped(): void {
+		$started = time() - 20 * MINUTE_IN_SECONDS;
+		$this->db->rows[ Ledger::PREFIX . self::JOB ] = (string) json_encode(
+			[
+				'state'      => Ledger::RUNNING,
+				'at'         => $started,
+				'started_at' => $started,
+			]
+		);
+		Ledger::touch( self::JOB, time() );
+		$this->jobs( [] );
+
+		Controller::pull();
+
+		$this->assertSame( [], $this->runs() );
+		$this->assertSame( $started, Ledger::get( self::JOB )['started_at'] ?? 0 );
+	}
+
+	/**
+	 * A job of the id, as the pull keeps it.
+	 *
+	 * @param string $id The job id.
+	 *
+	 * @return array{id: string, action: string, params: array}
+	 */
+	private static function job( string $id ): array {
+		return [
+			'id'     => $id,
+			'action' => 'ping',
+			'params' => [],
+		];
 	}
 
 	public function test_the_ledger_keeps_a_week(): void {
-		$this->assertTrue( Ledger::claim( self::JOB, time() - 8 * DAY_IN_SECONDS ) );
-		$this->assertTrue( Ledger::claim( 'b2b2b2b2-2222-4222-8222-222222222222', time() ) );
-		$this->assertFalse( Ledger::claim( self::JOB, time() ), 'a second claim' );
+		$this->assertTrue( Ledger::claim( self::job( self::JOB ), time() - 8 * DAY_IN_SECONDS ) );
+		$this->assertTrue( Ledger::claim( self::job( 'b2b2b2b2-2222-4222-8222-222222222222' ), time() ) );
+		$this->assertFalse( Ledger::claim( self::job( self::JOB ), time() ), 'a second claim' );
 
 		$this->assertSame( 1, Ledger::prune( time() ) );
 		$this->assertNull( Ledger::get( self::JOB ) );

@@ -16,7 +16,8 @@ namespace Scanfully\Manage;
  * One row per job in the options table (never autoloaded), written straight
  * to the database: a claim is an INSERT IGNORE, which only one process wins,
  * and a change of state an UPDATE that only succeeds from the state it read,
- * as the token refresh lock does. A job goes scheduled, running, done (its
+ * as the token refresh lock does. A row holds the job as pulled, so the
+ * run action carries only its id. A job goes scheduled, running, done (its
  * result kept until the API took it) and reported.
  */
 class Ledger {
@@ -50,25 +51,27 @@ class Ledger {
 
 	/**
 	 * Claim a job the plugin has not seen: true for the one process that
-	 * records it as scheduled, false when it is known already.
+	 * records it as scheduled, with the job as pulled, false when it is known
+	 * already.
 	 *
-	 * @param string $id  The job id.
-	 * @param int    $now The time.
+	 * @param array{id: string, action: string, params: array} $job The job.
+	 * @param int                                              $now The time.
 	 *
 	 * @return bool
 	 */
-	public static function claim( string $id, int $now ): bool {
+	public static function claim( array $job, int $now ): bool {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- An atomic claim must bypass the options cache.
 		$inserted = $wpdb->query(
 			$wpdb->prepare(
 				"INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )",
-				self::PREFIX . $id,
+				self::PREFIX . $job['id'],
 				self::encode(
 					[
 						'state' => self::SCHEDULED,
 						'at'    => $now,
+						'job'   => $job,
 					]
 				)
 			)
@@ -83,7 +86,7 @@ class Ledger {
 	 *
 	 * @param string $id The job id.
 	 *
-	 * @return array{state: string, at: int, started_at?: int, result?: array, raw: string}|null
+	 * @return array{state: string, at: int, started_at?: int, job?: array, result?: array, raw: string}|null
 	 */
 	public static function get( string $id ): ?array {
 		global $wpdb;
@@ -140,37 +143,79 @@ class Ledger {
 	public static function prune( int $now ): int {
 		global $wpdb;
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The ledger's own rows, past the options cache.
-		$rows    = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
-				$wpdb->esc_like( self::PREFIX ) . '%'
-			),
-			ARRAY_A
-		);
 		$removed = 0;
-		foreach ( (array) $rows as $row ) {
-			$value = json_decode( (string) ( $row['option_value'] ?? '' ), true );
-			if ( is_array( $value ) && (int) ( $value['at'] ?? 0 ) > $now - self::KEEP ) {
+		foreach ( self::rows() as $name => $value ) {
+			$row = json_decode( $value, true );
+			if ( is_array( $row ) && (int) ( $row['at'] ?? 0 ) > $now - self::KEEP ) {
 				continue;
 			}
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The ledger's own rows, past the options cache.
-			$removed += (int) $wpdb->delete( $wpdb->options, [ 'option_name' => (string) $row['option_name'] ] );
+			$removed += (int) $wpdb->delete( $wpdb->options, [ 'option_name' => $name ] );
 		}
 
 		return $removed;
 	}
 
 	/**
-	 * Remove every row, as on disconnect.
+	 * Note a running job's sign of life, a heartbeat, so it does not count
+	 * as stopped while it works.
+	 *
+	 * @param string $id  The job id.
+	 * @param int    $now The time.
 	 *
 	 * @return void
 	 */
-	public static function clear(): void {
+	public static function touch( string $id, int $now ): void {
+		$row = self::get( $id );
+		if ( null !== $row && self::RUNNING === $row['state'] ) {
+			$row['at'] = $now;
+			self::move( $id, $row, $row );
+		}
+	}
+
+	/**
+	 * The jobs whose result still has to reach the API: done ones, and
+	 * running ones whose last sign of life is before the time given.
+	 *
+	 * @param int $stale_before Running jobs quiet since before this time count.
+	 *
+	 * @return string[] The job ids.
+	 */
+	public static function open( int $stale_before ): array {
+		$ids = [];
+		foreach ( self::rows() as $name => $value ) {
+			$row   = json_decode( $value, true );
+			$state = is_array( $row ) ? ( $row['state'] ?? '' ) : '';
+			if ( self::DONE === $state || ( self::RUNNING === $state && (int) ( $row['at'] ?? 0 ) < $stale_before ) ) {
+				$ids[] = substr( $name, strlen( self::PREFIX ) );
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * The ledger's rows, by option name, at most 500.
+	 *
+	 * @return array<string, string>
+	 */
+	private static function rows(): array {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery -- The ledger's own rows, past the options cache.
-		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( self::PREFIX ) . '%' ) );
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
+				$wpdb->esc_like( self::PREFIX ) . '%'
+			),
+			ARRAY_A
+		);
+		$out  = [];
+		foreach ( (array) $rows as $row ) {
+			$out[ (string) $row['option_name'] ] = (string) $row['option_value'];
+		}
+
+		return $out;
 	}
 
 	/**

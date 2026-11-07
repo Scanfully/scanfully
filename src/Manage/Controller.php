@@ -75,8 +75,9 @@ class Controller {
 	public const CLOCK_INTERVAL = 5 * MINUTE_IN_SECONDS;
 
 	/**
-	 * Seconds after which a job that started and never ended counts as
-	 * stopped: PHP died while it ran.
+	 * Seconds after a job's last sign of life (its start or its last
+	 * heartbeat) after which a job that never ended counts as stopped: PHP
+	 * died while it ran.
 	 */
 	private const STALE_RUN = 15 * MINUTE_IN_SECONDS;
 
@@ -92,7 +93,7 @@ class Controller {
 
 	/**
 	 * The states of a job the API still waits on: a result the API answered
-	 * with one of them is kept and sent again when the job comes back.
+	 * with one of them is kept and sent again on a later pull.
 	 */
 	private const OPEN_STATES = [ 'queued', 'leased', 'running' ];
 
@@ -216,7 +217,11 @@ class Controller {
 	}
 
 	/**
-	 * Forget everything on disconnect: the clock and the ledger.
+	 * Stop the clock on disconnect. The ledger stays: job ids are unique, so
+	 * a row of an earlier connection never matches another job, and a job of
+	 * this site that the API hands out again after a reconnect must still not
+	 * run twice. Rows go after a week, and with the plugin's data on
+	 * uninstall.
 	 *
 	 * @return void
 	 */
@@ -225,12 +230,14 @@ class Controller {
 			as_unschedule_all_actions( self::ACTION_PULL, [], self::AS_GROUP );
 			as_unschedule_all_actions( self::ACTION_PULL_NOW, [], self::AS_GROUP );
 		}
-		Ledger::clear();
 	}
 
 	/**
 	 * Pull the site's jobs and schedule each one the plugin has not run yet
-	 * in an action of its own. Runs in Action Scheduler.
+	 * in an action of its own; also schedule the jobs whose result the API did
+	 * not take yet, or whose run stopped, so their result is sent: the API
+	 * does not hand out a running or stuck job again. Runs in Action
+	 * Scheduler.
 	 *
 	 * @return void
 	 */
@@ -239,21 +246,24 @@ class Controller {
 		if ( ! self::allowed() ) {
 			return;
 		}
+		$now = time();
 		if ( false === get_transient( self::PRUNE_TRANSIENT ) ) {
 			set_transient( self::PRUNE_TRANSIENT, 1, DAY_IN_SECONDS );
-			Ledger::prune( time() );
-		}
-
-		$answer = ( new ManageJobsRequest() )->pull();
-		if ( null === $answer || 200 !== $answer['status'] || ! is_array( $answer['body'] ) || ! isset( $answer['body']['jobs'] ) || ! is_array( $answer['body']['jobs'] ) ) {
-			return;
+			Ledger::prune( $now );
 		}
 
 		$scheduled = false;
-		foreach ( $answer['body']['jobs'] as $raw ) {
-			$job = self::job_of( $raw );
-			if ( null !== $job && self::take( $job ) ) {
-				$scheduled = true;
+		foreach ( Ledger::open( $now - self::STALE_RUN ) as $id ) {
+			$scheduled = self::schedule_run( $id ) || $scheduled;
+		}
+
+		$answer = ( new ManageJobsRequest() )->pull();
+		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
+			foreach ( $answer['body']['jobs'] as $raw ) {
+				$job = self::job_of( $raw );
+				if ( null !== $job && self::take( $job, $now ) ) {
+					$scheduled = true;
+				}
 			}
 		}
 		if ( $scheduled ) {
@@ -287,49 +297,39 @@ class Controller {
 	}
 
 	/**
-	 * Take a pulled job: schedule a job the plugin has not seen, and again a
-	 * job whose result the API did not take yet or whose run never ended, so
-	 * its action reports it. A job that is scheduled or running stays as it
-	 * is: it never starts twice.
+	 * Take a pulled job: record and schedule a job the plugin has not seen,
+	 * and schedule again a job whose action went missing. A job that is
+	 * scheduled, running or done stays as it is: it never starts twice.
 	 *
 	 * @param array{id: string, action: string, params: array} $job The job.
+	 * @param int                                              $now The time.
 	 *
 	 * @return bool Whether an action was scheduled.
 	 */
-	private static function take( array $job ): bool {
-		$now = time();
-		if ( Ledger::claim( $job['id'], $now ) ) {
-			return self::schedule_run( $job );
+	private static function take( array $job, int $now ): bool {
+		if ( Ledger::claim( $job, $now ) ) {
+			return self::schedule_run( $job['id'] );
 		}
 		$row = Ledger::get( $job['id'] );
-		if ( null === $row ) {
-			return false;
-		}
-		switch ( $row['state'] ) {
-			case Ledger::SCHEDULED:
-				// Its action went missing: the run claims the job again
-				// before it starts, so a second action does nothing.
-			case Ledger::DONE:
-				return self::schedule_run( $job );
-			case Ledger::RUNNING:
-				return (int) ( $row['started_at'] ?? $row['at'] ) < $now - self::STALE_RUN && self::schedule_run( $job );
-		}
 
-		return false;
+		// The run claims the job before it starts, so a second action of a
+		// scheduled job does nothing.
+		return null !== $row && Ledger::SCHEDULED === $row['state'] && self::schedule_run( $job['id'] );
 	}
 
 	/**
-	 * Schedule the run of a job, unless its action is pending already.
+	 * Schedule the run action of a job, unless one is pending already. It
+	 * carries only the id: the job itself is in the ledger, as pulled.
 	 *
-	 * @param array{id: string, action: string, params: array} $job The job.
+	 * @param string $id The job id.
 	 *
 	 * @return bool Whether an action was scheduled.
 	 */
-	private static function schedule_run( array $job ): bool {
-		if ( ! function_exists( 'as_schedule_single_action' ) || as_has_scheduled_action( self::ACTION_RUN_JOB, [ $job ], self::AS_GROUP ) ) {
+	private static function schedule_run( string $id ): bool {
+		if ( ! function_exists( 'as_schedule_single_action' ) || as_has_scheduled_action( self::ACTION_RUN_JOB, [ $id ], self::AS_GROUP ) ) {
 			return false;
 		}
-		as_schedule_single_action( time(), self::ACTION_RUN_JOB, [ $job ], self::AS_GROUP );
+		as_schedule_single_action( time(), self::ACTION_RUN_JOB, [ $id ], self::AS_GROUP );
 
 		return true;
 	}
@@ -337,20 +337,19 @@ class Controller {
 	/**
 	 * Run a job, in its own Action Scheduler action: a scheduled job runs
 	 * once and its result is reported; a job that ran reports its result
-	 * again until the API took it; a job that started long ago and never
-	 * ended reports that it stopped. The plugin checks its own copy of the
-	 * grant before it runs anything.
+	 * again until the API took it; a job whose last sign of life is long ago
+	 * reports that it stopped. Only a job the plugin pulled itself is in the
+	 * ledger, and the plugin checks its own copy of the grant before it runs
+	 * anything.
 	 *
-	 * @param mixed $raw The job as pulled.
+	 * @param mixed $id The job id.
 	 *
 	 * @return void
 	 */
-	public static function run_job( $raw ): void {
-		$job = self::job_of( $raw );
-		if ( null === $job || ! self::allowed() ) {
+	public static function run_job( $id ): void {
+		if ( ! Ledger::valid_id( $id ) || ! self::allowed() ) {
 			return;
 		}
-		$id  = $job['id'];
 		$row = Ledger::get( $id );
 		if ( null === $row ) {
 			return;
@@ -359,6 +358,10 @@ class Controller {
 		$now = time();
 		switch ( $row['state'] ) {
 			case Ledger::SCHEDULED:
+				$job = self::job_of( $row['job'] ?? null );
+				if ( null === $job ) {
+					return;
+				}
 				$running = [
 					'state'      => Ledger::RUNNING,
 					'at'         => $now,
@@ -371,16 +374,17 @@ class Controller {
 					$job,
 					static function () use ( $id ): void {
 						( new ManageJobsRequest() )->heartbeat( $id );
+						Ledger::touch( $id, time() );
 					}
 				);
 				self::finish( $id, $now, $result );
 				break;
 			case Ledger::RUNNING:
-				$started = (int) ( $row['started_at'] ?? $row['at'] );
-				if ( $started >= $now - self::STALE_RUN ) {
+				if ( $row['at'] >= $now - self::STALE_RUN ) {
 					return;
 				}
-				$result = Runner::failed( $started, $now, 'fatal', 'The job started on the site but never ended, for example because PHP stopped. What it changed is unknown.' );
+				$started = (int) ( $row['started_at'] ?? $row['at'] );
+				$result  = Runner::failed( $started, $now, 'fatal', 'The job started on the site but never ended, for example because PHP stopped. What it changed is unknown.' );
 				self::finish( $id, $started, $result );
 				break;
 			case Ledger::DONE:
@@ -418,7 +422,7 @@ class Controller {
 	 * Send a job's kept result to the API. The API took it when it answers
 	 * 2xx, when it says the job finished or is not this site's (409), or that
 	 * there is no such job (404); a result it cannot take now (no answer, an
-	 * error, the job queued again) is sent again when the job is pulled.
+	 * error, the job queued again) is sent again on the next pull.
 	 *
 	 * @param string $id The job id.
 	 *
