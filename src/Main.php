@@ -154,6 +154,9 @@ class Main {
 
 		/** Register on-demand sync endpoint */
 		Sync\Controller::setup();
+
+		// Scanfully Manage: the poke route, the clock and the jobs.
+		Manage\Controller::setup();
 	}
 
 	/**

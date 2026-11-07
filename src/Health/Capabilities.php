@@ -26,14 +26,6 @@ namespace Scanfully\Health;
 final class Capabilities {
 
 	/**
-	 * The job actions this plugin version runs. Empty until the command
-	 * channel adds its first action; the key is sent already.
-	 *
-	 * @var string[]
-	 */
-	private const ACTIONS = [];
-
-	/**
 	 * The capabilities object of the site data.
 	 *
 	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}
@@ -41,7 +33,7 @@ final class Capabilities {
 	public static function get(): array {
 		return [
 			'plugin_version' => defined( 'SCANFULLY_VERSION' ) ? (string) SCANFULLY_VERSION : '',
-			'actions' => self::ACTIONS,
+			'actions' => \Scanfully\Manage\Runner::actions(),
 			'file_mods_allowed' => self::check( [ self::class, 'file_mods_allowed' ] ),
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),
 			'fs_method' => self::check( [ self::class, 'fs_method' ] ),

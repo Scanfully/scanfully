@@ -73,7 +73,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertSame(
 			[
 				'plugin_version' => SCANFULLY_VERSION,
-				'actions' => [],
+				'actions' => [ 'ping' ],
 				'file_mods_allowed' => true,
 				'auto_updater_enabled' => true,
 				'fs_method' => 'direct',
