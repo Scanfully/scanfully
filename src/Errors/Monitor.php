@@ -376,6 +376,10 @@ final class Monitor {
 	 * @return void
 	 */
 	public static function flush(): void {
+		$built         = self::build( Attribution::from_wordpress(), Context::current() );
+		$overflow      = self::$dropped;
+		self::$errors  = [];
+		self::$dropped = 0;
 		if ( ! Store::database_ready() ) {
 			// No database (yet): nothing can be kept.
 			return;
@@ -383,14 +387,13 @@ final class Monitor {
 
 		$now     = time();
 		$hour    = Store::hour( $now );
-		$errors  = self::build( Attribution::from_wordpress(), Context::current() );
+		$errors  = $built;
 		$known   = Store::known();
 		$unknown = array_diff_key( $errors, array_filter( $known, static fn( int $sent ): bool => $sent > $now - Store::KNOWN_FOR ) );
 
 		// A new distinct error counts against the hour's cap; one already
 		// waiting to be sent doesn't.
-		$overflow = self::$dropped;
-		$new      = array_diff( array_keys( $unknown ), Store::pending( array_keys( $unknown ) ) );
+		$new = array_diff( array_keys( $unknown ), Store::pending( array_keys( $unknown ) ) );
 		if ( [] !== $new ) {
 			$room = max( 0, Store::MAX_NEW_PER_HOUR - Store::hour_count( 'h', $hour ) );
 			// Fatal errors first.

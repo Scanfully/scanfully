@@ -33,8 +33,8 @@ final class ScrubberTest extends TestCase {
 			'api key'         => [ 'api_key: abcdef123456 rejected', 'api_key: [redacted] rejected' ],
 			'bearer'          => [ 'Header Authorization: Bearer eyJhbGciOi.eyJzdWIi.SflKxw rejected', 'Header Authorization: [redacted] rejected' ],
 			// Made up at run time, so no key-shaped text is in the repository.
-			'stripe key'      => [ 'Invalid key sk_' . 'live_' . str_repeat( 'Zx9', 8 ) . ' given', 'Invalid key [key] given' ],
-			'aws key'         => [ 'AK' . 'IA' . str_repeat( 'Q7', 8 ) . ' denied', '[key] denied' ],
+			'stripe key'      => [ 'Invalid key ' . implode( '_', [ 'sk', 'live', str_repeat( 'Zx9', 8 ) ] ) . ' given', 'Invalid key [key] given' ],
+			'aws key'         => [ strtoupper( 'akia' ) . str_repeat( 'Q7', 8 ) . ' denied', '[key] denied' ],
 			'hash'            => [ 'Token 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 expired', 'Token [key] expired' ],
 			'long key'        => [ 'Key AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghij invalid', 'Key [key] invalid' ],
 			'query string'    => [ 'file_get_contents(https://api.scanfully.com/v1/x?token=abc&user=1): Failed', 'file_get_contents(https://api.scanfully.com/v1/x?[query]): Failed' ],
