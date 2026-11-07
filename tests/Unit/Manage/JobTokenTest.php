@@ -251,13 +251,13 @@ final class JobTokenTest extends TestCase {
 		$this->assertSame( JobToken::VALID, JobToken::check( $job, self::SITE ), 'within the clock leeway' );
 	}
 
-	public function test_the_hash_kept_from_the_raw_answer_is_the_one_checked(): void {
+	public function test_the_params_json_kept_from_the_pull_is_what_is_hashed(): void {
 		$job                = self::job();
-		$job['params_hash'] = hash( 'sha256', '{"slug":"akismet","target_version":"5.3.1"}' );
+		$job['params_json'] = '{"slug":"akismet","target_version":"5.3.1"}';
 		$this->assertSame( JobToken::VALID, JobToken::check( $job, self::SITE ) );
 
-		$job['params_hash'] = hash( 'sha256', '{}' );
-		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ) );
+		$job['params_json'] = '{"slug":"evil","target_version":"5.3.1"}';
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'the bytes the action reads changed after signing' );
 	}
 
 	public function test_the_canonical_json_sorts_keys_and_escapes_nothing_it_need_not(): void {

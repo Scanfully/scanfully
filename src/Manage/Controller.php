@@ -314,7 +314,7 @@ class Controller {
 		}
 
 		$answer = ( new ManageJobsRequest() )->pull();
-		$hashes = null !== $answer ? self::params_hashes( (string) ( $answer['raw'] ?? '' ) ) : [];
+		$params = null !== $answer ? self::params_json( (string) ( $answer['raw'] ?? '' ) ) : [];
 		if ( null !== $answer && ManageJobsRequest::is_permission_answer( (int) $answer['status'], $answer['body'] ) ) {
 			// The API says this grant may not pull (no wordpress:manage on
 			// the token, or no beta access): no pull every 5 minutes until
@@ -325,7 +325,7 @@ class Controller {
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
 			$listed = [];
 			foreach ( $answer['body']['jobs'] as $raw ) {
-				$job = self::job_of( $raw, is_array( $raw ) && is_string( $raw['id'] ?? null ) ? ( $hashes[ $raw['id'] ] ?? null ) : null );
+				$job = self::job_of( $raw, is_array( $raw ) && is_string( $raw['id'] ?? null ) ? ( $params[ $raw['id'] ] ?? null ) : null );
 				if ( null === $job ) {
 					continue;
 				}
@@ -360,39 +360,42 @@ class Controller {
 	}
 
 	/**
-	 * The hash of each pulled job's parameters, by job id, from the raw
-	 * answer: decoded with its objects kept, so an empty object and an empty
-	 * list hash as the API hashed them.
+	 * The canonical JSON of each pulled job's parameters, by job id, from
+	 * the raw answer: decoded with its objects kept, so an empty object and
+	 * an empty list read as the API signed them.
 	 *
 	 * @param string $raw The raw answer of the pull.
 	 *
 	 * @return array<string, string>
 	 */
-	private static function params_hashes( string $raw ): array {
+	private static function params_json( string $raw ): array {
 		$answer = '' === $raw ? null : json_decode( $raw, false );
 		if ( ! is_object( $answer ) || ! isset( $answer->jobs ) || ! is_array( $answer->jobs ) ) {
 			return [];
 		}
-		$hashes = [];
+		$out = [];
 		foreach ( $answer->jobs as $job ) {
 			if ( is_object( $job ) && isset( $job->id ) && is_string( $job->id ) ) {
-				$hashes[ $job->id ] = JobToken::params_hash( $job->params ?? new \stdClass() );
+				$out[ $job->id ] = JobToken::canonical_json( $job->params ?? new \stdClass(), true );
 			}
 		}
 
-		return $hashes;
+		return $out;
 	}
 
 	/**
 	 * A job as the API sent it, checked: its id, action, parameters, attempt
-	 * and signed token, or null when it is not a job.
+	 * and signed token, or null when it is not a job. The parameters are
+	 * kept as their canonical JSON (params_json) and read back from it, so
+	 * the bytes the token is checked against are the parameters the action
+	 * gets: a job changed in the ledger after the pull does not verify.
 	 *
-	 * @param mixed       $raw         The job from the API's answer.
-	 * @param string|null $params_hash The hash of its parameters as the raw answer had them.
+	 * @param mixed       $raw         The job from the API's answer, or as the ledger keeps it.
+	 * @param string|null $params_json The canonical JSON of its parameters from the raw answer.
 	 *
-	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_hash?: string}|null
+	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_json?: string}|null
 	 */
-	public static function job_of( $raw, ?string $params_hash = null ): ?array {
+	public static function job_of( $raw, ?string $params_json = null ): ?array {
 		if ( ! is_array( $raw ) || ! Ledger::valid_id( $raw['id'] ?? null ) ) {
 			return null;
 		}
@@ -413,9 +416,11 @@ class Controller {
 			'job_token'   => is_string( $token ) && strlen( $token ) <= 8192 ? $token : '',
 			'lease_until' => is_string( $lease ) ? substr( $lease, 0, 64 ) : '',
 		];
-		$hash = $params_hash ?? ( isset( $raw['params_hash'] ) && is_string( $raw['params_hash'] ) ? $raw['params_hash'] : null );
-		if ( null !== $hash ) {
-			$job['params_hash'] = $hash;
+		$json = $params_json ?? ( isset( $raw['params_json'] ) && is_string( $raw['params_json'] ) ? $raw['params_json'] : null );
+		if ( null !== $json ) {
+			$decoded             = json_decode( $json, true );
+			$job['params']       = is_array( $decoded ) ? $decoded : [];
+			$job['params_json']  = $json;
 		}
 
 		return $job;

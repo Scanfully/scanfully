@@ -523,10 +523,10 @@ final class ControllerTest extends TestCase {
 				'attempt'     => 1,
 				'job_token'   => Ledger::get( self::JOB )['job']['job_token'] ?? '',
 				'lease_until' => '2026-11-07T12:02:00Z',
-				'params_hash' => hash( 'sha256', '{}' ),
+				'params_json' => '{}',
 			],
 			Ledger::get( self::JOB )['job'] ?? null,
-			'the job as pulled, with its attempt, token and the hash of its parameters, is kept in the ledger'
+			'the job as pulled, with its attempt, token and its parameters as canonical JSON, is kept in the ledger'
 		);
 		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'nothing runs in the pull' );
 		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'] );
@@ -1615,6 +1615,23 @@ final class ControllerTest extends TestCase {
 		$this->run_pending();
 
 		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ) );
+		$this->assertSame( 'signature', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['error']['class'] ?? '' );
+	}
+
+	public function test_a_job_changed_in_the_ledger_after_the_pull_is_refused(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->result_taken();
+		Controller::pull();
+
+		// Someone with database access rewrites the pulled job's parameters.
+		$name                    = Ledger::PREFIX . self::JOB;
+		$row                     = json_decode( $this->db->rows[ $name ], true );
+		$row['job']['params']      = [ 'slug' => 'evil' ];
+		$row['job']['params_json'] = '{"slug":"evil"}';
+		$this->db->rows[ $name ]   = (string) json_encode( $row );
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'never started' );
 		$this->assertSame( 'signature', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['error']['class'] ?? '' );
 	}
 

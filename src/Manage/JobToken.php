@@ -50,7 +50,7 @@ final class JobToken {
 	/**
 	 * Check a job's token.
 	 *
-	 * @param array{id: string, action: string, params: array, attempt?: int, job_token?: string, params_hash?: string} $job     The job as pulled.
+	 * @param array{id: string, action: string, params: array, attempt?: int, job_token?: string, params_json?: string} $job     The job as pulled.
 	 * @param string                                                                                                    $site_id The site's Scanfully id.
 	 * @param int|null                                                                                                  $now     The time.
 	 *
@@ -67,8 +67,10 @@ final class JobToken {
 			return SignedRequest::keys_unavailable() ? self::UNVERIFIED : self::INVALID;
 		}
 
-		$hash = isset( $job['params_hash'] ) && is_string( $job['params_hash'] ) && '' !== $job['params_hash']
-			? $job['params_hash']
+		// The parameters the action gets, hashed: their canonical JSON as
+		// pulled when the job keeps it, else computed from them.
+		$hash = isset( $job['params_json'] ) && is_string( $job['params_json'] )
+			? hash( 'sha256', $job['params_json'] )
 			: self::params_hash( $job['params'] );
 		if ( ( $claims['iss'] ?? '' ) !== Main::get_oauth_url()
 			|| ! self::names_only( $claims['aud'] ?? null, $site_id )
