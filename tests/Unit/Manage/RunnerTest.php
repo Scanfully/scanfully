@@ -9,13 +9,16 @@ namespace Scanfully\Tests\Unit\Manage;
 
 use Scanfully\Manage\Heartbeat;
 use Scanfully\Manage\JobFailed;
+use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Runner;
+use Brain\Monkey\Functions;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Manage\Runner
  * @covers \Scanfully\Manage\Heartbeat
  * @covers \Scanfully\Manage\JobFailed
+ * @covers \Scanfully\Manage\JobRun
  */
 final class RunnerTest extends TestCase {
 
@@ -32,6 +35,13 @@ final class RunnerTest extends TestCase {
 	 * @var int
 	 */
 	private int $beats = 0;
+
+	protected function setUp(): void {
+		parent::setUp();
+		Functions\when( 'wp_strip_all_tags' )->alias( 'strip_tags' );
+		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
+		Functions\when( 'is_multisite' )->justReturn( false );
+	}
 
 	/**
 	 * Run a job with the test clock and heartbeat counter.
@@ -76,16 +86,18 @@ final class RunnerTest extends TestCase {
 	}
 
 	public function test_an_action_the_plugin_does_not_know_fails_as_not_supported(): void {
-		$result = $this->run_job( [ 'action' => 'update_core' ] );
+		$result = $this->run_job( [ 'action' => 'install_plugin' ] );
 
 		$this->assertSame( 'failed', $result['state'] );
 		$this->assertSame( 'not_supported', $result['error']['class'] );
-		$this->assertStringContainsString( 'update_core', $result['error']['message'] );
+		$this->assertStringContainsString( 'install_plugin', $result['error']['message'] );
 		$this->assertSame( '{}', json_encode( $result['result'] ), 'the result is an object for the API' );
 	}
 
 	public function test_the_actions_are_listed_for_the_capabilities_report(): void {
-		$this->assertSame( [ 'ping' ], Runner::actions() );
+		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Runner::actions() );
+		$this->assertSame( [ 'ping' ], Runner::actions( false ), 'where WordPress cannot change files, only what needs no files' );
+		$this->assertTrue( Runner::knows( 'update_translations' ) );
 		$this->assertTrue( Runner::knows( 'ping' ) );
 		$this->assertFalse( Runner::knows( 'reboot' ) );
 	}
@@ -210,5 +222,58 @@ final class RunnerTest extends TestCase {
 		$this->assertSame( 'succeeded', $result['state'] );
 		$this->assertSame( 2, $this->beats, 'one as it starts, one 31 seconds in' );
 		$this->assertSame( '2026-10-28T10:00:31+00:00', $result['finished_at'] );
+	}
+
+	public function test_on_a_network_only_the_updates_and_ping_run(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		$ran      = false;
+		$registry = [
+			'delete_plugin' => [
+				'run'  => function () use ( &$ran ): array {
+					$ran = true;
+					return [];
+				},
+				'long' => false,
+			],
+			'update_plugin' => [
+				'run'     => static fn(): array => [ 'new_version' => '2.0' ],
+				'long'    => true,
+				'network' => true,
+			],
+		];
+		$beat     = static fn(): bool => true;
+
+		$refused = Runner::run( [ 'action' => 'delete_plugin' ], $beat, fn(): int => $this->now, $registry );
+		$this->assertSame( 'multisite_refused', $refused['error']['class'] );
+		$this->assertFalse( $ran );
+
+		$this->assertSame( 'succeeded', Runner::run( [ 'action' => 'update_plugin' ], $beat, fn(): int => $this->now, $registry )['state'] );
+		$this->assertSame( 'succeeded', $this->run_job( [ 'action' => 'ping' ] )['state'] );
+	}
+
+	public function test_a_maintenance_file_left_behind_fails_an_update_that_went_well(): void {
+		$dir = sys_get_temp_dir() . '/scanfully-runner-' . uniqid( '', true );
+		mkdir( $dir );
+		Functions\when( 'wp_delete_file' )->justReturn( null );
+		// Not there when the job starts.
+		$run      = new JobRun( 'a1a1a1a1-1111-4111-8111-111111111111', null, $dir . '/.maintenance' );
+		$registry = [
+			'update_core' => [
+				'run'     => static function () use ( $dir ): array {
+					mkdir( $dir . '/.maintenance' ); // Cannot be removed as a file.
+					return [ 'new_version' => '7.1.4' ];
+				},
+				'long'    => true,
+				'network' => true,
+			],
+		];
+
+		$result = Runner::run( [ 'action' => 'update_core' ], static fn(): bool => true, fn(): int => $this->now, $registry, $run );
+
+		rmdir( $dir . '/.maintenance' );
+		rmdir( $dir );
+		$this->assertSame( 'failed', $result['state'] );
+		$this->assertSame( 'maintenance', $result['error']['class'] );
+		$this->assertSame( '7.1.4', $result['result']->new_version, 'what the update did is still reported' );
 	}
 }

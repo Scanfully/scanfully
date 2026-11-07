@@ -69,22 +69,9 @@ class SignedRequest {
 	 * @return bool
 	 */
 	public static function verify( string $token, string $site_id, string $action, string $scope, ?int $now = null ): bool {
-		$now   = $now ?? time();
-		$parts = explode( '.', $token );
-		if ( 3 !== count( $parts ) || '' === $site_id || ! function_exists( 'openssl_verify' ) ) {
-			return false;
-		}
-		$header    = json_decode( self::b64url_decode( $parts[0] ), true );
-		$claims    = json_decode( self::b64url_decode( $parts[1] ), true );
-		$signature = self::b64url_decode( $parts[2] );
-		if ( ! is_array( $header ) || ! is_array( $claims ) || '' === $signature ) {
-			return false;
-		}
-		if ( ( $header['alg'] ?? '' ) !== 'RS256' || ! isset( $header['kid'] ) || ! is_string( $header['kid'] ) ) {
-			return false;
-		}
-		$pem = self::key( $header['kid'] );
-		if ( null === $pem || 1 !== openssl_verify( $parts[0] . '.' . $parts[1], $signature, $pem, OPENSSL_ALGO_SHA256 ) ) {
+		$now    = $now ?? time();
+		$claims = '' === $site_id ? null : self::claims( $token );
+		if ( null === $claims ) {
 			return false;
 		}
 
@@ -109,6 +96,37 @@ class SignedRequest {
 		set_transient( $seen, 1, max( 60, (int) $claims['exp'] - $now + self::LEEWAY ) );
 
 		return true;
+	}
+
+	/**
+	 * The claims of a token Scanfully signed: an RS256 JWT whose signature
+	 * checks out against one of Scanfully's published keys. Only the
+	 * signature is checked here; what the claims must say is the caller's.
+	 *
+	 * @param string $token The token.
+	 *
+	 * @return array<string, mixed>|null The claims, or null when the token is not one Scanfully signed.
+	 */
+	public static function claims( string $token ): ?array {
+		$parts = explode( '.', $token );
+		if ( 3 !== count( $parts ) || ! function_exists( 'openssl_verify' ) ) {
+			return null;
+		}
+		$header    = json_decode( self::b64url_decode( $parts[0] ), true );
+		$claims    = json_decode( self::b64url_decode( $parts[1] ), true );
+		$signature = self::b64url_decode( $parts[2] );
+		if ( ! is_array( $header ) || ! is_array( $claims ) || '' === $signature ) {
+			return null;
+		}
+		if ( ( $header['alg'] ?? '' ) !== 'RS256' || ! isset( $header['kid'] ) || ! is_string( $header['kid'] ) ) {
+			return null;
+		}
+		$pem = self::key( $header['kid'] );
+		if ( null === $pem || 1 !== openssl_verify( $parts[0] . '.' . $parts[1], $signature, $pem, OPENSSL_ALGO_SHA256 ) ) {
+			return null;
+		}
+
+		return $claims;
 	}
 
 	/**

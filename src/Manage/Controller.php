@@ -77,9 +77,13 @@ class Controller {
 	/**
 	 * Seconds after a job's last sign of life (its start or its last
 	 * heartbeat) after which a job that never ended counts as stopped: PHP
-	 * died while it ran.
+	 * died while it ran. Also how long the site's run lock lasts past each
+	 * sign of life. Larger than the longest step of an update without a
+	 * heartbeat: WordPress gives a package download 5 minutes, and an update
+	 * beats before and after the download, the unzip, the copy and the
+	 * maintenance file.
 	 */
-	private const STALE_RUN = 15 * MINUTE_IN_SECONDS;
+	public const STALE_RUN = 20 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Option holding the grant's scopes when the API refused a pull for the
@@ -310,6 +314,7 @@ class Controller {
 		}
 
 		$answer = ( new ManageJobsRequest() )->pull();
+		$hashes = null !== $answer ? self::params_hashes( (string) ( $answer['raw'] ?? '' ) ) : [];
 		if ( null !== $answer && ManageJobsRequest::is_permission_answer( (int) $answer['status'], $answer['body'] ) ) {
 			// The API says this grant may not pull (no wordpress:manage on
 			// the token, or no beta access): no pull every 5 minutes until
@@ -320,7 +325,7 @@ class Controller {
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
 			$listed = [];
 			foreach ( $answer['body']['jobs'] as $raw ) {
-				$job = self::job_of( $raw );
+				$job = self::job_of( $raw, is_array( $raw ) && is_string( $raw['id'] ?? null ) ? ( $hashes[ $raw['id'] ] ?? null ) : null );
 				if ( null === $job ) {
 					continue;
 				}
@@ -355,14 +360,39 @@ class Controller {
 	}
 
 	/**
-	 * A job as the API sent it, checked: its id, action and parameters, or
-	 * null when it is not a job.
+	 * The hash of each pulled job's parameters, by job id, from the raw
+	 * answer: decoded with its objects kept, so an empty object and an empty
+	 * list hash as the API hashed them.
 	 *
-	 * @param mixed $raw The job from the API's answer.
+	 * @param string $raw The raw answer of the pull.
 	 *
-	 * @return array{id: string, action: string, params: array}|null
+	 * @return array<string, string>
 	 */
-	public static function job_of( $raw ): ?array {
+	private static function params_hashes( string $raw ): array {
+		$answer = '' === $raw ? null : json_decode( $raw, false );
+		if ( ! is_object( $answer ) || ! isset( $answer->jobs ) || ! is_array( $answer->jobs ) ) {
+			return [];
+		}
+		$hashes = [];
+		foreach ( $answer->jobs as $job ) {
+			if ( is_object( $job ) && isset( $job->id ) && is_string( $job->id ) ) {
+				$hashes[ $job->id ] = JobToken::params_hash( $job->params ?? new \stdClass() );
+			}
+		}
+
+		return $hashes;
+	}
+
+	/**
+	 * A job as the API sent it, checked: its id, action, parameters, attempt
+	 * and signed token, or null when it is not a job.
+	 *
+	 * @param mixed       $raw         The job from the API's answer.
+	 * @param string|null $params_hash The hash of its parameters as the raw answer had them.
+	 *
+	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_hash?: string}|null
+	 */
+	public static function job_of( $raw, ?string $params_hash = null ): ?array {
 		if ( ! is_array( $raw ) || ! Ledger::valid_id( $raw['id'] ?? null ) ) {
 			return null;
 		}
@@ -370,22 +400,36 @@ class Controller {
 		if ( ! is_string( $action ) || '' === $action || strlen( $action ) > 64 ) {
 			return null;
 		}
-		$params = $raw['params'] ?? [];
+		$params  = $raw['params'] ?? [];
+		$attempt = $raw['attempt'] ?? 0;
+		$token   = $raw['job_token'] ?? '';
+		$lease   = $raw['lease_until'] ?? '';
 
-		return [
-			'id'     => $raw['id'],
-			'action' => $action,
-			'params' => is_array( $params ) ? $params : [],
+		$job = [
+			'id'          => $raw['id'],
+			'action'      => $action,
+			'params'      => is_array( $params ) ? $params : [],
+			'attempt'     => is_int( $attempt ) && $attempt > 0 ? $attempt : 0,
+			'job_token'   => is_string( $token ) && strlen( $token ) <= 8192 ? $token : '',
+			'lease_until' => is_string( $lease ) ? substr( $lease, 0, 64 ) : '',
 		];
+		$hash = $params_hash ?? ( isset( $raw['params_hash'] ) && is_string( $raw['params_hash'] ) ? $raw['params_hash'] : null );
+		if ( null !== $hash ) {
+			$job['params_hash'] = $hash;
+		}
+
+		return $job;
 	}
 
 	/**
 	 * Take a pulled job: record and schedule a job the plugin has not seen,
 	 * and schedule again a job whose action went missing. A job that is
-	 * scheduled, running or done stays as it is: it never starts twice.
+	 * scheduled, running or done stays as it is: it never starts twice. A job
+	 * that never started and comes back with a new attempt (its lease passed
+	 * and the API queued it again) keeps the new attempt and token.
 	 *
-	 * @param array{id: string, action: string, params: array} $job The job.
-	 * @param int                                              $now The time.
+	 * @param array{id: string, action: string, params: array, attempt: int, job_token: string} $job The job.
+	 * @param int                                                                               $now The time.
 	 *
 	 * @return bool Whether an action was scheduled.
 	 */
@@ -394,10 +438,20 @@ class Controller {
 			return self::schedule_run( $job['id'] );
 		}
 		$row = Ledger::get( $job['id'] );
+		if ( null === $row || Ledger::SCHEDULED !== $row['state'] ) {
+			return false;
+		}
+		$stored = isset( $row['job'] ) && is_array( $row['job'] ) ? $row['job'] : [];
+		if ( ( $stored['attempt'] ?? null ) !== $job['attempt'] || ( $stored['job_token'] ?? null ) !== $job['job_token'] ) {
+			$fresh        = $row;
+			$fresh['job'] = $job;
+			$fresh['at']  = $now;
+			Ledger::move( $job['id'], $row, $fresh );
+		}
 
 		// The run claims the job before it starts, so a second action of a
 		// scheduled job does nothing.
-		return null !== $row && Ledger::SCHEDULED === $row['state'] && self::schedule_run( $job['id'] );
+		return self::schedule_run( $job['id'] );
 	}
 
 	/**
@@ -445,37 +499,35 @@ class Controller {
 				if ( null === $job ) {
 					return;
 				}
+				$attempt = $job['attempt'];
+				$check   = JobToken::check( $job, (string) Options\Controller::get_options()->site_id, $now );
+				if ( JobToken::EXPIRED === $check ) {
+					// Its lease passed before it could start: the API hands
+					// it out again with a new attempt and token.
+					return;
+				}
+				if ( JobToken::INVALID !== $check && ! RunLock::take( $id, $now + self::STALE_RUN, $now ) ) {
+					// Another job runs on the site: this one waits for the
+					// next pull.
+					return;
+				}
 				$running = [
 					'state'      => Ledger::RUNNING,
 					'at'         => $now,
 					'started_at' => $now,
+					'attempt'    => $attempt,
 				];
 				if ( ! Ledger::move( $id, $row, $running ) ) {
+					RunLock::release( $id );
 					return;
 				}
-				$result = Runner::run(
-					$job,
-					static function () use ( $id ): bool {
-						return self::send_heartbeat( $id );
-					}
-				);
-				if ( null === $result ) {
-					// Not started: the job is the next pull's again.
-					$row = Ledger::get( $id );
-					if ( null !== $row && Ledger::RUNNING === $row['state'] ) {
-						Ledger::move(
-							$id,
-							$row,
-							[
-								'state' => Ledger::SCHEDULED,
-								'at'    => time(),
-								'job'   => $job,
-							]
-						);
-					}
+				if ( JobToken::INVALID === $check ) {
+					// Never run: reported failed, as Scanfully did not sign it
+					// for this site, job, attempt and parameters.
+					self::finish( $id, $now, Runner::failed( $now, time(), 'signature', 'The job\'s signed token is missing or does not match this site, job, attempt and parameters, so the plugin did not run it.' ) );
 					return;
 				}
-				self::finish( $id, $now, $result );
+				self::run_started( $id, $job, $now );
 				break;
 			case Ledger::RUNNING:
 				if ( $row['at'] >= $now - self::STALE_RUN ) {
@@ -484,10 +536,65 @@ class Controller {
 				$started = (int) ( $row['started_at'] ?? $row['at'] );
 				$result  = Runner::failed( $started, $now, 'fatal', 'The job started on the site but never ended, for example because PHP stopped. What it changed is unknown.' );
 				self::finish( $id, $started, $result );
+				RunLock::release( $id );
 				break;
 			case Ledger::DONE:
 				self::report( $id );
 				break;
+		}
+	}
+
+	/**
+	 * Run a job that holds the site's run lock and is running in the ledger,
+	 * and keep its result. The JobRun guards the way out: a PHP fatal mid-job
+	 * still removes a maintenance file the job caused, switches a plugin the
+	 * upgrader switched off on again, releases the lock and leaves a failed
+	 * result for the next pull.
+	 *
+	 * @param string $id  The job id.
+	 * @param array  $job The job.
+	 * @param int    $now When it started.
+	 *
+	 * @return void
+	 */
+	private static function run_started( string $id, array $job, int $now ): void {
+		$attempt = (int) ( $job['attempt'] ?? 0 );
+		$run     = new JobRun(
+			$id,
+			static function ( string $class, string $message ) use ( $id, $now ): void {
+				self::finish( $id, $now, Runner::failed( $now, time(), $class, $message ), false );
+			}
+		);
+		$run->arm();
+		try {
+			$result = Runner::run(
+				$job,
+				static function () use ( $id, $attempt ): bool {
+					return self::send_heartbeat( $id, $attempt );
+				},
+				null,
+				null,
+				$run
+			);
+			if ( null === $result ) {
+				// Not started: the job is the next pull's again.
+				$row = Ledger::get( $id );
+				if ( null !== $row && Ledger::RUNNING === $row['state'] ) {
+					Ledger::move(
+						$id,
+						$row,
+						[
+							'state' => Ledger::SCHEDULED,
+							'at'    => time(),
+							'job'   => $job,
+						]
+					);
+				}
+				return;
+			}
+			self::finish( $id, $now, $result );
+		} finally {
+			$run->release();
 		}
 	}
 
@@ -502,13 +609,18 @@ class Controller {
 	 * dashboard after the pull) pauses the clock, as a refused pull does, and
 	 * leaves the job to the API, which cancels or expires it.
 	 *
-	 * @param string $id The job id.
+	 * Every heartbeat carries the job's attempt, and extends the site's run
+	 * lock.
+	 *
+	 * @param string $id      The job id.
+	 * @param int    $attempt The job's attempt.
 	 *
 	 * @return bool Whether the API answered that the job runs.
 	 */
-	public static function send_heartbeat( string $id ): bool {
-		$answer = ( new ManageJobsRequest() )->heartbeat( $id );
+	public static function send_heartbeat( string $id, int $attempt = 0 ): bool {
+		$answer = ( new ManageJobsRequest() )->heartbeat( $id, $attempt );
 		Ledger::touch( $id, time() );
+		RunLock::extend( $id, time() + self::STALE_RUN );
 		if ( null === $answer ) {
 			return false;
 		}
@@ -526,15 +638,17 @@ class Controller {
 	}
 
 	/**
-	 * Keep a job's result and report it.
+	 * Keep a job's result, without the job's parameters and token, and
+	 * report it.
 	 *
 	 * @param string $id      The job id.
 	 * @param int    $started When it started.
 	 * @param array  $result  The result.
+	 * @param bool   $report  Whether to report it now; after a PHP fatal the next pull does.
 	 *
 	 * @return void
 	 */
-	private static function finish( string $id, int $started, array $result ): void {
+	private static function finish( string $id, int $started, array $result, bool $report = true ): void {
 		$row = Ledger::get( $id );
 		if ( null === $row || Ledger::RUNNING !== $row['state'] ) {
 			return;
@@ -543,9 +657,10 @@ class Controller {
 			'state'      => Ledger::DONE,
 			'at'         => time(),
 			'started_at' => $started,
+			'attempt'    => (int) ( $row['attempt'] ?? 0 ),
 			'result'     => $result,
 		];
-		if ( Ledger::move( $id, $row, $done ) ) {
+		if ( Ledger::move( $id, $row, $done ) && $report ) {
 			self::report( $id );
 		}
 	}
@@ -565,8 +680,9 @@ class Controller {
 		if ( null === $row || Ledger::DONE !== $row['state'] || ! isset( $row['result'] ) || ! is_array( $row['result'] ) ) {
 			return;
 		}
-		$result           = $row['result'];
-		$result['result'] = (object) ( isset( $result['result'] ) && is_array( $result['result'] ) ? $result['result'] : [] );
+		$result            = $row['result'];
+		$result['attempt'] = (int) ( $row['attempt'] ?? 0 );
+		$result['result']  = (object) ( isset( $result['result'] ) && is_array( $result['result'] ) ? $result['result'] : [] );
 
 		$answer = ( new ManageJobsRequest() )->result( $id, $result );
 		if ( null === $answer ) {

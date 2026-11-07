@@ -67,12 +67,16 @@ class Heartbeat {
 	}
 
 	/**
-	 * Send a heartbeat when the last one is an interval ago.
+	 * Send a heartbeat when the last one is an interval ago, or at once:
+	 * before and after a long step (a download, an unzip, the maintenance
+	 * file), so the lease never passes while the step runs.
+	 *
+	 * @param bool $now Whether to send it now, whenever the last one went.
 	 *
 	 * @return void
 	 */
-	public function beat(): void {
-		if ( null === $this->last || (int) call_user_func( $this->now ) - $this->last >= $this->every ) {
+	public function beat( bool $now = false ): void {
+		if ( $now || null === $this->last || (int) call_user_func( $this->now ) - $this->last >= $this->every ) {
 			$this->send_now();
 		}
 	}

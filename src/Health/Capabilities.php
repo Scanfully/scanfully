@@ -31,12 +31,17 @@ final class Capabilities {
 	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}
 	 */
 	public static function get(): array {
+		$file_mods_allowed = self::check( [ self::class, 'file_mods_allowed' ] );
+		$fs_method         = self::check( [ self::class, 'fs_method' ] );
+
 		return [
 			'plugin_version' => defined( 'SCANFULLY_VERSION' ) ? (string) SCANFULLY_VERSION : '',
-			'actions' => \Scanfully\Manage\Runner::actions(),
-			'file_mods_allowed' => self::check( [ self::class, 'file_mods_allowed' ] ),
+			// The update actions only where WordPress may change files and
+			// can write them without asking for credentials.
+			'actions' => \Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
+			'file_mods_allowed' => $file_mods_allowed,
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),
-			'fs_method' => self::check( [ self::class, 'fs_method' ] ),
+			'fs_method' => $fs_method,
 			'multisite' => self::check( 'is_multisite' ),
 			'action_scheduler' => self::check( [ self::class, 'action_scheduler' ] ),
 			'mu_plugin_writable' => self::check(
@@ -110,6 +115,27 @@ final class Capabilities {
 		$method = get_filesystem_method();
 
 		return is_string( $method ) && '' !== $method ? $method : null;
+	}
+
+	/**
+	 * Whether WordPress can write files with a method without asking anyone:
+	 * direct, or FTP or SSH with the credentials wp-config.php defines (a
+	 * host, a user, and a password or, for SSH, a key).
+	 *
+	 * @param mixed $method The method get_filesystem_method() names.
+	 *
+	 * @return bool
+	 */
+	public static function usable_fs_method( $method ): bool {
+		if ( 'direct' === $method ) {
+			return true;
+		}
+		if ( ! in_array( $method, [ 'ftpext', 'ftpsockets', 'ssh2' ], true ) || ! defined( 'FTP_HOST' ) || ! defined( 'FTP_USER' ) || '' === (string) constant( 'FTP_HOST' ) ) {
+			return false;
+		}
+
+		return ( defined( 'FTP_PASS' ) && '' !== (string) constant( 'FTP_PASS' ) )
+			|| ( 'ssh2' === $method && defined( 'FTP_PRIKEY' ) && '' !== (string) constant( 'FTP_PRIKEY' ) );
 	}
 
 	/**

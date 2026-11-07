@@ -35,14 +35,16 @@ class ManageJobsRequest extends Request {
 	}
 
 	/**
-	 * Send a heartbeat of a job.
+	 * Send a heartbeat of a job, with its attempt: the API refuses one of an
+	 * earlier attempt (409 attempt_conflict).
 	 *
-	 * @param string $job_id The job id.
+	 * @param string $job_id  The job id.
+	 * @param int    $attempt The job's attempt.
 	 *
 	 * @return array|null { status: int, body: mixed } or null on transport error.
 	 */
-	public function heartbeat( string $job_id ): ?array {
-		return $this->do_request_with_response( '/' . rawurlencode( $job_id ) . '/heartbeat', [], self::TIMEOUT );
+	public function heartbeat( string $job_id, int $attempt = 0 ): ?array {
+		return $this->do_request_with_response( '/' . rawurlencode( $job_id ) . '/heartbeat', [ 'attempt' => $attempt ], self::TIMEOUT );
 	}
 
 	/**

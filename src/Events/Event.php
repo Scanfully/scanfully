@@ -171,7 +171,16 @@ abstract class Event {
 			return;
 		}
 
-		$this->schedule( $this->type, $this->get_user( $args ), $this->get_post_body( $args ) );
+		/**
+		 * Filters the data of an activity event before it is sent. Scanfully
+		 * Manage adds the job id to the update events a job causes.
+		 *
+		 * @param array  $data The event data.
+		 * @param string $type The event type.
+		 */
+		$data = apply_filters( 'scanfully_event_data', $this->get_post_body( $args ), $this->type );
+
+		$this->schedule( $this->type, $this->get_user( $args ), is_array( $data ) ? $data : $this->get_post_body( $args ) );
 	}
 
 	/**

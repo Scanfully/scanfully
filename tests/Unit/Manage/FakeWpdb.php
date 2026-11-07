@@ -102,6 +102,14 @@ final class FakeWpdb {
 			$this->rows[ $name ] = (string) $value;
 			return 1;
 		}
+		if ( 0 === strpos( $sql, 'DELETE' ) && false !== strpos( $sql, 'option_value = %s' ) ) {
+			[ $name, $old ] = $args;
+			if ( ! isset( $this->rows[ $name ] ) || $this->rows[ $name ] !== $old ) {
+				return 0;
+			}
+			unset( $this->rows[ $name ] );
+			return 1;
+		}
 		if ( 0 === strpos( $sql, 'DELETE' ) ) {
 			$removed = 0;
 			foreach ( $this->names( (string) $args[0] ) as $name ) {
