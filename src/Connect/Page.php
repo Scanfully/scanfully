@@ -146,7 +146,7 @@ class Page {
 						<?php endif; ?>
 						<li>
 							<div class="scanfully-connect-details-label"><?php esc_html_e( 'Scanfully may', 'scanfully' ); ?></div>
-							<div class="scanfully-connect-details-value">
+							<div class="scanfully-connect-details-value scanfully-connect-scopes">
 								<?php foreach ( Controller::granted_scopes() as $scope ) : ?>
 									<span class="scanfully-connect-blob scanfully-connect-blob-info"><?php echo esc_html( self::scope_label( $scope ) ); ?></span>
 								<?php endforeach; ?>
