@@ -305,6 +305,18 @@ namespace {
 			public static function store() {
 				return null;
 			}
+
+			/**
+			 * Whether the data store is ready: true unless a test sets
+			 * $GLOBALS['scanfully_test_action_scheduler']['initialized'].
+			 *
+			 * @param string|null $function_name The calling function.
+			 *
+			 * @return bool
+			 */
+			public static function is_initialized( $function_name = null ) {
+				return (bool) ( $GLOBALS['scanfully_test_action_scheduler']['initialized'] ?? true );
+			}
 		}
 
 		/**

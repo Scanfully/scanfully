@@ -501,6 +501,8 @@ class Controller {
 			'plugins' => self::get_plugins(),
 			// Must-use plugins, their folders and drop-ins, with content hashes.
 			'mu_plugins' => MuPlugins::scan(),
+			// What the site can do for Scanfully, read before it queues a job.
+			'capabilities' => Capabilities::get(),
 		];
 
 		// filter data.
