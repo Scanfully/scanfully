@@ -386,17 +386,22 @@ class Controller {
 			$basename = plugin_basename( $plugin_path );
 			$folder   = dirname( $basename );
 
-			$map[] = [
-				'active' => is_plugin_active( $plugin_path ),
-				'name' => $plugin['Name'],
-				'slug' => '.' === $folder ? basename( $basename, '.php' ) : $folder,
-				'url' => $plugin['PluginURI'],
-				'version' => $plugin['Version'],
-				'latest_version' => self::get_latest_version( $updates, $plugin_path ),
-				'description' => $plugin['Description'],
-				'author' => $plugin['Author'],
-				'author_uri' => $plugin['AuthorURI'],
-			];
+			$map[] = array_merge(
+				[
+					'active' => is_plugin_active( $plugin_path ),
+					'name' => $plugin['Name'],
+					'slug' => '.' === $folder ? basename( $basename, '.php' ) : $folder,
+					'url' => $plugin['PluginURI'],
+					'version' => $plugin['Version'],
+					'latest_version' => self::get_latest_version( $updates, $plugin_path ),
+					'description' => $plugin['Description'],
+					'author' => $plugin['Author'],
+					'author_uri' => $plugin['AuthorURI'],
+				],
+				// The software inventory: the update's package and source,
+				// requirements and auto-updates.
+				Inventory::plugin_fields( $updates, $plugin_path, $plugin )
+			);
 		}
 
 		return $map;
@@ -412,22 +417,7 @@ class Controller {
 	 * @return string|null The latest version, or null when WordPress does not know it.
 	 */
 	private static function get_latest_version( $updates, string $plugin_path ): ?string {
-		if ( ! is_object( $updates ) ) {
-			return null;
-		}
-
-		// "response" holds the plugins with an update, "no_update" the ones
-		// that are up to date.
-		foreach ( [ 'response', 'no_update' ] as $list ) {
-			$item = $updates->{$list}[ $plugin_path ] ?? null;
-			// Some third-party updaters add an array instead of an object.
-			$version = is_array( $item ) ? ( $item['new_version'] ?? null ) : ( is_object( $item ) ? ( $item->new_version ?? null ) : null );
-			if ( is_scalar( $version ) && '' !== (string) $version ) {
-				return (string) $version;
-			}
-		}
-
-		return null;
+		return Inventory::latest_version( $updates, $plugin_path );
 	}
 
 	/**
@@ -501,6 +491,11 @@ class Controller {
 			'plugins' => self::get_plugins(),
 			// Must-use plugins, their folders and drop-ins, with content hashes.
 			'mu_plugins' => MuPlugins::scan(),
+			// The rest of the software inventory: themes, WordPress core and
+			// the waiting translation updates.
+			'themes' => Inventory::themes(),
+			'core' => Inventory::core(),
+			'translations' => Inventory::translations(),
 			// What the site can do for Scanfully, read before it queues a job.
 			'capabilities' => Capabilities::get(),
 		];

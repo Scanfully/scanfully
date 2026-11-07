@@ -36,6 +36,14 @@ final class LatestVersionTest extends TestCase {
 		Functions\when( 'get_site_transient' )->justReturn( $updates );
 		Functions\when( 'plugin_basename' )->returnArg();
 		Functions\when( 'is_plugin_active' )->justReturn( true );
+		// The inventory's fields (InventoryTest covers them).
+		Functions\when( 'wp_is_auto_update_enabled_for_type' )->justReturn( false );
+		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
+		Functions\when( 'wp_parse_args' )->alias(
+			static function ( $args, $defaults = [] ) {
+				return array_merge( (array) $defaults, (array) $args );
+			}
+		);
 
 		$method = new ReflectionMethod( Controller::class, 'get_plugins' );
 		$method->setAccessible( true );
