@@ -26,11 +26,41 @@ namespace Scanfully\Health;
 final class Capabilities {
 
 	/**
+	 * Whether get() answers nothing, while skip() runs.
+	 *
+	 * @var bool
+	 */
+	private static bool $skipped = false;
+
+	/**
+	 * Run a callable while get() checks nothing and answers an empty list:
+	 * for a reader of the site data that does not need the capabilities,
+	 * such as the inventory after a Manage job, as the filesystem check
+	 * writes a test file in wp-content on every call.
+	 *
+	 * @param callable $read The reader.
+	 *
+	 * @return mixed What it returns.
+	 */
+	public static function skip( callable $read ) {
+		$before        = self::$skipped;
+		self::$skipped = true;
+		try {
+			return $read();
+		} finally {
+			self::$skipped = $before;
+		}
+	}
+
+	/**
 	 * The capabilities object of the site data.
 	 *
-	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}
+	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}|array{} Empty while skip() runs.
 	 */
 	public static function get(): array {
+		if ( self::$skipped ) {
+			return [];
+		}
 		$file_mods_allowed = self::check( [ self::class, 'file_mods_allowed' ] );
 		$fs_method         = self::check( [ self::class, 'fs_method' ] );
 
@@ -118,7 +148,9 @@ final class Capabilities {
 	}
 
 	/**
-	 * Whether WordPress can write files with a method without asking anyone:
+	 * Whether WordPress can write files with a method without asking anyone
+	 * (the update actions are listed only then; the API accepts whatever
+	 * method the plugin reports as usable this way):
 	 * direct, or FTP or SSH with the credentials wp-config.php defines (a
 	 * host, a user, and a password or, for SSH, a key).
 	 *

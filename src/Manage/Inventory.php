@@ -56,7 +56,13 @@ final class Inventory {
 		}
 		self::refill_update_data();
 
-		return self::from_site_data( null !== self::$source ? (array) call_user_func( self::$source ) : Health\Controller::get_site_data() );
+		// The capabilities stay out: the API keeps the stored row, and the
+		// check writes a test file in wp-content each time.
+		$data = null !== self::$source
+			? (array) call_user_func( self::$source )
+			: (array) Health\Capabilities::skip( [ Health\Controller::class, 'get_site_data' ] );
+
+		return self::from_site_data( $data );
 	}
 
 	/**

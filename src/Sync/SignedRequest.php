@@ -213,7 +213,9 @@ class SignedRequest {
 	}
 
 	/**
-	 * The RSA signing keys of a JWK set, by id, as PEM.
+	 * The RSA signing keys of a JWK set, by id, as PEM; null when it is not
+	 * a key set or holds no RSA key, which counts as a failed fetch, never as
+	 * a set to cache.
 	 *
 	 * @param string $json The key set.
 	 *
@@ -233,7 +235,7 @@ class SignedRequest {
 			$keys[ $jwk['kid'] ] = self::rsa_pem( self::b64url_decode( $jwk['n'] ), self::b64url_decode( $jwk['e'] ) );
 		}
 
-		return $keys;
+		return [] === $keys ? null : $keys;
 	}
 
 	/**

@@ -178,9 +178,10 @@ abstract class Event {
 		 * @param array  $data The event data.
 		 * @param string $type The event type.
 		 */
-		$data = apply_filters( 'scanfully_event_data', $this->get_post_body( $args ), $this->type );
+		$body = $this->get_post_body( $args );
+		$data = apply_filters( 'scanfully_event_data', $body, $this->type );
 
-		$this->schedule( $this->type, $this->get_user( $args ), is_array( $data ) ? $data : $this->get_post_body( $args ) );
+		$this->schedule( $this->type, $this->get_user( $args ), is_array( $data ) ? $data : $body );
 	}
 
 	/**

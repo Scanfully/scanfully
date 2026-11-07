@@ -8,6 +8,7 @@
 namespace Scanfully\Tests\Unit\Manage;
 
 use Scanfully\Manage\Heartbeat;
+use Scanfully\Manage\Inventory;
 use Scanfully\Manage\JobFailed;
 use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Runner;
@@ -41,6 +42,12 @@ final class RunnerTest extends TestCase {
 		Functions\when( 'wp_strip_all_tags' )->alias( 'strip_tags' );
 		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
 		Functions\when( 'is_multisite' )->justReturn( false );
+		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
+	}
+
+	protected function tearDown(): void {
+		Inventory::$source = null;
+		parent::tearDown();
 	}
 
 	/**
@@ -95,7 +102,7 @@ final class RunnerTest extends TestCase {
 	}
 
 	public function test_the_actions_are_listed_for_the_capabilities_report(): void {
-		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Runner::actions() );
+		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Runner::actions( true ) );
 		$this->assertSame( [ 'ping' ], Runner::actions( false ), 'where WordPress cannot change files, only what needs no files' );
 		$this->assertTrue( Runner::knows( 'update_translations' ) );
 		$this->assertTrue( Runner::knows( 'ping' ) );
@@ -275,5 +282,113 @@ final class RunnerTest extends TestCase {
 		$this->assertSame( 'failed', $result['state'] );
 		$this->assertSame( 'maintenance', $result['error']['class'] );
 		$this->assertSame( '7.1.4', $result['result']->new_version, 'what the update did is still reported' );
+	}
+
+	public function test_a_result_of_a_large_site_is_cut_to_the_size_the_api_takes(): void {
+		$plugins = [];
+		for ( $i = 0; $i < 300; $i++ ) {
+			$plugins[] = [
+				'slug'           => 'plugin-' . $i,
+				'name'           => 'A plugin with a long name number ' . $i,
+				'version'        => '1.2.' . $i,
+				'latest_version' => '1.3.' . $i,
+				'active'         => 0 === $i % 2,
+				'url'            => 'https://scanfully.com/plugins/plugin-' . $i . '/',
+				'author'         => 'An author with a long name',
+				'author_uri'     => 'https://scanfully.com/authors/' . $i . '/',
+				'description'    => str_repeat( 'Long text. ', 40 ),
+			];
+		}
+		Functions\when( 'wp_clean_plugins_cache' )->justReturn( null );
+		Functions\when( 'wp_clean_themes_cache' )->justReturn( null );
+		Functions\when( 'get_site_transient' )->justReturn( (object) [ 'response' => [] ] );
+		Inventory::$source = static fn(): array => [
+			'plugins'      => $plugins,
+			'themes'       => [],
+			'core'         => [ 'version' => '7.1.4' ],
+			'translations' => [],
+		];
+		$registry          = [
+			'update_plugin' => [
+				'run'     => static fn(): array => [
+					'previous_version'   => '1.2.0',
+					'new_version'        => '1.3.0',
+					'duration_ms'        => 1234,
+					'inventory'          => Inventory::collect(),
+					'activity_event_ids' => [ 'e1e1e1e1-1111-4111-8111-111111111111' ],
+					'log'                => array_map( static fn( int $n ): string => 'Line ' . $n . ' ' . str_repeat( 'x', 250 ), range( 1, 60 ) ),
+				],
+				'long'    => true,
+				'network' => true,
+			],
+		];
+		$this->assertGreaterThan( Runner::MAX_RESULT_BYTES, strlen( (string) json_encode( call_user_func( $registry['update_plugin']['run'] ) ) ), 'too large as it is' );
+
+		$result = Runner::run( [ 'action' => 'update_plugin' ], static fn(): bool => true, fn(): int => $this->now, $registry );
+
+		$fields = (array) $result['result'];
+		$this->assertLessThanOrEqual( Runner::MAX_RESULT_BYTES, strlen( (string) json_encode( $fields ) ) );
+		$this->assertSame( 'succeeded', $result['state'] );
+		$this->assertNull( $fields['inventory'] );
+		$this->assertSame( 'size', $fields['inventory_dropped'] );
+		$this->assertCount( 5, $fields['log'], 'the last lines of the log' );
+		$this->assertStringStartsWith( 'Line 60', end( $fields['log'] ) );
+		$this->assertSame( '1.2.0', $fields['previous_version'] );
+		$this->assertSame( '1.3.0', $fields['new_version'] );
+		$this->assertSame( [ 'e1e1e1e1-1111-4111-8111-111111111111' ], $fields['activity_event_ids'] );
+	}
+
+	public function test_a_result_that_fits_is_left_as_it_is(): void {
+		$result = [
+			'new_version' => '2.0',
+			'log'         => [ 'one' ],
+			'inventory'   => [ 'plugins' => [] ],
+		];
+		$this->assertSame( $result, Runner::fit( $result ) );
+	}
+
+	public function test_heartbeats_without_an_answer_go_quiet_for_an_interval(): void {
+		$clock = 1000;
+		$sent  = 0;
+		$beat  = new Heartbeat(
+			function () use ( &$sent ) {
+				++$sent;
+				return null; // The API cannot be reached; each try would wait its timeout.
+			},
+			30,
+			function () use ( &$clock ): int {
+				return $clock;
+			}
+		);
+		$this->assertFalse( $beat->start() );
+		for ( $i = 0; $i < 50; $i++ ) {
+			++$clock;
+			$beat->beat( true );
+		}
+
+		$this->assertLessThanOrEqual( 3, $sent, 'one at the start, then one per 30 quiet seconds' );
+		$this->assertGreaterThanOrEqual( 2, $sent );
+	}
+
+	public function test_beats_at_long_steps_keep_a_floor_of_five_seconds(): void {
+		$clock = 1000;
+		$sent  = 0;
+		$beat  = new Heartbeat(
+			function () use ( &$sent ): bool {
+				++$sent;
+				return true;
+			},
+			30,
+			function () use ( &$clock ): int {
+				return $clock;
+			}
+		);
+		$beat->start();
+		for ( $i = 0; $i < 20; $i++ ) {
+			++$clock;
+			$beat->beat( true );
+		}
+
+		$this->assertSame( 5, $sent, 'the start and one per 5 seconds over 20 seconds' );
 	}
 }

@@ -325,7 +325,12 @@ class Controller {
 		if ( null !== $answer && 200 === $answer['status'] && is_array( $answer['body'] ) && isset( $answer['body']['jobs'] ) && is_array( $answer['body']['jobs'] ) ) {
 			$listed = [];
 			foreach ( $answer['body']['jobs'] as $raw ) {
-				$job = self::job_of( $raw, is_array( $raw ) && is_string( $raw['id'] ?? null ) ? ( $params[ $raw['id'] ] ?? null ) : null );
+				// The parameters as the raw answer had them, never a copy the
+				// answer carries under another name.
+				$json = is_array( $raw ) && is_string( $raw['id'] ?? null ) && isset( $params[ $raw['id'] ] )
+					? $params[ $raw['id'] ]
+					: JobToken::canonical_json( is_array( $raw ) && is_array( $raw['params'] ?? null ) ? $raw['params'] : [], true );
+				$job  = self::job_of( $raw, $json );
 				if ( null === $job ) {
 					continue;
 				}
@@ -340,12 +345,43 @@ class Controller {
 			// only when the API answers that the job runs; any other answer
 			// leaves it waiting, as before.
 			foreach ( array_diff( Ledger::scheduled(), $listed ) as $id ) {
+				if ( self::forget_if_expired( $id, $now ) ) {
+					continue;
+				}
 				$scheduled = self::schedule_run( $id ) || $scheduled;
 			}
 		}
 		if ( $scheduled ) {
 			Sync\Controller::run_queue_now();
 		}
+	}
+
+	/**
+	 * A scheduled job the API no longer lists and whose token's lease has
+	 * passed never starts: the API cancelled, expired or handed it out
+	 * again under a new attempt. Its row is closed instead of being
+	 * scheduled again on every pull for a week.
+	 *
+	 * @param string $id  The job id.
+	 * @param int    $now The time.
+	 *
+	 * @return bool Whether the row was closed.
+	 */
+	private static function forget_if_expired( string $id, int $now ): bool {
+		$row = Ledger::get( $id );
+		$job = null !== $row ? self::job_of( $row['job'] ?? null ) : null;
+		if ( null === $job || JobToken::EXPIRED !== JobToken::check( $job, (string) Options\Controller::get_options()->site_id, $now ) ) {
+			return false;
+		}
+
+		return Ledger::move(
+			$id,
+			$row,
+			[
+				'state' => Ledger::REPORTED,
+				'at'    => $now,
+			]
+		);
 	}
 
 	/**
@@ -513,7 +549,7 @@ class Controller {
 					// next pull, and nothing runs.
 					return;
 				}
-				if ( JobToken::INVALID !== $check && ! RunLock::take( $id, $now + self::STALE_RUN, $now ) ) {
+				if ( JobToken::INVALID !== $check && ! RunLock::take( $id, self::lock_until( $job, $now ), $now ) ) {
 					// Another job runs on the site: this one waits for the
 					// next pull.
 					return;
@@ -552,6 +588,22 @@ class Controller {
 	}
 
 	/**
+	 * Until when a starting job holds the site's run lock: the end of its
+	 * lease (its token's exp), at most the stale threshold away and at
+	 * least a minute; every heartbeat extends it.
+	 *
+	 * @param array $job The job.
+	 * @param int   $now The time.
+	 *
+	 * @return int
+	 */
+	private static function lock_until( array $job, int $now ): int {
+		$lease = JobToken::expiry( $job );
+
+		return max( $now + MINUTE_IN_SECONDS, min( $lease ?? $now + self::STALE_RUN, $now + self::STALE_RUN ) );
+	}
+
+	/**
 	 * Run a job that holds the site's run lock and is running in the ledger,
 	 * and keep its result. The JobRun guards the way out: a PHP fatal mid-job
 	 * still removes a maintenance file the job caused, switches a plugin the
@@ -576,7 +628,7 @@ class Controller {
 		try {
 			$result = Runner::run(
 				$job,
-				static function () use ( $id, $attempt ): bool {
+				static function () use ( $id, $attempt ): ?bool {
 					return self::send_heartbeat( $id, $attempt );
 				},
 				null,
@@ -622,14 +674,14 @@ class Controller {
 	 * @param string $id      The job id.
 	 * @param int    $attempt The job's attempt.
 	 *
-	 * @return bool Whether the API answered that the job runs.
+	 * @return bool|null Whether the API answered that the job runs; null when it gave no answer.
 	 */
-	public static function send_heartbeat( string $id, int $attempt = 0 ): bool {
+	public static function send_heartbeat( string $id, int $attempt = 0 ): ?bool {
 		$answer = ( new ManageJobsRequest() )->heartbeat( $id, $attempt );
 		Ledger::touch( $id, time() );
 		RunLock::extend( $id, time() + self::STALE_RUN );
 		if ( null === $answer ) {
-			return false;
+			return null;
 		}
 		$status = (int) $answer['status'];
 		if ( $status >= 200 && $status < 300 ) {
@@ -698,6 +750,13 @@ class Controller {
 		$status = (int) $answer['status'];
 		$state  = is_array( $answer['body'] ) && isset( $answer['body']['state'] ) ? (string) $answer['body']['state'] : '';
 		$taken  = ( $status >= 200 && $status < 300 ) || 404 === $status || ( 409 === $status && ! in_array( $state, self::OPEN_STATES, true ) );
+		if ( ! $taken && $status >= 400 && $status < 500 && ! in_array( $status, [ 401, 404, 409, 429 ], true ) ) {
+			// The API refuses this result for good (too large, or a field
+			// it does not take): it gets the smallest result once, and the
+			// job is not sent again for a week.
+			( new ManageJobsRequest() )->result( $id, Runner::minimal( $result ) );
+			$taken = true;
+		}
 		if ( ! $taken ) {
 			return;
 		}

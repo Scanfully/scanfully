@@ -90,6 +90,24 @@ final class JobToken {
 	}
 
 	/**
+	 * The exp of a job's token, read without checking it (check() did): the
+	 * end of the job's lease.
+	 *
+	 * @param array $job The job.
+	 *
+	 * @return int|null
+	 */
+	public static function expiry( array $job ): ?int {
+		$parts = explode( '.', isset( $job['job_token'] ) && is_string( $job['job_token'] ) ? $job['job_token'] : '' );
+		if ( 3 !== count( $parts ) ) {
+			return null;
+		}
+		$claims = json_decode( (string) base64_decode( strtr( $parts[1], '-_', '+/' ), true ), true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- JWTs are base64url.
+
+		return is_array( $claims ) && isset( $claims['exp'] ) && is_int( $claims['exp'] ) ? $claims['exp'] : null;
+	}
+
+	/**
 	 * Whether an audience names this site and nothing else: the site id as a
 	 * string, or a list holding only it.
 	 *

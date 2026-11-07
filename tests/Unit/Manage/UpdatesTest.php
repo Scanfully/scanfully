@@ -311,7 +311,7 @@ final class UpdatesTest extends TestCase {
 		$this->assertSame( [ 'version' => '7.1.3' ], $result['inventory']['core'] );
 		$this->assertCount( 1, $result['activity_event_ids'] );
 		$this->assertStringNotContainsString( 'SECRET', implode( ' ', $result['log'] ) );
-		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/hello-fixture.zip…', $result['log'][0] );
+		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/…/hello-fixture.zip…', $result['log'][0] );
 		$this->assertSame( 'Scanfully switched the plugin on again after the update, as it was active before.', $run->log_lines()[0] );
 	}
 
@@ -469,9 +469,68 @@ final class UpdatesTest extends TestCase {
 
 		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
 
-		$this->assertSame( 'fatal', $e->error_class() );
+		$this->assertSame( 'other', $e->error_class() );
 		$this->assertStringContainsString( 'could not be switched on again', $e->getMessage() );
 		$this->assertSame( '1.1.0', $e->result()['new_version'] );
+	}
+
+	public function test_a_failed_update_that_left_new_files_reports_the_error_and_leaves_the_plugin_off(): void {
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$this->upgrade = function ( string $kind, UpgraderSkin $skin, $file ) {
+			$this->active[ $file ] = false;
+			$this->write_plugin( 'hello-fixture', '1.1.0' );
+			return new \WP_Error( 'remove_old_failed', 'Could not remove the old plugin.' );
+		};
+
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertSame( 'filesystem', $e->error_class(), 'the upgrader\'s error' );
+		$this->assertStringContainsString( 'left it switched off', $e->getMessage() );
+		$this->assertSame( [], $this->activated, 'not switched on after a failed upgrade with new files' );
+	}
+
+	public function test_a_failed_update_whose_rollback_put_the_old_files_back_switches_the_plugin_on(): void {
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$this->upgrade = function ( string $kind, UpgraderSkin $skin, $file ) {
+			$this->active[ $file ] = false;
+			return new \WP_Error( 'copy_failed_copy_dir', 'Could not copy file.' );
+		};
+
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertSame( 'filesystem', $e->error_class() );
+		$this->assertSame( [ 'hello-fixture/hello-fixture.php' ], $this->activated, 'the old version is complete again' );
+	}
+
+	public function test_a_network_active_plugin_is_switched_on_network_wide(): void {
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$network = true;
+		Functions\when( 'is_multisite' )->justReturn( true );
+		Functions\when( 'is_plugin_active_for_network' )->alias(
+			function () use ( &$network ) {
+				return $network;
+			}
+		);
+		$calls = [];
+		Functions\when( 'activate_plugin' )->alias(
+			function ( string $file, string $redirect, bool $network_wide, bool $silent ) use ( &$calls ) {
+				$calls[] = [ $file, $network_wide, $silent ];
+				return null;
+			}
+		);
+		$this->upgrade = function ( string $kind, UpgraderSkin $skin, $file ) use ( &$network ): bool {
+			$network               = false;
+			$this->active[ $file ] = false;
+			$this->write_plugin( 'hello-fixture', '1.1.0' );
+			return true;
+		};
+
+		Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() );
+
+		$this->assertSame( [ [ 'hello-fixture/hello-fixture.php', true, true ] ], $calls, 'network-wide and silent, as WordPress\'s update screen does' );
 	}
 
 	public function test_files_of_another_version_are_a_package_problem_and_stay_off(): void {
@@ -592,7 +651,8 @@ final class UpdatesTest extends TestCase {
 
 		$e = $this->failure( fn() => Updates::core( [ 'target' => 'latest' ], static function (): void {}, $this->job_run() ) );
 
-		$this->assertSame( 'locked', $e->error_class() );
+		$this->assertSame( 'other', $e->error_class(), 'WordPress\'s own lock is not the site run lock' );
+		$this->assertStringContainsString( 'Another update is currently in progress.', $e->getMessage() );
 		$this->assertSame( '7.1.3', $e->result()['new_version'] );
 	}
 
@@ -668,14 +728,22 @@ final class UpdatesTest extends TestCase {
 		$beat->start();
 		$skin = new UpgraderSkin( $run );
 
+		$clock += 5;
 		$skin->feedback( 'downloading_package' );
 		$skin->feedback( 'Some line' );
 		$skin->feedback( 'unpack_package' );
+		$clock += 5;
+		$skin->feedback( 'installing_package' );
 		$clock += 31;
 		$skin->feedback( 'Another line' );
 
-		$this->assertSame( 4, $sent, 'the start, two long steps at once, one line when due' );
-		$this->assertSame( [ 'downloading_package', 'Some line', 'unpack_package', 'Another line' ], $skin->messages(), 'without an upgrader, the keys as they are' );
+		$this->assertSame( 4, $sent, 'the start, a long step, not the next one within 5 seconds, the one after, one line when due' );
+		$this->assertSame( 'Copying the required files…', $skin->step_feedback( 'Copying the required files…' ), 'the core update filter gets its message back' );
+		$this->assertSame( 4, $sent, 'within 5 seconds of the last one' );
+		$clock += 5;
+		$skin->step_feedback( 'Upgrading database…' );
+		$this->assertSame( 5, $sent, 'a core step beats at once' );
+		$this->assertSame( [ 'downloading_package', 'Some line', 'unpack_package', 'installing_package', 'Another line', 'Copying the required files…', 'Upgrading database…' ], $skin->messages(), 'without an upgrader, the keys as they are' );
 	}
 }
 

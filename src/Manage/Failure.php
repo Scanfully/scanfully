@@ -108,9 +108,8 @@ final class Failure {
 		if ( 'up_to_date' === $code ) {
 			return 'not_available';
 		}
-		if ( 'locked' === $code ) {
-			return 'locked';
-		}
+		// WordPress's own core update lock is not the site's run lock
+		// (class locked): another update ran in WordPress itself.
 		if ( 'no_package' === $code ) {
 			return 'license';
 		}
@@ -193,7 +192,9 @@ final class Failure {
 	}
 
 	/**
-	 * A URL without its credentials, query string and fragment.
+	 * A URL as scheme, host and its last path segment only: no credentials,
+	 * query string or fragment, and no folders, where some vendors put the
+	 * license key.
 	 *
 	 * @param array<int, string> $match The URL found.
 	 *
@@ -207,7 +208,13 @@ final class Failure {
 			return '[url]' . $tail;
 		}
 
-		return $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) . ( $parts['path'] ?? '' ) . $tail;
+		$segments = array_values( array_filter( explode( '/', (string) ( $parts['path'] ?? '' ) ), static fn( string $segment ): bool => '' !== $segment ) );
+		$path     = '';
+		if ( [] !== $segments ) {
+			$path = ( count( $segments ) > 1 ? '/…/' : '/' ) . end( $segments );
+		}
+
+		return $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) . $path . $tail;
 	}
 
 	/**

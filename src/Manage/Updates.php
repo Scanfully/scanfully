@@ -95,21 +95,24 @@ final class Updates {
 
 		// The upgrader switches an active plugin off for the update outside
 		// of WP-Cron and does not switch it on again (WordPress's update
-		// screen does that from the browser): Scanfully does, once the new
-		// files are complete, also after a fatal.
+		// screen does that from the browser): Scanfully does, right after
+		// the upgrade, when the files are known to be complete. Never from
+		// the shutdown handler: after a fatal nothing is known about them.
 		$active  = is_plugin_active( $file );
 		$network = $active && is_multisite() && is_plugin_active_for_network( $file );
-		$restore = self::restorer( $file, $active, $network, [ $offered, $previous ], $run );
-		$run->on_exit( $restore );
 
-		$skin   = new UpgraderSkin( $run );
-		$result = self::upgrader( 'plugin', $skin )->upgrade( $file );
-		$after  = self::plugin_version( $file );
-		$back   = $restore();
-		if ( true !== $result ) {
+		$skin     = new UpgraderSkin( $run );
+		$result   = self::upgrader( 'plugin', $skin )->upgrade( $file );
+		$upgraded = true === $result;
+		$after    = self::plugin_version( $file );
+		$back     = self::restore_plugin( $file, $active, $network, $upgraded, $offered, $previous, $run );
+		if ( ! $upgraded ) {
 			$failure = self::failure_of( $result, $skin );
 			if ( '' === $after ) {
 				$failure['message'] .= ' The plugin\'s files are missing after the failed update.';
+			}
+			if ( null !== $back ) {
+				$failure['message'] .= ' ' . $back['message'];
 			}
 			self::fail( $failure, $previous, $after, $skin, $run, $started );
 		}
@@ -218,8 +221,15 @@ final class Updates {
 			throw new JobFailed( 'not_available', sprintf( 'WordPress %s is older than the installed %s: Scanfully does not downgrade WordPress.', $wanted, $previous ), self::partial( $previous, $previous, [], $run, $started ) );
 		}
 
-		$skin   = new UpgraderSkin( $run );
-		$result = self::upgrader( 'core', $skin )->upgrade( $offer );
+		$skin = new UpgraderSkin( $run );
+		// WordPress reports the copy and the database upgrade of a core
+		// update only through this filter.
+		add_filter( 'update_feedback', [ $skin, 'step_feedback' ] );
+		try {
+			$result = self::upgrader( 'core', $skin )->upgrade( $offer );
+		} finally {
+			remove_filter( 'update_feedback', [ $skin, 'step_feedback' ] );
+		}
 		$after  = self::core_version();
 		if ( ! is_string( $result ) || '' === $result ) {
 			self::fail( self::failure_of( $result, $skin ), $previous, $after, $skin, $run, $started );
@@ -584,55 +594,51 @@ final class Updates {
 	}
 
 	/**
-	 * The clean-up that switches a plugin on again when the upgrader
-	 * switched it off: only when it was active before, is inactive now, and
-	 * its files are complete (its version is the new one, or the old one
-	 * when WordPress put the old files back). Runs once; returns a problem
-	 * when the plugin stays off.
+	 * Switch a plugin on again when the upgrader switched it off: only when
+	 * it was active before, is inactive now, and its files are known to be
+	 * complete: the upgrade succeeded and they are the offered version, or
+	 * they are the previous version (WordPress's rollback put the old files
+	 * back). Returns a problem when the plugin stays off.
 	 *
-	 * @param string   $file     The plugin file.
-	 * @param bool     $active   Whether it was active before.
-	 * @param bool     $network  Whether it was active network-wide.
-	 * @param string[] $versions The versions that mean complete files.
-	 * @param JobRun   $run      The run.
+	 * @param string $file     The plugin file.
+	 * @param bool   $active   Whether it was active before.
+	 * @param bool   $network  Whether it was active network-wide.
+	 * @param bool   $upgraded Whether the upgrader answered success.
+	 * @param string $offered  The version offered.
+	 * @param string $previous The version before.
+	 * @param JobRun $run      The run.
 	 *
-	 * @return callable
+	 * @return array{class: string, message: string}|null
 	 */
-	private static function restorer( string $file, bool $active, bool $network, array $versions, JobRun $run ): callable {
-		$done = false;
-
-		return static function () use ( &$done, $file, $active, $network, $versions, $run ): ?array {
-			if ( $done || ! $active ) {
-				return null;
-			}
-			$done = true;
-			if ( $network ? is_plugin_active_for_network( $file ) : is_plugin_active( $file ) ) {
-				return null;
-			}
-			$version = self::plugin_version( $file );
-			if ( '' === $version ) {
-				return [
-					'class'   => 'filesystem',
-					'message' => 'The plugin\'s files are missing after the update, so it is no longer active.',
-				];
-			}
-			if ( ! in_array( $version, $versions, true ) ) {
-				return [
-					'class'   => 'package',
-					'message' => sprintf( 'The plugin was switched off for the update, and its files now say version %s, neither the old nor the new one, so Scanfully did not switch it on again.', $version ),
-				];
-			}
-			$result = activate_plugin( $file, '', $network, true );
-			if ( is_wp_error( $result ) ) {
-				return [
-					'class'   => 'fatal',
-					'message' => 'The plugin was switched off for the update and could not be switched on again: ' . $result->get_error_message(),
-				];
-			}
-			$run->log( 'Scanfully switched the plugin on again after the update, as it was active before.' );
-
+	private static function restore_plugin( string $file, bool $active, bool $network, bool $upgraded, string $offered, string $previous, JobRun $run ): ?array {
+		if ( ! $active || ( $network ? is_plugin_active_for_network( $file ) : is_plugin_active( $file ) ) ) {
 			return null;
-		};
+		}
+		$version = self::plugin_version( $file );
+		if ( '' === $version ) {
+			return [
+				'class'   => 'filesystem',
+				'message' => 'The plugin\'s files are missing after the update, so it is no longer active.',
+			];
+		}
+		if ( ! ( ( $upgraded && $version === $offered ) || $version === $previous ) ) {
+			return [
+				'class'   => 'package',
+				'message' => $upgraded
+					? sprintf( 'The plugin was switched off for the update, and its files now say version %s instead of %s, so Scanfully left it switched off.', $version, $offered )
+					: sprintf( 'The plugin was switched off for the update and its files say version %s after the failed update, so Scanfully left it switched off.', $version ),
+			];
+		}
+		$result = activate_plugin( $file, '', $network, true );
+		if ( is_wp_error( $result ) ) {
+			return [
+				'class'   => 'other',
+				'message' => 'The plugin was switched off for the update and could not be switched on again: ' . $result->get_error_message(),
+			];
+		}
+		$run->log( 'Scanfully switched the plugin on again after the update, as it was active before.' );
+
+		return null;
 	}
 
 	/**

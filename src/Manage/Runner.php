@@ -48,6 +48,22 @@ class Runner {
 	private const MAX_MESSAGE_LENGTH = 1000;
 
 	/**
+	 * The most bytes of JSON a result may take: the API takes 64 KB, this
+	 * leaves room for the rest of the body.
+	 */
+	public const MAX_RESULT_BYTES = 56 * 1024;
+
+	/**
+	 * Log lines kept when a result is too large.
+	 */
+	private const LOG_LINES_KEPT = 5;
+
+	/**
+	 * Result fields never dropped to fit the size.
+	 */
+	private const KEPT_FIELDS = [ 'previous_version', 'new_version', 'activity_event_ids', 'duration_ms' ];
+
+	/**
 	 * The actions this plugin version runs, by name: the callable takes the
 	 * job's parameters, a heartbeat callable and the JobRun, and returns the
 	 * result or throws JobFailed.
@@ -86,7 +102,7 @@ class Runner {
 	 *
 	 * @return string[]
 	 */
-	public static function actions( bool $can_change_files = true ): array {
+	public static function actions( bool $can_change_files ): array {
 		$names = [];
 		foreach ( self::registry() as $name => $entry ) {
 			if ( $can_change_files || empty( $entry['files'] ) ) {
@@ -167,19 +183,78 @@ class Runner {
 			}
 		}
 		if ( null !== $failure ) {
-			return self::failed( $started, (int) $now(), $failure[0], Failure::clean( $failure[1] ), self::with_run_log( $failure[2], $run ) );
+			return self::failed( $started, (int) $now(), $failure[0], Failure::clean( $failure[1] ), self::fit( self::with_run_log( $failure[2], $run ) ) );
 		}
 
 		return [
 			'state'       => 'succeeded',
 			'started_at'  => gmdate( 'c', $started ),
 			'finished_at' => gmdate( 'c', (int) $now() ),
-			'result'      => (object) self::with_run_log( $result, $run ),
+			'result'      => (object) self::fit( self::with_run_log( $result, $run ) ),
 			'error'       => [
 				'class'   => '',
 				'message' => '',
 			],
 		];
+	}
+
+	/**
+	 * A result made to fit the size the API takes, dropping in a fixed
+	 * order until it does: the log down to its last lines, then the
+	 * inventory (the API reads the next sync instead), then anything else
+	 * but the versions, the duration and the activity event ids.
+	 *
+	 * @param array $result The result.
+	 *
+	 * @return array
+	 */
+	public static function fit( array $result ): array {
+		if ( self::size( $result ) <= self::MAX_RESULT_BYTES ) {
+			return $result;
+		}
+		if ( isset( $result['log'] ) && is_array( $result['log'] ) ) {
+			$result['log'] = array_slice( $result['log'], -self::LOG_LINES_KEPT );
+		}
+		if ( self::size( $result ) > self::MAX_RESULT_BYTES && array_key_exists( 'inventory', $result ) ) {
+			$result['inventory']         = null;
+			$result['inventory_dropped'] = 'size';
+		}
+		if ( self::size( $result ) > self::MAX_RESULT_BYTES ) {
+			$result = array_intersect_key( $result, array_flip( self::KEPT_FIELDS ) ) + [
+				'inventory'         => null,
+				'inventory_dropped' => 'size',
+				'result_dropped'    => 'size',
+			];
+		}
+
+		return $result;
+	}
+
+	/**
+	 * The bytes of a value as JSON.
+	 *
+	 * @param mixed $value The value.
+	 *
+	 * @return int
+	 */
+	private static function size( $value ): int {
+		return strlen( (string) wp_json_encode( $value ) );
+	}
+
+	/**
+	 * The smallest result of a job, for an API that refused the full one:
+	 * the versions and activity event ids only.
+	 *
+	 * @param array $result The result as kept.
+	 *
+	 * @return array
+	 */
+	public static function minimal( array $result ): array {
+		$fields                     = isset( $result['result'] ) && is_array( $result['result'] ) ? $result['result'] : [];
+		$result['result']           = array_intersect_key( $fields, array_flip( self::KEPT_FIELDS ) );
+		$result['result']['result_dropped'] = 'refused';
+
+		return $result;
 	}
 
 	/**

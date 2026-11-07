@@ -130,6 +130,7 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'get_filesystem_method' )->justReturn( false );
 
 		$this->assertNull( Capabilities::get()['fs_method'] );
+		$this->assertSame( [ 'ping' ], Capabilities::get()['actions'], 'no update action when WordPress names no method' );
 	}
 
 	public function test_a_network(): void {
@@ -208,5 +209,11 @@ final class CapabilitiesTest extends TestCase {
 		} finally {
 			chmod( $this->dir, 0755 );
 		}
+	}
+
+	public function test_a_reader_can_skip_the_check(): void {
+		Functions\expect( 'get_filesystem_method' )->never();
+
+		$this->assertSame( [], Capabilities::skip( [ Capabilities::class, 'get' ] ) );
 	}
 }

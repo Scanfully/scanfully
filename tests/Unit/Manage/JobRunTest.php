@@ -203,7 +203,7 @@ final class JobRunTest extends TestCase {
 			'no plugin in the zip'  => [ 'incompatible_archive_no_plugins', 'No valid plugins were found.', 'package' ],
 			'requires php'          => [ 'incompatible_php_required_version', 'The PHP version on your server is 7.4, however the uploaded plugin requires 8.1.', 'not_supported' ],
 			'core php'              => [ 'php_not_compatible', 'The update cannot be installed because WordPress 7.1 requires PHP version 7.4 or higher.', 'not_supported' ],
-			'core lock'             => [ 'locked', 'Another update is currently in progress.', 'locked' ],
+			'core lock'             => [ 'locked', 'Another update is currently in progress.', 'other' ],
 			'up to date'            => [ 'up_to_date', 'The plugin is at the latest version.', 'not_available' ],
 			'anything else'         => [ 'something_new', 'Something new went wrong.', 'other' ],
 		];
@@ -216,8 +216,14 @@ final class JobRunTest extends TestCase {
 		$this->assertStringNotContainsString( 'pass', $clean );
 		$this->assertStringNotContainsString( 'frag', $clean );
 		$this->assertStringNotContainsString( ABSPATH, $clean );
-		$this->assertStringContainsString( 'https://updates.scanfully.com/download/pro.zip', $clean );
+		$this->assertStringContainsString( 'https://updates.scanfully.com/…/pro.zip', $clean, 'scheme, host and the last path segment only' );
 		$this->assertStringContainsString( './wp-content/upgrade/pro.tmp', $clean );
+	}
+
+	public function test_a_url_keeps_only_its_scheme_host_and_last_segment(): void {
+		$this->assertSame( 'get https://vendor.scanfully.com/…/plugin.zip', Failure::clean( 'get https://user:secret@vendor.scanfully.com/dl/LICENSE-KEY-123/plugin.zip?x=1' ) );
+		$this->assertSame( 'get https://vendor.scanfully.com:8443/plugin.zip', Failure::clean( 'get https://vendor.scanfully.com:8443/plugin.zip#frag' ) );
+		$this->assertSame( 'get https://vendor.scanfully.com', Failure::clean( 'get https://admin:pw@vendor.scanfully.com' ) );
 	}
 
 	public function test_the_log_keeps_the_last_lines_cleaned_and_cut(): void {
@@ -225,8 +231,8 @@ final class JobRunTest extends TestCase {
 
 		$log = Failure::log( $lines );
 
-		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/plugin/akismet.5.3.1.zip…', $log[0], 'the query string goes, the ellipsis after it stays' );
-		$this->assertSame( 'from https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip… done', Failure::clean( 'from https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip&#8230; done' ), 'an ellipsis right after a URL is not part of it' );
+		$this->assertSame( 'Downloading update from https://downloads.wordpress.org/…/akismet.5.3.1.zip…', $log[0], 'the query string goes, the ellipsis after it stays' );
+		$this->assertSame( 'from https://downloads.wordpress.org/…/classic-editor.1.7.0.zip… done', Failure::clean( 'from https://downloads.wordpress.org/plugin/classic-editor.1.7.0.zip&#8230; done' ), 'an ellipsis right after a URL is not part of it' );
 		$this->assertCount( 2, $log );
 		$this->assertSame( 300, mb_strlen( $log[1] ) );
 		$this->assertCount( 3, Failure::log( array_fill( 0, 10, 'line' ), 3 ) );

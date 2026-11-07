@@ -68,6 +68,22 @@ class UpgraderSkin extends \Automatic_Upgrader_Skin {
 	}
 
 	/**
+	 * A message of WordPress's core update (the update_feedback filter):
+	 * kept, and a heartbeat at once, as each one starts a long step (the
+	 * copy of the files, the database upgrade).
+	 *
+	 * @param mixed $message The message.
+	 *
+	 * @return mixed The message, unchanged.
+	 */
+	public function step_feedback( $message ) {
+		$this->run->beat( true );
+		parent::feedback( $message );
+
+		return $message;
+	}
+
+	/**
 	 * The messages collected.
 	 *
 	 * @return string[]

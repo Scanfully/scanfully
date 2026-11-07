@@ -43,9 +43,23 @@ class Heartbeat {
 	private ?int $last = null;
 
 	/**
+	 * Seconds between two heartbeats sent at once at long steps.
+	 */
+	public const STEP_FLOOR = 5;
+
+	/**
+	 * Until when no heartbeat is sent: the last one got no answer, and each
+	 * waits up to its timeout, so an unreachable API must not hold the run
+	 * for that long at every step.
+	 *
+	 * @var int
+	 */
+	private int $quiet_until = 0;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param callable      $send  Sends one heartbeat to the API.
+	 * @param callable      $send  Sends one heartbeat to the API: true when it runs, false when refused, null without an answer.
 	 * @param int           $every Seconds between two heartbeats.
 	 * @param callable|null $now   The clock; time() when null.
 	 */
@@ -76,7 +90,12 @@ class Heartbeat {
 	 * @return void
 	 */
 	public function beat( bool $now = false ): void {
-		if ( $now || null === $this->last || (int) call_user_func( $this->now ) - $this->last >= $this->every ) {
+		$time = (int) call_user_func( $this->now );
+		if ( $time < $this->quiet_until ) {
+			return;
+		}
+		$since = null === $this->last ? PHP_INT_MAX : $time - $this->last;
+		if ( $since >= $this->every || ( $now && $since >= self::STEP_FLOOR ) ) {
 			$this->send_now();
 		}
 	}
@@ -88,7 +107,11 @@ class Heartbeat {
 	 */
 	private function send_now() {
 		$this->last = (int) call_user_func( $this->now );
+		$answer     = call_user_func( $this->send );
+		if ( null === $answer ) {
+			$this->quiet_until = $this->last + $this->every;
+		}
 
-		return call_user_func( $this->send );
+		return $answer;
 	}
 }

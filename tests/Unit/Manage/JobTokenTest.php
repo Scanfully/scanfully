@@ -325,4 +325,22 @@ final class JobTokenTest extends TestCase {
 		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'the key set was fetched and has no such key' );
 		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
 	}
+
+	public function test_a_cached_key_set_without_the_key_and_a_failed_refetch_is_unverified(): void {
+		$this->transients['scanfully_plugin_keys'] = [ 'key-old' => 'not used' ];
+		$this->keys_status                          = 503;
+
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( self::job(), self::SITE ), 'key-1 is not cached and the refetch fails' );
+	}
+
+	public function test_an_empty_key_set_is_a_failed_fetch_not_a_set_to_cache(): void {
+		$this->assertNull( \Scanfully\Sync\SignedRequest::parse_keys( '{"keys":[]}' ) );
+		$this->assertNull( \Scanfully\Sync\SignedRequest::parse_keys( '{"keys":[{"kty":"EC","kid":"x"}]}' ) );
+	}
+
+	public function test_the_expiry_of_a_token_is_its_exp(): void {
+		$exp = time() + 600;
+		$this->assertSame( $exp, JobToken::expiry( self::job( [ 'job_token' => self::token( [ 'exp' => $exp ] ) ] ) ) );
+		$this->assertNull( JobToken::expiry( self::job( [ 'job_token' => 'nonsense' ] ) ) );
+	}
 }

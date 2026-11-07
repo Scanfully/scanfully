@@ -1618,6 +1618,64 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'signature', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['error']['class'] ?? '' );
 	}
 
+	public function test_a_result_the_api_refuses_for_good_is_sent_once_as_its_smallest_form(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 413,
+			'body' => '{"error":"result_too_large"}',
+		];
+
+		Controller::pull();
+		$this->run_pending();
+
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 2, $sent, 'the result, then its smallest form once' );
+		$this->assertSame( [ 'result_dropped' => 'refused' ], $sent[1]['result'] );
+		$this->assertSame( 'succeeded', $sent[1]['state'] );
+		$this->assertSame( 1, $sent[1]['attempt'] );
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertCount( 2, $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ), 'never sent again' );
+	}
+
+	public function test_an_expired_job_the_api_no_longer_lists_is_closed_not_rescheduled(): void {
+		$this->jobs( [ self::ping( [ 'exp' => time() - HOUR_IN_SECONDS ] ) ] );
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		$this->jobs( [] );
+		Controller::pull();
+
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertSame( [], $this->runs() );
+		$this->assertSame( [], $this->requests_after_pull() );
+	}
+
+	public function test_the_run_lock_lasts_until_the_lease_at_most(): void {
+		$exp = time() + 120;
+		$this->jobs( [ self::ping( [ 'exp' => $exp ] ) ] );
+		$this->result_taken();
+		$held = null;
+		Functions\when( 'wp_remote_post' )->alias(
+			function ( string $url, array $args ) use ( &$held ) {
+				if ( null === $held && false !== strpos( $url, '/heartbeat' ) ) {
+					$held = json_decode( $this->db->rows[ RunLock::OPTION ] ?? '{}', true );
+				}
+				return $this->answer( 'POST', $url, isset( $args['body'] ) ? json_decode( (string) $args['body'], true ) : null );
+			}
+		);
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( self::JOB, $held['owner'] ?? '' );
+		$this->assertSame( $exp, $held['until'] ?? 0, 'the end of the lease, below the stale threshold' );
+		$this->assertArrayNotHasKey( RunLock::OPTION, $this->db->rows, 'released after the run' );
+	}
+
 	public function test_a_job_changed_in_the_ledger_after_the_pull_is_refused(): void {
 		$this->jobs( [ self::ping() ] );
 		$this->result_taken();
