@@ -28,20 +28,7 @@ use Scanfully\Main;
  * A version already installed is not an error: the job's goal holds, and the
  * result says nothing changed.
  */
-final class Updates {
-
-	/**
-	 * Seconds PHP may run for an update, when the host lets the plugin say.
-	 */
-	private const TIME_LIMIT = 15 * MINUTE_IN_SECONDS;
-
-	/**
-	 * For tests: builds the upgrader of a kind (plugin, theme, core,
-	 * translations) with the skin. WordPress's own upgraders when null.
-	 *
-	 * @var callable|null
-	 */
-	public static $upgraders = null;
+final class Updates extends Action {
 
 	/**
 	 * For tests: WordPress's version file. wp-includes/version.php when null.
@@ -411,152 +398,6 @@ final class Updates {
 	}
 
 	/**
-	 * A parameter of the job, checked.
-	 *
-	 * @param array  $params   The parameters.
-	 * @param string $name     The name.
-	 * @param string $pattern  What it must look like.
-	 * @param bool   $required Whether it must be there.
-	 *
-	 * @return string The value, or '' when it is optional and absent.
-	 * @throws JobFailed When it is missing or malformed.
-	 */
-	private static function param( array $params, string $name, string $pattern, bool $required ): string {
-		$value = $params[ $name ] ?? null;
-		if ( null === $value || '' === $value ) {
-			if ( $required ) {
-				throw new JobFailed( 'other', sprintf( 'The job has no %s.', $name ) );
-			}
-			return '';
-		}
-		if ( ! is_string( $value ) || 1 !== preg_match( $pattern, $value ) || false !== strpos( $value, '..' ) ) {
-			throw new JobFailed( 'other', sprintf( 'The job\'s %s is not valid.', $name ) );
-		}
-
-		return $value;
-	}
-
-	/**
-	 * Get WordPress ready to change files: allowed to, its upgrader code
-	 * loaded, and as much time and memory as the host lets the plugin ask.
-	 *
-	 * @return void
-	 * @throws JobFailed When WordPress may not change files on the site.
-	 */
-	private static function prepare(): void {
-		if ( function_exists( 'wp_is_file_mod_allowed' ) && ! wp_is_file_mod_allowed( 'scanfully_manage' ) ) {
-			throw new JobFailed( 'not_supported', 'WordPress may not change files on this site (DISALLOW_FILE_MODS is set in wp-config.php, or a plugin forbids it), so it cannot update anything.' );
-		}
-		self::load();
-		if ( function_exists( 'set_time_limit' ) ) {
-			set_time_limit( self::TIME_LIMIT );
-		}
-		if ( function_exists( 'wp_raise_memory_limit' ) ) {
-			wp_raise_memory_limit( 'admin' );
-		}
-	}
-
-	/**
-	 * Load WordPress's admin functions and upgraders, as its background
-	 * updater does.
-	 *
-	 * @return void
-	 */
-	private static function load(): void {
-		if ( ! function_exists( 'get_core_updates' ) || ! function_exists( 'get_plugins' ) || ! function_exists( 'request_filesystem_credentials' ) ) {
-			include_once ABSPATH . 'wp-admin/includes/admin.php';
-		}
-		if ( ! function_exists( 'wp_update_plugins' ) ) {
-			require_once ABSPATH . 'wp-includes/update.php';
-		}
-		if ( ! class_exists( 'WP_Upgrader', false ) ) {
-			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
-		}
-	}
-
-	/**
-	 * The upgrader of a kind, with the skin.
-	 *
-	 * @param string       $kind plugin, theme, core or translations.
-	 * @param UpgraderSkin $skin The skin.
-	 *
-	 * @return object
-	 */
-	private static function upgrader( string $kind, UpgraderSkin $skin ): object {
-		if ( null !== self::$upgraders ) {
-			return call_user_func( self::$upgraders, $kind, $skin );
-		}
-		switch ( $kind ) {
-			case 'plugin':
-				return new \Plugin_Upgrader( $skin );
-			case 'theme':
-				return new \Theme_Upgrader( $skin );
-			case 'core':
-				return new \Core_Upgrader( $skin );
-			default:
-				return new \Language_Pack_Upgrader( $skin );
-		}
-	}
-
-	/**
-	 * The file of a plugin, relative to the plugins folder, by its slug: the
-	 * folder, or the file name of a single-file plugin, as the site data
-	 * report names it.
-	 *
-	 * @param string $slug The slug.
-	 *
-	 * @return string|null
-	 */
-	private static function plugin_file( string $slug ): ?string {
-		if ( function_exists( 'wp_clean_plugins_cache' ) ) {
-			wp_clean_plugins_cache( false );
-		}
-		foreach ( array_keys( get_plugins() ) as $file ) {
-			$file   = (string) $file;
-			$folder = dirname( $file );
-			if ( ( '.' === $folder ? basename( $file, '.php' ) : $folder ) === $slug ) {
-				return $file;
-			}
-		}
-
-		return null;
-	}
-
-	/**
-	 * A plugin's version, read from its file now; '' when the file is gone.
-	 *
-	 * @param string $file The plugin file, relative to the plugins folder.
-	 *
-	 * @return string
-	 */
-	private static function plugin_version( string $file ): string {
-		$path = WP_PLUGIN_DIR . '/' . $file;
-		clearstatcache( true, $path );
-		if ( ! is_file( $path ) ) {
-			return '';
-		}
-
-		return (string) ( get_file_data( $path, [ 'Version' => 'Version' ] )['Version'] ?? '' );
-	}
-
-	/**
-	 * A theme's version, read from its style.css now; '' when it is gone.
-	 *
-	 * @param string $stylesheet The stylesheet.
-	 *
-	 * @return string
-	 */
-	private static function theme_version( string $stylesheet ): string {
-		$path = get_theme_root( $stylesheet ) . '/' . $stylesheet . '/style.css';
-		clearstatcache( true, $path );
-		if ( ! is_file( $path ) ) {
-			return '';
-		}
-
-		return (string) ( get_file_data( $path, [ 'Version' => 'Version' ] )['Version'] ?? '' );
-	}
-
-	/**
 	 * The update WordPress offers for a plugin or theme, as an array, or
 	 * null when it offers none.
 	 *
@@ -657,36 +498,6 @@ final class Updates {
 	}
 
 	/**
-	 * The error class and message of an upgrader's answer that is not a
-	 * success.
-	 *
-	 * @param mixed        $result The upgrader's answer.
-	 * @param UpgraderSkin $skin   The skin.
-	 *
-	 * @return array{class: string, message: string}
-	 */
-	private static function failure_of( $result, UpgraderSkin $skin ): array {
-		$error = is_wp_error( $result ) ? $result : $skin->error_result();
-		if ( null !== $error ) {
-			return Failure::of( $error );
-		}
-		$method = function_exists( 'get_filesystem_method' ) ? get_filesystem_method() : 'direct';
-		if ( 'direct' !== $method ) {
-			return [
-				'class'   => 'filesystem',
-				'message' => sprintf( 'WordPress cannot write the files directly here and needs %s credentials, which wp-config.php does not define, so it could not update.', 'ssh2' === $method ? 'SSH' : 'FTP' ),
-			];
-		}
-		$messages = $skin->messages();
-		$last     = [] === $messages ? '' : (string) end( $messages );
-
-		return [
-			'class'   => 'other',
-			'message' => '' !== $last ? 'The update did not complete: ' . Failure::clean( $last ) : 'The update did not complete, and WordPress gave no reason.',
-		];
-	}
-
-	/**
 	 * The problem of an update WordPress reported done whose files say
 	 * another version.
 	 *
@@ -700,58 +511,5 @@ final class Updates {
 			'class'   => 'package',
 			'message' => sprintf( 'WordPress reported the update done, but the files say version %s instead of %s.', '' === $after ? '(none)' : $after, $wanted ),
 		];
-	}
-
-	/**
-	 * Throw the failure of an update with what is known.
-	 *
-	 * @param array{class: string, message: string} $failure  The failure.
-	 * @param string                                $previous The version before.
-	 * @param string                                $after    The version now.
-	 * @param UpgraderSkin                          $skin     The skin.
-	 * @param JobRun                                $run      The run.
-	 * @param float                                 $started  When the action started.
-	 * @param array                                 $extra    More fields.
-	 *
-	 * @return void
-	 * @throws JobFailed Always.
-	 */
-	private static function fail( array $failure, string $previous, string $after, UpgraderSkin $skin, JobRun $run, float $started, array $extra = [] ): void {
-		throw new JobFailed( $failure['class'], $failure['message'], self::partial( $previous, $after, $skin->messages(), $run, $started, $extra ) );
-	}
-
-	/**
-	 * The result fields: versions, duration, inventory, activity event ids
-	 * and log. The inventory is read last, after the action's changes; when
-	 * it cannot be read the result says so instead of failing.
-	 *
-	 * @param string   $previous The version before.
-	 * @param string   $after    The version now.
-	 * @param string[] $log      The upgrader's messages.
-	 * @param JobRun   $run      The run.
-	 * @param float    $started  When the action started.
-	 * @param array    $extra    More fields.
-	 *
-	 * @return array
-	 */
-	private static function partial( string $previous, string $after, array $log, JobRun $run, float $started, array $extra = [] ): array {
-		try {
-			$inventory = Inventory::collect();
-		} catch ( \Throwable $e ) {
-			$inventory = null;
-			$log[]     = 'The inventory could not be read after the update: ' . $e->getMessage();
-		}
-
-		return array_merge(
-			[
-				'previous_version'   => $previous,
-				'new_version'        => $after,
-				'duration_ms'        => (int) round( ( microtime( true ) - $started ) * 1000 ),
-				'inventory'          => $inventory,
-				'activity_event_ids' => $run->activity_ids(),
-				'log'                => Failure::log( $log ),
-			],
-			$extra
-		);
 	}
 }

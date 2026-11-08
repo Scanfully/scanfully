@@ -37,6 +37,16 @@ class Runner {
 	public const ACTION_UPDATE_CORE         = 'update_core';
 	public const ACTION_UPDATE_TRANSLATIONS = 'update_translations';
 
+	public const ACTION_INSTALL_PLUGIN        = 'install_plugin';
+	public const ACTION_INSTALL_THEME         = 'install_theme';
+	public const ACTION_INSTALL_PLUGIN_UPLOAD = 'install_plugin_upload';
+	public const ACTION_INSTALL_THEME_UPLOAD  = 'install_theme_upload';
+	public const ACTION_ACTIVATE_PLUGIN       = 'activate_plugin';
+	public const ACTION_DEACTIVATE_PLUGIN     = 'deactivate_plugin';
+	public const ACTION_SWITCH_THEME          = 'switch_theme';
+	public const ACTION_DELETE_PLUGIN         = 'delete_plugin';
+	public const ACTION_DELETE_THEME          = 'delete_theme';
+
 	/**
 	 * Seconds between two heartbeats of a long action.
 	 */
@@ -61,7 +71,7 @@ class Runner {
 	/**
 	 * Result fields never dropped to fit the size.
 	 */
-	private const KEPT_FIELDS = [ 'previous_version', 'new_version', 'activity_event_ids', 'duration_ms' ];
+	private const KEPT_FIELDS = [ 'previous_version', 'new_version', 'activity_event_ids', 'duration_ms', 'slug', 'stylesheet', 'source', 'active', 'previous_theme' ];
 
 	/**
 	 * The actions this plugin version runs, by name: the callable takes the
@@ -80,31 +90,59 @@ class Runner {
 			];
 		};
 
+		// The M2 actions are refused on a multisite network: WordPress's
+		// installs, activations, theme switches and deletes there are per
+		// site or network-wide, which a job cannot choose yet.
+		$change = static function ( callable $run, bool $files ): array {
+			return [
+				'run'     => $run,
+				'long'    => $files,
+				'files'   => $files,
+				'network' => false,
+			];
+		};
+
 		return [
-			self::ACTION_PING                => [
+			self::ACTION_PING                  => [
 				'run'     => [ self::class, 'ping' ],
 				'long'    => false,
 				'network' => true,
 			],
-			self::ACTION_UPDATE_PLUGIN       => $update( [ Updates::class, 'plugin' ] ),
-			self::ACTION_UPDATE_THEME        => $update( [ Updates::class, 'theme' ] ),
-			self::ACTION_UPDATE_CORE         => $update( [ Updates::class, 'core' ] ),
-			self::ACTION_UPDATE_TRANSLATIONS => $update( [ Updates::class, 'translations' ] ),
+			self::ACTION_UPDATE_PLUGIN         => $update( [ Updates::class, 'plugin' ] ),
+			self::ACTION_UPDATE_THEME          => $update( [ Updates::class, 'theme' ] ),
+			self::ACTION_UPDATE_CORE           => $update( [ Updates::class, 'core' ] ),
+			self::ACTION_UPDATE_TRANSLATIONS   => $update( [ Updates::class, 'translations' ] ),
+			self::ACTION_INSTALL_PLUGIN        => $change( [ Installs::class, 'plugin' ], true ),
+			self::ACTION_INSTALL_THEME         => $change( [ Installs::class, 'theme' ], true ),
+			self::ACTION_INSTALL_PLUGIN_UPLOAD => $change( [ Installs::class, 'plugin_upload' ], true ),
+			self::ACTION_INSTALL_THEME_UPLOAD  => $change( [ Installs::class, 'theme_upload' ], true ),
+			// Switching on and off and a theme switch write no files: they
+			// run wherever Manage does.
+			self::ACTION_ACTIVATE_PLUGIN       => $change( [ Toggles::class, 'activate_plugin' ], false ),
+			self::ACTION_DEACTIVATE_PLUGIN     => $change( [ Toggles::class, 'deactivate_plugin' ], false ),
+			self::ACTION_SWITCH_THEME          => $change( [ Toggles::class, 'switch_theme' ], false ),
+			self::ACTION_DELETE_PLUGIN         => $change( [ Deletes::class, 'plugin' ], true ),
+			self::ACTION_DELETE_THEME          => $change( [ Deletes::class, 'theme' ], true ),
 		];
 	}
 
 	/**
 	 * The names of the actions this plugin version runs on this site, for
 	 * the capabilities report: the ones that change files only when
-	 * WordPress may write them without asking for credentials.
+	 * WordPress may write them without asking for credentials, and on a
+	 * multisite network only the ones that run there (ping and the updates).
 	 *
 	 * @param bool $can_change_files Whether WordPress may change files and has a usable way to write them.
 	 *
 	 * @return string[]
 	 */
 	public static function actions( bool $can_change_files ): array {
-		$names = [];
+		$names   = [];
+		$network = function_exists( 'is_multisite' ) && is_multisite();
 		foreach ( self::registry() as $name => $entry ) {
+			if ( $network && empty( $entry['network'] ) ) {
+				continue;
+			}
 			if ( $can_change_files || empty( $entry['files'] ) ) {
 				$names[] = $name;
 			}
@@ -149,6 +187,9 @@ class Runner {
 		}
 		$run = $run ?? new JobRun( isset( $job['id'] ) && is_string( $job['id'] ) ? $job['id'] : '' );
 		$run->set_heartbeat( $beat );
+		if ( null === $run->package() ) {
+			$run->set_package( Controller::package_of( $job['package'] ?? null ) );
+		}
 
 		$registry = $registry ?? self::registry();
 		if ( ! isset( $registry[ $action ] ) ) {

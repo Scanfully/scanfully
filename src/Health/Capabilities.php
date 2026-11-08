@@ -66,8 +66,11 @@ final class Capabilities {
 
 		return [
 			'plugin_version' => defined( 'SCANFULLY_VERSION' ) ? (string) SCANFULLY_VERSION : '',
-			// The update actions only where WordPress may change files and
-			// can write them without asking for credentials.
+			// The actions that write files (updates, installs, deletes) only
+			// where WordPress may change files and can write them without
+			// asking for credentials; switching a plugin on or off and a
+			// theme switch always. On a network only ping and the updates,
+			// the actions that run there.
 			'actions' => \Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
 			'file_mods_allowed' => $file_mods_allowed,
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),

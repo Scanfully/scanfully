@@ -173,6 +173,15 @@ final class JobRunTest extends TestCase {
 		$this->assertSame( [ 'version' => '6.9.3' ], $run->tag_event( [ 'version' => '6.9.3' ], 'CoreUpdate' ), 'nothing after the run' );
 	}
 
+	public function test_the_install_toggle_switch_and_delete_events_the_job_causes_carry_its_id(): void {
+		$run = $this->run_for();
+
+		foreach ( [ 'PluginInstalled', 'ThemeInstalled', 'PluginActivate', 'PluginDeactivate', 'PluginDeleted', 'ThemeDeleted', 'ThemeSwitched' ] as $type ) {
+			$this->assertSame( self::JOB, $run->tag_event( [ 'slug' => 'x' ], $type )['manage_job_id'] ?? null, $type );
+		}
+		$this->assertCount( 7, $run->activity_ids() );
+	}
+
 	/**
 	 * @dataProvider provide_wordpress_errors
 	 *

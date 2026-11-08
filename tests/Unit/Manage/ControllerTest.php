@@ -532,6 +532,41 @@ final class ControllerTest extends TestCase {
 		$this->assertCount( 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'] );
 	}
 
+	public function test_a_job_s_download_is_kept_with_it_only_when_it_is_one(): void {
+		$sha256 = hash( 'sha256', 'zip' );
+		$job    = Controller::job_of(
+			self::ping()
+			+ [
+				'package' => [
+					'url'    => 'https://api.scanfully.com/v1/manage/uploads/x/download?sig=abc',
+					'sha256' => strtoupper( $sha256 ),
+				],
+			]
+		);
+		$this->assertSame(
+			[
+				'url'    => 'https://api.scanfully.com/v1/manage/uploads/x/download?sig=abc',
+				'sha256' => $sha256,
+			],
+			$job['package'] ?? null
+		);
+
+		foreach ( [
+			'not an array',
+			[ 'url' => 'https://x.test/a.zip' ],
+			[
+				'url'    => 'file:///etc/passwd',
+				'sha256' => $sha256,
+			],
+			[
+				'url'    => 'https://x.test/a.zip',
+				'sha256' => 'abc',
+			],
+		] as $package ) {
+			$this->assertArrayNotHasKey( 'package', (array) Controller::job_of( self::ping() + [ 'package' => $package ] ), (string) json_encode( $package ) );
+		}
+	}
+
 	public function test_a_job_pulled_again_is_not_started_twice(): void {
 		$this->jobs( [ self::ping() ] );
 		Controller::pull();
@@ -1958,6 +1993,11 @@ final class ControllerTest extends TestCase {
 		Functions\when( 'get_core_updates' )->justReturn( [] );
 		Functions\when( 'get_plugins' )->justReturn( [] );
 		Functions\when( 'request_filesystem_credentials' )->justReturn( true );
+		Functions\when( 'activate_plugin' )->justReturn( null );
+		Functions\when( 'delete_plugins' )->justReturn( true );
+		Functions\when( 'delete_theme' )->justReturn( true );
+		Functions\when( 'plugins_api' )->justReturn( null );
+		Functions\when( 'themes_api' )->justReturn( null );
 		Functions\when( 'wp_update_plugins' )->justReturn( null );
 		Functions\when( 'wp_update_themes' )->justReturn( null );
 		Functions\when( 'wp_version_check' )->justReturn( null );

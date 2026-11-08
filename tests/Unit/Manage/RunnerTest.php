@@ -93,17 +93,17 @@ final class RunnerTest extends TestCase {
 	}
 
 	public function test_an_action_the_plugin_does_not_know_fails_as_not_supported(): void {
-		$result = $this->run_job( [ 'action' => 'install_plugin' ] );
+		$result = $this->run_job( [ 'action' => 'backup_site' ] );
 
 		$this->assertSame( 'failed', $result['state'] );
 		$this->assertSame( 'not_supported', $result['error']['class'] );
-		$this->assertStringContainsString( 'install_plugin', $result['error']['message'] );
+		$this->assertStringContainsString( 'backup_site', $result['error']['message'] );
 		$this->assertSame( '{}', json_encode( $result['result'] ), 'the result is an object for the API' );
 	}
 
 	public function test_the_actions_are_listed_for_the_capabilities_report(): void {
-		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Runner::actions( true ) );
-		$this->assertSame( [ 'ping' ], Runner::actions( false ), 'where WordPress cannot change files, only what needs no files' );
+		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'install_plugin', 'install_theme', 'install_plugin_upload', 'install_theme_upload', 'activate_plugin', 'deactivate_plugin', 'switch_theme', 'delete_plugin', 'delete_theme' ], Runner::actions( true ) );
+		$this->assertSame( [ 'ping', 'activate_plugin', 'deactivate_plugin', 'switch_theme' ], Runner::actions( false ), 'where WordPress cannot change files, only what needs no files' );
 		$this->assertTrue( Runner::knows( 'update_translations' ) );
 		$this->assertTrue( Runner::knows( 'ping' ) );
 		$this->assertFalse( Runner::knows( 'reboot' ) );
