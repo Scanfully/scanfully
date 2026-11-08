@@ -28,7 +28,7 @@ final class InstallsTest extends SiteTestCase {
 	 *
 	 * @var string
 	 */
-	private string $body = 'PK fake zip';
+	private string $body = '';
 
 	/**
 	 * The HTTP status the download answers.
@@ -53,6 +53,7 @@ final class InstallsTest extends SiteTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		$this->body = self::zip( [ 'uploaded/uploaded.php' => "<?php\n/**\n * Plugin Name: Uploaded\n * Version: 0.9\n */\n" ] );
 		Functions\when( 'wp_tempnam' )->alias(
 			function (): string {
 				$file = $this->tmp . '/upload-' . count( $this->temp_files ) . '.tmp';
@@ -396,8 +397,160 @@ final class InstallsTest extends SiteTestCase {
 		$this->assertFileDoesNotExist( $this->temp_files[0] );
 	}
 
+	/**
+	 * A ZIP's bytes.
+	 *
+	 * @param array<string, string> $entries The entries, by name; a name ending in / is a folder.
+	 * @param bool                  $store   Whether to store the files uncompressed.
+	 *
+	 * @return string
+	 */
+	private static function zip( array $entries, bool $store = false ): string {
+		$file = tempnam( sys_get_temp_dir(), 'scanfully-zip' );
+		$zip  = new \ZipArchive();
+		$zip->open( $file, \ZipArchive::OVERWRITE );
+		foreach ( $entries as $name => $content ) {
+			if ( '/' === substr( $name, -1 ) ) {
+				$zip->addEmptyDir( rtrim( $name, '/' ) );
+				continue;
+			}
+			$zip->addFromString( $name, $content );
+			if ( $store ) {
+				$zip->setCompressionName( $name, \ZipArchive::CM_STORE );
+			}
+		}
+		$zip->close();
+		$bytes = (string) file_get_contents( $file );
+		unlink( $file );
+		return $bytes;
+	}
+
+	/**
+	 * Run an upload install of a ZIP and give the JobFailed it threw.
+	 *
+	 * @param string $bytes The ZIP.
+	 */
+	private function refused_zip( string $bytes ): \Scanfully\Manage\JobFailed {
+		$this->body = $bytes;
+		return $this->failure( fn() => Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) ) );
+	}
+
+	public function test_a_zip_with_more_than_one_top_level_folder_is_refused(): void {
+		$e = $this->refused_zip(
+			self::zip(
+				[
+					'one/one.php' => '<?php',
+					'two/two.php' => '<?php',
+				]
+			)
+		);
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'more than one top-level folder', $e->getMessage() );
+		$this->assertSame( [], $this->installs );
+		$this->assertFileDoesNotExist( $this->temp_files[0] );
+	}
+
+	public function test_a_zip_with_a_file_at_its_root_or_outside_its_folder_is_refused(): void {
+		$root = $this->refused_zip(
+			self::zip(
+				[
+					'one/one.php' => '<?php',
+					'readme.txt'  => 'hi',
+				]
+			)
+		);
+		$this->assertStringContainsString( 'outside a folder', $root->getMessage() );
+
+		$climb = $this->refused_zip(
+			self::zip(
+				[
+					'one/one.php'       => '<?php',
+					'one/../../evil.php' => '<?php',
+				]
+			)
+		);
+		$this->assertSame( 'package', $climb->error_class() );
+		$this->assertStringContainsString( 'outside its folder', $climb->getMessage() );
+		$this->assertSame( [], $this->installs );
+	}
+
+	public function test_what_is_not_a_zip_is_refused(): void {
+		$e = $this->refused_zip( 'PK not really a zip' );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'not a ZIP', $e->getMessage() );
+	}
+
+	public function test_a_zip_with_too_many_entries_is_refused(): void {
+		$entries = [];
+		for ( $i = 0; $i <= Package::MAX_ENTRIES; $i++ ) {
+			$entries[ "many/f$i.txt" ] = '';
+		}
+
+		$e = $this->refused_zip( self::zip( $entries ) );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( '20001 entries', $e->getMessage() );
+	}
+
+	public function test_a_zip_that_declares_or_unpacks_to_too_much_is_refused(): void {
+		$file = $this->tmp . '/bomb.zip';
+		file_put_contents( $file, self::zip( [ 'bomb/zeros.txt' => str_repeat( "\0", 300000 ) ] ) );
+
+		// Declared: the central directory says 300,000 bytes.
+		$declared = $this->failure( fn() => Package::inspect( $file, $this->run, 200000 ) );
+		$this->assertStringContainsString( 'unpacks to more than', $declared->getMessage() );
+
+		// A ZIP that lies: its central directory says 1 byte, it inflates to
+		// 300,000.
+		$bytes = (string) file_get_contents( $file );
+		$at    = strpos( $bytes, "PK\x01\x02" );
+		$bytes = substr_replace( $bytes, pack( 'V', 1 ), $at + 24, 4 );
+		file_put_contents( $file, $bytes );
+		$zip = new \ZipArchive();
+		$zip->open( $file );
+		$this->assertSame( 1, $zip->statIndex( 0 )['size'], 'the crafted archive declares 1 byte' );
+		$zip->close();
+
+		$lie = $this->failure( fn() => Package::inspect( $file, $this->run, 200000 ) );
+		$this->assertSame( 'package', $lie->error_class() );
+	}
+
+	public function test_a_zip_within_the_limits_passes_the_inspection(): void {
+		$file = $this->tmp . '/fine.zip';
+		file_put_contents(
+			$file,
+			self::zip(
+				[
+					'fine/'          => '',
+					'fine/fine.php'  => '<?php',
+					'fine/a/b/c.txt' => str_repeat( 'x', 1000 ),
+				]
+			)
+		);
+
+		Package::inspect( $file, $this->run );
+
+		$this->addToAssertionCount( 1 );
+	}
+
 	public function test_a_download_at_the_cap_is_taken_and_one_byte_more_is_not(): void {
-		$this->body = str_repeat( 'z', Package::MAX_BYTES );
+		$this->body = self::zip(
+			[
+				'uploaded/uploaded.php' => '<?php',
+				'uploaded/pad.bin' => '',
+			],
+			true
+		);
+		$this->body = self::zip(
+			[
+				'uploaded/uploaded.php' => '<?php',
+				'uploaded/pad.bin'      => str_repeat( 'p', Package::MAX_BYTES - strlen( $this->body ) ),
+			],
+			true
+		);
+		$this->assertSame( Package::MAX_BYTES, strlen( $this->body ), 'a stored ZIP of exactly 50 MB' );
 		$result     = Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) );
 		$this->assertSame( Package::MAX_BYTES + 1, $this->downloads[0][1]['limit_response_size'], 'without a size, 50 MB and one byte' );
 		$this->assertSame( 'uploaded', $result['slug'] );

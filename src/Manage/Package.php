@@ -17,7 +17,7 @@ use Scanfully\Main;
  * job's signed parameters hold the file's SHA-256. The URL is taken only on
  * the origin that signs the jobs, the file goes to a temporary file, its
  * SHA-256 is checked against the signed one before anything is unpacked,
- * and the temporary file is removed on every way out: by the action when it
+ * what it unpacks to is counted (inspect()), and the temporary file is removed on every way out: by the action when it
  * ends, and by the run's clean-up after a PHP fatal.
  */
 final class Package {
@@ -26,6 +26,21 @@ final class Package {
 	 * The largest download taken: Scanfully takes uploads of up to 50 MB.
 	 */
 	public const MAX_BYTES = 50 * 1024 * 1024;
+
+	/**
+	 * The most bytes an upload may unpack to.
+	 */
+	public const MAX_UNPACKED = 256 * 1024 * 1024;
+
+	/**
+	 * The most entries (files and folders) an upload may hold.
+	 */
+	public const MAX_ENTRIES = 20000;
+
+	/**
+	 * Bytes read at a time while counting what an entry unpacks to.
+	 */
+	private const CHUNK = 1024 * 1024;
 
 	/**
 	 * What a download that is not the file Scanfully checked fails with.
@@ -74,6 +89,7 @@ final class Package {
 		try {
 			self::download( $package['url'], $file, $run, $package['size'] ?? null );
 			self::verify( $file, $sha256 );
+			self::inspect( $file, $run );
 		} catch ( JobFailed $e ) {
 			self::remove( $file );
 			throw $e;
@@ -155,6 +171,121 @@ final class Package {
 		if ( null !== $size && $got !== $size ) {
 			throw new JobFailed( 'package', self::MISMATCH );
 		}
+	}
+
+	/**
+	 * Check what an upload unpacks to before WordPress unpacks it: at most
+	 * 20,000 entries, all inside exactly one top-level folder, none with an
+	 * absolute path or "..", and at most 256 MB in all. The sizes a ZIP
+	 * declares can lie (WordPress compares them only with the free disk
+	 * space), so every entry is also inflated and its bytes counted, never
+	 * written anywhere.
+	 *
+	 * @param string $file        The ZIP.
+	 * @param JobRun $run         The run, for heartbeats while counting.
+	 * @param int    $max_bytes   The most bytes it may unpack to.
+	 * @param int    $max_entries The most entries it may hold.
+	 *
+	 * @return void
+	 * @throws JobFailed When it is not a ZIP Scanfully installs.
+	 */
+	public static function inspect( string $file, JobRun $run, int $max_bytes = self::MAX_UNPACKED, int $max_entries = self::MAX_ENTRIES ): void {
+		if ( ! class_exists( 'ZipArchive' ) ) {
+			throw new JobFailed( 'package', 'The site\'s PHP has no ZipArchive, so Scanfully cannot check the upload before it is unpacked, and did not install it.' );
+		}
+		$zip = new \ZipArchive();
+		if ( true !== $zip->open( $file, \ZipArchive::RDONLY ) ) {
+			throw new JobFailed( 'package', 'The upload is not a ZIP file the site can read, so nothing was unpacked or installed.' );
+		}
+		try {
+			$count = (int) $zip->count();
+			if ( 0 === $count || $count > $max_entries ) {
+				throw new JobFailed( 'package', sprintf( 'The upload holds %d entries; Scanfully installs a ZIP of 1 to %d, so nothing was unpacked or installed.', $count, $max_entries ) );
+			}
+			$names    = [];
+			$declared = 0;
+			for ( $i = 0; $i < $count; $i++ ) {
+				$stat = $zip->statIndex( $i );
+				if ( ! is_array( $stat ) ) {
+					throw new JobFailed( 'package', 'The upload has an entry the site cannot read, so nothing was unpacked or installed.' );
+				}
+				$names[ $i ] = (string) $stat['name'];
+				$declared   += (int) $stat['size'];
+			}
+			self::check_names( $names );
+			if ( $declared > $max_bytes ) {
+				throw new JobFailed( 'package', self::too_large( $max_bytes ) );
+			}
+			$unpacked = 0;
+			foreach ( $names as $i => $name ) {
+				if ( '/' === substr( $name, -1 ) ) {
+					continue;
+				}
+				$stream = $zip->getStreamIndex( $i );
+				if ( ! is_resource( $stream ) ) {
+					throw new JobFailed( 'package', 'The upload has an entry the site cannot unpack, so nothing was unpacked or installed.' );
+				}
+				try {
+					while ( ! feof( $stream ) ) {
+						$chunk = fread( $stream, self::CHUNK ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- Counting bytes from a ZIP stream, nothing is written.
+						if ( false === $chunk ) {
+							throw new JobFailed( 'package', 'The upload has an entry the site cannot unpack, so nothing was unpacked or installed.' );
+						}
+						$unpacked += strlen( $chunk );
+						if ( $unpacked > $max_bytes ) {
+							throw new JobFailed( 'package', self::too_large( $max_bytes ) );
+						}
+						if ( '' === $chunk ) {
+							break;
+						}
+					}
+				} finally {
+					fclose( $stream ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- The ZIP entry's stream.
+				}
+				$run->beat();
+			}
+		} finally {
+			$zip->close();
+		}
+	}
+
+	/**
+	 * Check the entry names of an upload: all inside exactly one top-level
+	 * folder, none absolute or with "..".
+	 *
+	 * @param string[] $names The entry names.
+	 *
+	 * @return void
+	 * @throws JobFailed When they are not.
+	 */
+	private static function check_names( array $names ): void {
+		$top = null;
+		foreach ( $names as $name ) {
+			$path = str_replace( '\\', '/', $name );
+			if ( '' === $path || '/' === $path[0] || 1 === preg_match( '#(^|/)\.\.(/|$)#', $path ) || 1 === preg_match( '#^[A-Za-z]:#', $path ) ) {
+				throw new JobFailed( 'package', 'The upload has an entry outside its folder (an absolute path or ".."), so nothing was unpacked or installed.' );
+			}
+			$slash = strpos( $path, '/' );
+			if ( false === $slash ) {
+				throw new JobFailed( 'package', 'The upload has a file outside a folder: Scanfully installs a ZIP with exactly one top-level folder, so nothing was unpacked or installed.' );
+			}
+			$folder = substr( $path, 0, $slash );
+			if ( null !== $top && $folder !== $top ) {
+				throw new JobFailed( 'package', 'The upload has more than one top-level folder: Scanfully installs a ZIP with exactly one, so nothing was unpacked or installed.' );
+			}
+			$top = $folder;
+		}
+	}
+
+	/**
+	 * The message of an upload that unpacks to too much.
+	 *
+	 * @param int $max_bytes The most bytes it may unpack to.
+	 *
+	 * @return string
+	 */
+	private static function too_large( int $max_bytes ): string {
+		return sprintf( 'The upload unpacks to more than %d MB, so nothing was unpacked or installed.', (int) ceil( $max_bytes / 1024 / 1024 ) );
 	}
 
 	/**
