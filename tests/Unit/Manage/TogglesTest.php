@@ -82,6 +82,59 @@ final class TogglesTest extends SiteTestCase {
 		$this->assertStringContainsString( 'Scanfully switched it off again.', $e->getMessage() );
 		$this->assertArrayNotHasKey( 'hello-fixture/hello-fixture.php', $this->active );
 		$this->assertFalse( $e->result()['active'] );
+		$this->assertSame( [ false ], $this->silent, 'the deactivation is logged, not silent' );
+		$this->assertCount( 1, $e->result()['activity_event_ids'], 'and tagged with the job' );
+	}
+
+	public function test_the_runner_reports_an_activation_fatal_cleaned(): void {
+		$this->activate = static function (): void {
+			ob_start();
+			throw new \Error( '<b>Call to undefined function nope()</b> in ' . WP_PLUGIN_DIR . '/hello-fixture/hello-fixture.php:7 https://x.test/a/b?key=SECRET' );
+		};
+
+		$result = Runner::run(
+			[
+				'id'     => self::JOB,
+				'action' => 'activate_plugin',
+				'params' => [ 'slug' => 'hello-fixture' ],
+			],
+			static fn(): bool => true,
+			null,
+			null,
+			$this->run
+		);
+
+		$this->assertSame( 'failed', $result['state'] );
+		$this->assertSame( 'fatal', $result['error']['class'] );
+		$this->assertSame( 'The plugin stopped with a PHP error while WordPress switched it on: Call to undefined function nope() in ./wp-content/plugins/hello-fixture/hello-fixture.php:7 https://x.test/…/b The plugin stays switched off.', $result['error']['message'] );
+		$this->assertFalse( $result['result']->active );
+	}
+
+	/**
+	 * @dataProvider provide_own_plugin_folders
+	 *
+	 * @param string $own   The Scanfully plugin's file, as plugin_basename() names it.
+	 * @param string $other The folder of another plugin the job names.
+	 */
+	public function test_the_scanfully_plugin_is_known_by_its_file_not_its_folder_name( string $own, string $other ): void {
+		Functions\when( 'plugin_basename' )->justReturn( $own );
+		$this->write_plugin( 'scanfully-plugin', '2.0.0' );
+		$this->active['scanfully-plugin/scanfully-plugin.php'] = true;
+
+		$this->assertSame( 'not_supported', $this->failure( fn() => Toggles::deactivate_plugin( [ 'slug' => dirname( $own ) ], static function (): void {}, $this->run ) )->error_class() );
+		$this->assertFalse( Toggles::deactivate_plugin( [ 'slug' => $other ], static function (): void {}, $this->run )['active'], 'another plugin of a similar name is switched off' );
+	}
+
+	/**
+	 * The Scanfully plugin's file and another plugin's folder.
+	 *
+	 * @return array<string, array{0: string, 1: string}>
+	 */
+	public static function provide_own_plugin_folders(): array {
+		return [
+			'Scanfully in scanfully-plugin/' => [ 'scanfully-plugin/scanfully-plugin.php', 'scanfully' ],
+			'Scanfully in scanfully/'        => [ 'scanfully/scanfully.php', 'scanfully-plugin' ],
+		];
 	}
 
 	public function test_a_plugin_whose_requirements_the_site_does_not_meet_is_not_supported(): void {
@@ -155,7 +208,7 @@ final class TogglesTest extends SiteTestCase {
 
 		$this->theme_errors['blocksy'] = new \WP_Error( 'theme_no_parent', 'The parent theme is missing. Please install the "blocksy-base" parent theme.' );
 		$e                             = $this->failure( fn() => Toggles::switch_theme( [ 'stylesheet' => 'blocksy' ], static function (): void {}, $this->run ) );
-		$this->assertSame( 'not_available', $e->error_class() );
+		$this->assertSame( 'not_installed', $e->error_class(), 'a child theme without its parent' );
 		$this->assertSame( 'twentyfive', $this->options['stylesheet'] );
 	}
 

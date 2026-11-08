@@ -196,7 +196,7 @@ final class Toggles extends Action {
 		$errors = $theme->errors();
 		if ( is_wp_error( $errors ) ) {
 			throw new JobFailed(
-				'theme_no_parent' === $errors->get_error_code() ? 'not_available' : 'package',
+				'theme_no_parent' === $errors->get_error_code() ? 'not_installed' : 'package',
 				'WordPress cannot use the theme: ' . Failure::of( $errors )['message'],
 				self::partial( $version, $version, [], $run, $started, $extra )
 			);
@@ -286,7 +286,9 @@ final class Toggles extends Action {
 			return 'The plugin stays switched off.';
 		}
 		try {
-			deactivate_plugins( $file, true, false );
+			// Not silent: the deactivation is logged, tagged with the job,
+			// next to the activation WordPress logged.
+			deactivate_plugins( $file, false, false );
 		} catch ( \Throwable $e ) {
 			unset( $e ); // Read back below.
 		}

@@ -69,9 +69,8 @@ final class Capabilities {
 			// The actions that write files (updates, installs, deletes) only
 			// where WordPress may change files and can write them without
 			// asking for credentials; switching a plugin on or off and a
-			// theme switch always. On a network the M2 actions stay listed:
-			// Scanfully refuses them there as multisite_refused, and so does
-			// the plugin.
+			// theme switch always. On a network only ping and the updates,
+			// the actions that run there.
 			'actions' => \Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
 			'file_mods_allowed' => $file_mods_allowed,
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),

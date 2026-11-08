@@ -20,7 +20,9 @@ namespace Scanfully\Manage;
  * from the job. An upload is downloaded from the single-use link the pull
  * gave, and installed only when its SHA-256 is the one Scanfully checked
  * (Package). The result names the host the package came from (source),
- * never a URL.
+ * never a URL. A child theme whose parent is not installed brings its
+ * parent along from wordpress.org, as WordPress's own theme installer does
+ * (Theme_Upgrader::check_parent_theme_filter), from an upload too.
  *
  * Software that is on the site already is refused as already_installed:
  * Scanfully installs only what is not there, and an installed plugin or
@@ -62,7 +64,7 @@ final class Installs extends Action {
 		}
 		$offer = self::wporg( 'plugin', $slug, $version );
 
-		return self::install_plugin( $offer['package'], self::host( $offer['package'] ), $slug, $offer['version'], $run, $started );
+		return self::install_plugin( $offer['package'], self::host( $offer['package'] ), $slug, $version, $run, $started );
 	}
 
 	/**
@@ -89,7 +91,7 @@ final class Installs extends Action {
 		}
 		$offer = self::wporg( 'theme', $slug, $version );
 
-		return self::install_theme( $offer['package'], self::host( $offer['package'] ), $slug, $offer['version'], $run, $started );
+		return self::install_theme( $offer['package'], self::host( $offer['package'] ), $slug, $version, $run, $started );
 	}
 
 	/**
@@ -252,11 +254,44 @@ final class Installs extends Action {
 					: sprintf( 'wordpress.org offers no version %s of the %s "%s".', $version, $kind, $slug )
 			);
 		}
+		// A plugin hooking plugins_api() or themes_api() must not turn a
+		// wordpress.org install into a download from elsewhere.
+		$host = self::host( $package );
+		if ( 'wordpress.org' !== $host && ! self::ends_with( $host, '.wordpress.org' ) ) {
+			throw new JobFailed( 'package', sprintf( 'WordPress named a download of the %s "%s" on %s instead of wordpress.org, so Scanfully did not install it (a plugin on the site may change where installs come from).', $kind, $slug, '' === $host ? 'an unknown host' : $host ) );
+		}
 
 		return [
 			'package' => $package,
 			'version' => $wanted,
 		];
+	}
+
+	/**
+	 * Whether two versions are the same release: 5.2 is 5.2.0, as WordPress
+	 * and wordpress.org write versions both ways.
+	 *
+	 * @param string $a A version.
+	 * @param string $b Another.
+	 *
+	 * @return bool
+	 */
+	private static function same_version( string $a, string $b ): bool {
+		$trim = static fn( string $v ): string => (string) preg_replace( '/(\.0+)+$/', '', trim( $v ) );
+
+		return '' !== $a && ( $a === $b || version_compare( $trim( $a ), $trim( $b ), '==' ) );
+	}
+
+	/**
+	 * Whether a string ends with another.
+	 *
+	 * @param string $haystack The string.
+	 * @param string $needle   The end.
+	 *
+	 * @return bool
+	 */
+	private static function ends_with( string $haystack, string $needle ): bool {
+		return strlen( $haystack ) >= strlen( $needle ) && substr( $haystack, -strlen( $needle ) ) === $needle;
 	}
 
 	/**
@@ -392,7 +427,7 @@ final class Installs extends Action {
 				$extra
 			);
 		}
-		if ( '' !== $version && $after !== $version ) {
+		if ( '' !== $version && ! self::same_version( $after, $version ) ) {
 			self::fail(
 				[
 					'class'   => 'package',

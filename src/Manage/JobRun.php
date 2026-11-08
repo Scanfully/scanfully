@@ -124,7 +124,7 @@ final class JobRun {
 	/**
 	 * The download of a job that installs an upload, as the pull gave it.
 	 *
-	 * @var array{url: string, sha256: string}|null
+	 * @var array{url: string, sha256: string, size?: int}|null
 	 */
 	private ?array $package = null;
 
@@ -165,7 +165,7 @@ final class JobRun {
 	/**
 	 * Use the download the pull gave for the job.
 	 *
-	 * @param array{url: string, sha256: string}|null $package The download.
+	 * @param array{url: string, sha256: string, size?: int}|null $package The download.
 	 *
 	 * @return void
 	 */
@@ -176,7 +176,7 @@ final class JobRun {
 	/**
 	 * The download the pull gave for the job: its URL and SHA-256.
 	 *
-	 * @return array{url: string, sha256: string}|null
+	 * @return array{url: string, sha256: string, size?: int}|null
 	 */
 	public function package(): ?array {
 		return $this->package;

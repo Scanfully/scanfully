@@ -129,15 +129,20 @@ class Runner {
 	/**
 	 * The names of the actions this plugin version runs on this site, for
 	 * the capabilities report: the ones that change files only when
-	 * WordPress may write them without asking for credentials.
+	 * WordPress may write them without asking for credentials, and on a
+	 * multisite network only the ones that run there (ping and the updates).
 	 *
 	 * @param bool $can_change_files Whether WordPress may change files and has a usable way to write them.
 	 *
 	 * @return string[]
 	 */
 	public static function actions( bool $can_change_files ): array {
-		$names = [];
+		$names   = [];
+		$network = function_exists( 'is_multisite' ) && is_multisite();
 		foreach ( self::registry() as $name => $entry ) {
+			if ( $network && empty( $entry['network'] ) ) {
+				continue;
+			}
 			if ( $can_change_files || empty( $entry['files'] ) ) {
 				$names[] = $name;
 			}

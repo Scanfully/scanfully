@@ -110,6 +110,13 @@ abstract class SiteTestCase extends TestCase {
 	public bool $filesystem = true;
 
 	/**
+	 * The silent argument of each deactivate_plugins() call.
+	 *
+	 * @var bool[]
+	 */
+	public array $silent = [];
+
+	/**
 	 * The errors of a theme, by stylesheet.
 	 *
 	 * @var array<string, \WP_Error>
@@ -175,7 +182,8 @@ abstract class SiteTestCase extends TestCase {
 		Functions\when( 'is_multisite' )->justReturn( false );
 		Functions\when( 'activate_plugin' )->alias( fn( string $file ) => ( $this->activate )( $file ) );
 		Functions\when( 'deactivate_plugins' )->alias(
-			function ( $files ): void {
+			function ( $files, $silent = false ): void {
+				$this->silent[] = (bool) $silent;
 				foreach ( (array) $files as $file ) {
 					unset( $this->active[ $file ] );
 					$this->run->tag_event( [ 'slug' => $file ], 'PluginDeactivate' );

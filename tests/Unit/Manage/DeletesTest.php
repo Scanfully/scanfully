@@ -50,6 +50,16 @@ final class DeletesTest extends SiteTestCase {
 		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/scanfully' );
 	}
 
+	public function test_another_plugin_named_like_scanfully_may_be_deleted(): void {
+		Functions\when( 'plugin_basename' )->justReturn( 'scanfully-plugin/scanfully-plugin.php' );
+		$this->write_plugin( 'scanfully-plugin', '2.0.0' );
+
+		$this->assertSame( 'not_supported', $this->failure( fn() => Deletes::plugin( [ 'slug' => 'scanfully-plugin' ], static function (): void {}, $this->run ) )->error_class() );
+		Deletes::plugin( [ 'slug' => 'scanfully' ], static function (): void {}, $this->run );
+		$this->assertDirectoryDoesNotExist( WP_PLUGIN_DIR . '/scanfully' );
+		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/scanfully-plugin' );
+	}
+
 	public function test_a_plugin_that_is_gone_fails_as_not_installed(): void {
 		$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) );
 

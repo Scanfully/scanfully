@@ -429,7 +429,7 @@ class Controller {
 	 * @param mixed       $raw         The job from the API's answer, or as the ledger keeps it.
 	 * @param string|null $params_json The canonical JSON of its parameters from the raw answer.
 	 *
-	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_json?: string, package?: array{url: string, sha256: string}}|null
+	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_json?: string, package?: array{url: string, sha256: string, size?: int}}|null
 	 */
 	public static function job_of( $raw, ?string $params_json = null ): ?array {
 		if ( ! is_array( $raw ) || ! Ledger::valid_id( $raw['id'] ?? null ) ) {
@@ -475,7 +475,7 @@ class Controller {
 	 *
 	 * @param mixed $raw The package from the API's answer, or as the ledger keeps it.
 	 *
-	 * @return array{url: string, sha256: string}|null
+	 * @return array{url: string, sha256: string, size?: int}|null
 	 */
 	public static function package_of( $raw ): ?array {
 		if ( ! is_array( $raw ) ) {
@@ -488,10 +488,17 @@ class Controller {
 			return null;
 		}
 
-		return [
+		$package = [
 			'url'    => $url,
 			'sha256' => strtolower( $sha256 ),
 		];
+		// The ZIP's size in bytes, when the pull names a plausible one.
+		$size = $raw['size'] ?? null;
+		if ( is_int( $size ) && $size > 0 && $size <= Package::MAX_BYTES ) {
+			$package['size'] = $size;
+		}
+
+		return $package;
 	}
 
 	/**

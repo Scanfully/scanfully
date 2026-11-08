@@ -137,6 +137,7 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'is_multisite' )->justReturn( true );
 
 		$this->assertTrue( Capabilities::get()['multisite'] );
+		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Capabilities::get()['actions'], 'on a network only what runs there' );
 	}
 
 	public function test_action_scheduler_before_its_data_store_is_ready(): void {

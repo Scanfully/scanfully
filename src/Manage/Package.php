@@ -25,7 +25,12 @@ final class Package {
 	/**
 	 * The largest download taken: Scanfully takes uploads of up to 50 MB.
 	 */
-	public const MAX_BYTES = 60 * 1024 * 1024;
+	public const MAX_BYTES = 50 * 1024 * 1024;
+
+	/**
+	 * What a download that is not the file Scanfully checked fails with.
+	 */
+	private const MISMATCH = 'The downloaded upload does not match the SHA-256 checksum Scanfully gave for it, so nothing was unpacked or installed.';
 
 	/**
 	 * Seconds the download may take.
@@ -67,7 +72,7 @@ final class Package {
 		);
 
 		try {
-			self::download( $package['url'], $file, $run );
+			self::download( $package['url'], $file, $run, $package['size'] ?? null );
 			self::verify( $file, $sha256 );
 		} catch ( JobFailed $e ) {
 			self::remove( $file );
@@ -101,16 +106,20 @@ final class Package {
 
 	/**
 	 * Download a URL to a file, with a heartbeat before and after. The API
-	 * serves the file itself: no redirect is followed.
+	 * serves the file itself: no redirect is followed. No more is read than
+	 * the size the pull named (when it named one) and 50 MB, plus one byte
+	 * to tell a larger file.
 	 *
-	 * @param string $url  The URL.
-	 * @param string $file The file.
-	 * @param JobRun $run  The run.
+	 * @param string   $url  The URL.
+	 * @param string   $file The file.
+	 * @param JobRun   $run  The run.
+	 * @param int|null $size The file's size in bytes the pull named, if any.
 	 *
 	 * @return void
-	 * @throws JobFailed When the download failed.
+	 * @throws JobFailed When the download failed, or is not the size named.
 	 */
-	private static function download( string $url, string $file, JobRun $run ): void {
+	private static function download( string $url, string $file, JobRun $run, ?int $size ): void {
+		$limit = ( null === $size ? self::MAX_BYTES : min( self::MAX_BYTES, $size ) ) + 1;
 		$run->beat( true );
 		$response = wp_remote_get(
 			$url,
@@ -118,7 +127,7 @@ final class Package {
 				'timeout'             => self::TIMEOUT,
 				'stream'              => true,
 				'filename'            => $file,
-				'limit_response_size' => self::MAX_BYTES,
+				'limit_response_size' => $limit,
 				'redirection'         => 0,
 				'headers'             => [ 'Accept' => 'application/zip, application/octet-stream' ],
 			]
@@ -136,12 +145,15 @@ final class Package {
 			throw new JobFailed( 'package', sprintf( 'The upload could not be downloaded: the download answered HTTP %d. Its link is single use and valid until the job\'s lease ends.', $status ) );
 		}
 		clearstatcache( true, $file );
-		$size = is_file( $file ) ? (int) filesize( $file ) : 0;
-		if ( 0 === $size ) {
+		$got = is_file( $file ) ? (int) filesize( $file ) : 0;
+		if ( 0 === $got ) {
 			throw new JobFailed( 'package', 'The upload could not be downloaded: the download was empty.' );
 		}
-		if ( $size >= self::MAX_BYTES ) {
+		if ( $got > self::MAX_BYTES ) {
 			throw new JobFailed( 'package', sprintf( 'The upload is larger than the %d MB Scanfully takes, so it was not installed.', (int) ( self::MAX_BYTES / 1024 / 1024 ) ) );
+		}
+		if ( null !== $size && $got !== $size ) {
+			throw new JobFailed( 'package', self::MISMATCH );
 		}
 	}
 
@@ -157,7 +169,7 @@ final class Package {
 	private static function verify( string $file, string $sha256 ): void {
 		$actual = (string) hash_file( 'sha256', $file );
 		if ( '' === $actual || ! hash_equals( strtolower( $sha256 ), $actual ) ) {
-			throw new JobFailed( 'package', 'The downloaded upload does not match the SHA-256 checksum Scanfully gave for it, so nothing was unpacked or installed.' );
+			throw new JobFailed( 'package', self::MISMATCH );
 		}
 	}
 

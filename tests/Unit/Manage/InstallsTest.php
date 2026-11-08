@@ -10,6 +10,7 @@ namespace Scanfully\Tests\Unit\Manage;
 
 use Brain\Monkey\Functions;
 use Scanfully\Manage\Installs;
+use Scanfully\Manage\Package;
 use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Runner;
 
@@ -241,10 +242,51 @@ final class InstallsTest extends SiteTestCase {
 			return true;
 		};
 
-		$e = $this->failure( fn() => Installs::plugin( [ 'slug' => 'akismet' ], static function (): void {}, $this->run ) );
+		$e = $this->failure(
+			fn() => Installs::plugin(
+				[
+					'slug'    => 'akismet',
+					'version' => '5.3.1',
+				],
+				static function (): void {},
+				$this->run
+			)
+		);
 
 		$this->assertSame( 'package', $e->error_class() );
 		$this->assertSame( '5.0', $e->result()['new_version'] );
+	}
+
+	public function test_the_version_check_reads_versions_as_versions(): void {
+		$this->install = function ( string $kind, string $package, FakeInstaller $upgrader ): bool {
+			$this->write_plugin( 'akismet', '5.2' );
+			$upgrader->installed = 'akismet/akismet.php';
+			return true;
+		};
+
+		$result = Installs::plugin(
+			[
+				'slug'    => 'akismet',
+				'version' => '5.2.0',
+			],
+			static function (): void {},
+			$this->run
+		);
+
+		$this->assertSame( '5.2', $result['new_version'], '5.2 is 5.2.0' );
+	}
+
+	public function test_a_wordpress_org_install_downloaded_from_elsewhere_is_refused(): void {
+		$this->wporg = static fn() => (object) [
+			'version'       => '5.3.1',
+			'download_link' => 'https://evil.test/akismet.zip',
+		];
+
+		$e = $this->failure( fn() => Installs::plugin( [ 'slug' => 'akismet' ], static function (): void {}, $this->run ) );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'evil.test', $e->getMessage() );
+		$this->assertSame( [], $this->installs );
 	}
 
 	public function test_no_file_changes_allowed_installs_nothing(): void {
@@ -320,6 +362,90 @@ final class InstallsTest extends SiteTestCase {
 		$this->assertFileDoesNotExist( $this->temp_files[0] );
 		$this->assertArrayHasKey( 'inventory', $e->result(), 'a refused download still answers the inventory' );
 		$this->assertSame( '', $e->result()['new_version'] );
+		$this->assertIsInt( $e->result()['duration_ms'] );
+	}
+
+	public function test_the_download_reads_no_more_than_the_size_the_pull_named(): void {
+		$this->run->set_package(
+			[
+				'url'    => 'https://api.scanfully.com/v1/manage/packages/' . self::JOB . '?token=t',
+				'sha256' => hash( 'sha256', $this->body ),
+				'size'   => strlen( $this->body ),
+			]
+		);
+
+		Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->run );
+
+		$this->assertSame( strlen( $this->body ) + 1, $this->downloads[0][1]['limit_response_size'] );
+	}
+
+	public function test_a_download_of_another_size_than_named_is_refused(): void {
+		$this->run->set_package(
+			[
+				'url'    => 'https://api.scanfully.com/v1/manage/packages/' . self::JOB . '?token=t',
+				'sha256' => hash( 'sha256', $this->body ),
+				'size'   => strlen( $this->body ) - 1,
+			]
+		);
+
+		$e = $this->failure( fn() => Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->run ) );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertSame( 'The downloaded upload does not match the SHA-256 checksum Scanfully gave for it, so nothing was unpacked or installed.', $e->getMessage() );
+		$this->assertSame( [], $this->installs );
+		$this->assertFileDoesNotExist( $this->temp_files[0] );
+	}
+
+	public function test_a_download_at_the_cap_is_taken_and_one_byte_more_is_not(): void {
+		$this->body = str_repeat( 'z', Package::MAX_BYTES );
+		$result     = Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) );
+		$this->assertSame( Package::MAX_BYTES + 1, $this->downloads[0][1]['limit_response_size'], 'without a size, 50 MB and one byte' );
+		$this->assertSame( 'uploaded', $result['slug'] );
+
+		$this->body .= 'z';
+		$e           = $this->failure( fn() => Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) ) );
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'larger than the 50 MB', $e->getMessage() );
+		$this->body = '';
+	}
+
+	public function test_an_empty_download_is_refused(): void {
+		$this->body = '';
+
+		$e = $this->failure( fn() => Installs::plugin_upload( $this->upload_params( hash( 'sha256', '' ) ), static function (): void {}, $this->with_package( hash( 'sha256', '' ) ) ) );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'empty', $e->getMessage() );
+		$this->assertFileDoesNotExist( $this->temp_files[0] );
+	}
+
+	public function test_a_download_that_times_out_or_breaks_fails_and_leaves_no_file(): void {
+		$error = new \WP_Error( 'http_request_failed', 'cURL error 28: Operation timed out after 300000 milliseconds' );
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( string $url, array $args ) use ( &$error ) {
+				file_put_contents( $args['filename'], 'partial' );
+				return $error;
+			}
+		);
+
+		$timeout = $this->failure( fn() => Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) ) );
+		$this->assertSame( 'timeout', $timeout->error_class() );
+		$this->assertFileDoesNotExist( $this->temp_files[0] );
+
+		$error  = new \WP_Error( 'http_request_failed', 'cURL error 56: Recv failure: Connection reset by peer' );
+		$broken = $this->failure( fn() => Installs::plugin_upload( $this->upload_params(), static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) ) );
+		$this->assertSame( 'package', $broken->error_class() );
+		$this->assertFileDoesNotExist( $this->temp_files[1] );
+	}
+
+	public function test_the_run_s_clean_up_removes_the_temporary_file_when_the_action_never_did(): void {
+		$download = Package::fetch( $this->with_package( hash( 'sha256', $this->body ) ), hash( 'sha256', $this->body ) );
+		$this->assertFileExists( $download['file'] );
+
+		// PHP stops before the action removes it: the run's clean-up does.
+		$this->run->clean();
+
+		$this->assertFileDoesNotExist( $download['file'] );
 	}
 
 	public function test_an_upload_the_download_refuses_fails_as_package_and_leaves_no_file(): void {
