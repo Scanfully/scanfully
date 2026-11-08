@@ -21,8 +21,9 @@ use Scanfully\Main;
  *
  * A plugin that fails while WordPress switches it on stays switched off,
  * and the job fails with class fatal. The Scanfully plugin itself is never
- * switched off by a job. A plugin or theme that is in the state asked for
- * already is not an error: the result says nothing changed.
+ * switched off by a job. Software that is not on the site fails as
+ * not_installed; a plugin or theme that is in the state asked for already
+ * is not an error: the result says nothing changed.
  */
 final class Toggles extends Action {
 
@@ -187,7 +188,7 @@ final class Toggles extends Action {
 		];
 		$theme    = wp_get_theme( $stylesheet );
 		if ( '' === $version || ! $theme->exists() ) {
-			throw new JobFailed( 'not_available', sprintf( 'The theme "%s" is not installed on the site.', $stylesheet ), self::partial( '', '', [], $run, $started, $extra ) );
+			throw new JobFailed( 'not_installed', sprintf( 'The theme "%s" is not installed on the site.', $stylesheet ), self::partial( '', '', [], $run, $started, $extra ) );
 		}
 		if ( $previous === $stylesheet ) {
 			return self::partial( $version, $version, [ 'The site uses the theme already: nothing to do.' ], $run, $started, $extra );
@@ -251,7 +252,7 @@ final class Toggles extends Action {
 	private static function installed_plugin( string $slug ): string {
 		$file = self::plugin_file( $slug );
 		if ( null === $file ) {
-			throw new JobFailed( 'not_available', sprintf( 'The plugin "%s" is not installed on the site.', $slug ) );
+			throw new JobFailed( 'not_installed', sprintf( 'The plugin "%s" is not installed on the site.', $slug ) );
 		}
 
 		return $file;

@@ -11,7 +11,8 @@ namespace Scanfully\Manage;
  * Thrown by an action that failed in a way it can name: the class is one of
  * the API's error classes (not_supported, filesystem, package, timeout,
  * fatal, other, and for updates maintenance, multisite_refused, locked,
- * not_available, license, signature), the message says what went wrong, and
+ * not_available, license, signature, and for installs, toggles and deletes
+ * already_installed, not_installed, plugin_active, theme_in_use), the message says what went wrong, and
  * the result holds what the action still knows (its log, the version before,
  * the inventory after).
  */

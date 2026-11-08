@@ -7,14 +7,18 @@
 
 namespace Scanfully\Manage;
 
+use Scanfully\Main;
+
 // phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- A JobFailed message is never printed: it is posted to the API as JSON, cleaned by Failure::clean(), and HTML escaping would garble it.
 
 /**
  * The download of an upload a job installs: the pull gives a short-lived,
- * single-use URL and the file's SHA-256 next to the job's token. The file
- * goes to a temporary file, its SHA-256 is checked before anything is
- * unpacked, and the temporary file is removed on every way out: by the
- * action when it ends, and by the run's clean-up after a PHP fatal.
+ * single-use URL on the API's own origin next to the job's token, and the
+ * job's signed parameters hold the file's SHA-256. The URL is taken only on
+ * the origin that signs the jobs, the file goes to a temporary file, its
+ * SHA-256 is checked against the signed one before anything is unpacked,
+ * and the temporary file is removed on every way out: by the action when it
+ * ends, and by the run's clean-up after a PHP fatal.
  */
 final class Package {
 
@@ -31,17 +35,24 @@ final class Package {
 	/**
 	 * Download the job's upload to a temporary file and check its SHA-256.
 	 *
-	 * @param JobRun $run The run, which gave the download and removes the file on the way out.
+	 * @param JobRun $run    The run, which gave the download and removes the file on the way out.
+	 * @param string $sha256 The SHA-256 the job's signed parameters hold.
 	 *
 	 * @return array{file: string, source: string} The temporary file, and the host it came from.
 	 * @throws JobFailed When the job has no download, it failed, or the file is not the one Scanfully checked.
 	 */
-	public static function fetch( JobRun $run ): array {
+	public static function fetch( JobRun $run, string $sha256 ): array {
 		$package = $run->package();
 		if ( null === $package ) {
 			throw new JobFailed( 'package', 'The job came without the download of its upload, so nothing was installed.' );
 		}
-		$source = (string) wp_parse_url( $package['url'], PHP_URL_HOST );
+		if ( ! hash_equals( strtolower( $sha256 ), $package['sha256'] ) ) {
+			throw new JobFailed( 'package', 'The download Scanfully gave for the upload names another checksum than the job Scanfully signed, so nothing was installed.' );
+		}
+		if ( ! self::on_api_origin( $package['url'] ) ) {
+			throw new JobFailed( 'package', 'The download of the upload is not on Scanfully\'s own address, so the plugin did not fetch it and nothing was installed.' );
+		}
+		$source = strtolower( (string) wp_parse_url( $package['url'], PHP_URL_HOST ) );
 
 		$file = function_exists( 'wp_tempnam' ) ? (string) wp_tempnam( 'scanfully-upload.zip' ) : '';
 		if ( '' === $file ) {
@@ -57,7 +68,7 @@ final class Package {
 
 		try {
 			self::download( $package['url'], $file, $run );
-			self::verify( $file, $package['sha256'] );
+			self::verify( $file, $sha256 );
 		} catch ( JobFailed $e ) {
 			self::remove( $file );
 			throw $e;
@@ -71,7 +82,26 @@ final class Package {
 	}
 
 	/**
-	 * Download a URL to a file, with a heartbeat before and after.
+	 * Whether a URL is on the origin that signs the jobs (the job token's
+	 * iss): its scheme, host and port.
+	 *
+	 * @param string $url The URL.
+	 *
+	 * @return bool
+	 */
+	private static function on_api_origin( string $url ): bool {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || ! isset( $parts['scheme'], $parts['host'] ) || isset( $parts['user'] ) || isset( $parts['pass'] ) ) {
+			return false;
+		}
+		$origin = strtolower( $parts['scheme'] . '://' . $parts['host'] . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' ) );
+
+		return strtolower( rtrim( Main::get_oauth_url(), '/' ) ) === $origin;
+	}
+
+	/**
+	 * Download a URL to a file, with a heartbeat before and after. The API
+	 * serves the file itself: no redirect is followed.
 	 *
 	 * @param string $url  The URL.
 	 * @param string $file The file.
@@ -89,7 +119,7 @@ final class Package {
 				'stream'              => true,
 				'filename'            => $file,
 				'limit_response_size' => self::MAX_BYTES,
-				'redirection'         => 3,
+				'redirection'         => 0,
 				'headers'             => [ 'Accept' => 'application/zip, application/octet-stream' ],
 			]
 		);
@@ -119,7 +149,7 @@ final class Package {
 	 * Check a file against the SHA-256 Scanfully gave for it.
 	 *
 	 * @param string $file   The file.
-	 * @param string $sha256 The SHA-256, as hex.
+	 * @param string $sha256 The signed SHA-256, as hex.
 	 *
 	 * @return void
 	 * @throws JobFailed When it is another file.

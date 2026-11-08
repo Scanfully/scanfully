@@ -50,11 +50,11 @@ final class DeletesTest extends SiteTestCase {
 		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/scanfully' );
 	}
 
-	public function test_a_plugin_that_is_gone_is_nothing_to_do(): void {
-		$result = Deletes::plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run );
+	public function test_a_plugin_that_is_gone_fails_as_not_installed(): void {
+		$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) );
 
-		$this->assertSame( '', $result['previous_version'] );
-		$this->assertSame( [ 'The plugin is not installed: nothing to do.' ], $result['log'] );
+		$this->assertSame( 'not_installed', $e->error_class() );
+		$this->assertSame( '', $e->result()['previous_version'] );
 	}
 
 	public function test_a_filesystem_wordpress_cannot_reach_deletes_nothing(): void {
@@ -127,10 +127,8 @@ final class DeletesTest extends SiteTestCase {
 		$this->assertDirectoryExists( $this->tmp . '/themes/blocksy-child' );
 	}
 
-	public function test_a_theme_that_is_gone_is_nothing_to_do(): void {
-		$result = Deletes::theme( [ 'stylesheet' => 'nope' ], static function (): void {}, $this->run );
-
-		$this->assertSame( [ 'The theme is not installed: nothing to do.' ], $result['log'] );
+	public function test_a_theme_that_is_gone_fails_as_not_installed(): void {
+		$this->assertSame( 'not_installed', $this->failure( fn() => Deletes::theme( [ 'stylesheet' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
 	}
 
 	public function test_a_stylesheet_that_climbs_out_of_the_themes_folder_is_refused(): void {

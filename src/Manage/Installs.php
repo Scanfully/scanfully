@@ -22,8 +22,9 @@ namespace Scanfully\Manage;
  * (Package). The result names the host the package came from (source),
  * never a URL.
  *
- * Software already installed at the version asked for is not an error: the
- * job's goal holds, and the result says nothing changed.
+ * Software that is on the site already is refused as already_installed:
+ * Scanfully installs only what is not there, and an installed plugin or
+ * theme takes an update.
  */
 final class Installs extends Action {
 
@@ -31,6 +32,11 @@ final class Installs extends Action {
 	 * What an upload id looks like.
 	 */
 	private const UPLOAD_ID = '/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/';
+
+	/**
+	 * What a SHA-256 looks like, as lowercase hex.
+	 */
+	private const SHA256 = '/^[0-9a-f]{64}$/';
 
 	/**
 	 * Install a plugin from wordpress.org: slug, and version (the newest
@@ -52,7 +58,7 @@ final class Installs extends Action {
 
 		$file = self::plugin_file( $slug );
 		if ( null !== $file ) {
-			return self::present( 'plugin', self::plugin_version( $file ), $version, $run, $started, [ 'slug' => $slug ] );
+			self::present( 'plugin', self::plugin_version( $file ), $version, $run, $started, [ 'slug' => $slug ] );
 		}
 		$offer = self::wporg( 'plugin', $slug, $version );
 
@@ -79,7 +85,7 @@ final class Installs extends Action {
 
 		$installed = self::theme_version( $slug );
 		if ( '' !== $installed ) {
-			return self::present( 'theme', $installed, $version, $run, $started, [ 'stylesheet' => $slug ] );
+			self::present( 'theme', $installed, $version, $run, $started, [ 'stylesheet' => $slug ] );
 		}
 		$offer = self::wporg( 'theme', $slug, $version );
 
@@ -89,7 +95,7 @@ final class Installs extends Action {
 	/**
 	 * Install a plugin from a ZIP file uploaded to Scanfully.
 	 *
-	 * @param array    $params The job's parameters: upload_id.
+	 * @param array    $params The job's parameters: upload_id, and the signed sha256 of the ZIP.
 	 * @param callable $beat   Sends a heartbeat when one is due.
 	 * @param JobRun   $run    The run, with the download the pull gave.
 	 *
@@ -100,9 +106,10 @@ final class Installs extends Action {
 		unset( $beat );
 		$started = microtime( true );
 		self::param( $params, 'upload_id', self::UPLOAD_ID, true );
+		$sha256 = self::param( $params, 'sha256', self::SHA256, true );
 		self::prepare();
 
-		$download = Package::fetch( $run );
+		$download = Package::fetch( $run, $sha256 );
 		try {
 			return self::install_plugin( $download['file'], $download['source'], '', '', $run, $started );
 		} finally {
@@ -113,7 +120,7 @@ final class Installs extends Action {
 	/**
 	 * Install a theme from a ZIP file uploaded to Scanfully.
 	 *
-	 * @param array    $params The job's parameters: upload_id.
+	 * @param array    $params The job's parameters: upload_id, and the signed sha256 of the ZIP.
 	 * @param callable $beat   Sends a heartbeat when one is due.
 	 * @param JobRun   $run    The run, with the download the pull gave.
 	 *
@@ -124,9 +131,10 @@ final class Installs extends Action {
 		unset( $beat );
 		$started = microtime( true );
 		self::param( $params, 'upload_id', self::UPLOAD_ID, true );
+		$sha256 = self::param( $params, 'sha256', self::SHA256, true );
 		self::prepare();
 
-		$download = Package::fetch( $run );
+		$download = Package::fetch( $run, $sha256 );
 		try {
 			return self::install_theme( $download['file'], $download['source'], '', '', $run, $started );
 		} finally {
@@ -135,9 +143,8 @@ final class Installs extends Action {
 	}
 
 	/**
-	 * The result of an install of software that is on the site already:
-	 * nothing to do at the version asked for (or when none was), else a
-	 * failure, as Scanfully installs only what is not there.
+	 * Refuse an install of software that is on the site already, as
+	 * Scanfully installs only what is not there.
 	 *
 	 * @param string $kind      plugin or theme.
 	 * @param string $installed The installed version.
@@ -146,16 +153,15 @@ final class Installs extends Action {
 	 * @param float  $started   When the action started.
 	 * @param array  $extra     The slug or stylesheet.
 	 *
-	 * @return array
-	 * @throws JobFailed When another version is installed.
+	 * @return void
+	 * @throws JobFailed Always.
 	 */
-	private static function present( string $kind, string $installed, string $version, JobRun $run, float $started, array $extra ): array {
-		if ( '' === $version || $version === $installed ) {
-			return self::partial( $installed, $installed, [ sprintf( 'The %s is installed already, at version %s: nothing to do.', $kind, $installed ) ], $run, $started, $extra );
-		}
+	private static function present( string $kind, string $installed, string $version, JobRun $run, float $started, array $extra ): void {
 		throw new JobFailed(
-			'other',
-			sprintf( 'The %1$s is installed already, at version %2$s, not %3$s: Scanfully installs only what is not on the site. Update the %1$s instead.', $kind, $installed, $version ),
+			'already_installed',
+			'' === $version || $version === $installed
+				? sprintf( 'The %s is installed already, at version %s: Scanfully installed nothing.', $kind, $installed )
+				: sprintf( 'The %1$s is installed already, at version %2$s, not %3$s: Scanfully installs only what is not on the site. Update the %1$s instead.', $kind, $installed, $version ),
 			self::partial( $installed, $installed, [], $run, $started, $extra )
 		);
 	}
@@ -333,7 +339,7 @@ final class Installs extends Action {
 			if ( null !== $error && 'folder_exists' === $error->get_error_code() ) {
 				// Not a filesystem problem: the folder is someone's software.
 				$failure = [
-					'class'   => 'other',
+					'class'   => 'already_installed',
 					'message' => sprintf( 'A %s in the same folder is installed already, so WordPress did not install this one. Delete it first, or update it instead.', $kind ),
 				];
 			}

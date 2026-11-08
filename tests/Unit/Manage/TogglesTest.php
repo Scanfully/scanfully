@@ -90,9 +90,9 @@ final class TogglesTest extends SiteTestCase {
 		$this->assertSame( 'not_supported', $this->failure( fn() => Toggles::activate_plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->run ) )->error_class() );
 	}
 
-	public function test_a_plugin_that_is_not_installed_is_not_available(): void {
-		$this->assertSame( 'not_available', $this->failure( fn() => Toggles::activate_plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
-		$this->assertSame( 'not_available', $this->failure( fn() => Toggles::deactivate_plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
+	public function test_a_plugin_that_is_not_installed_fails_as_not_installed(): void {
+		$this->assertSame( 'not_installed', $this->failure( fn() => Toggles::activate_plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
+		$this->assertSame( 'not_installed', $this->failure( fn() => Toggles::deactivate_plugin( [ 'slug' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
 	}
 
 	public function test_a_plugin_is_switched_off(): void {
@@ -151,7 +151,7 @@ final class TogglesTest extends SiteTestCase {
 	}
 
 	public function test_a_theme_that_is_not_installed_or_broken_is_not_switched_to(): void {
-		$this->assertSame( 'not_available', $this->failure( fn() => Toggles::switch_theme( [ 'stylesheet' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
+		$this->assertSame( 'not_installed', $this->failure( fn() => Toggles::switch_theme( [ 'stylesheet' => 'nope' ], static function (): void {}, $this->run ) )->error_class() );
 
 		$this->theme_errors['blocksy'] = new \WP_Error( 'theme_no_parent', 'The parent theme is missing. Please install the "blocksy-base" parent theme.' );
 		$e                             = $this->failure( fn() => Toggles::switch_theme( [ 'stylesheet' => 'blocksy' ], static function (): void {}, $this->run ) );

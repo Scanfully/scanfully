@@ -22,8 +22,7 @@ use Scanfully\Main;
  * changed since): a plugin that is switched on is refused as plugin_active,
  * a theme the site uses, or the parent of the theme it uses, as
  * theme_in_use. The Scanfully plugin itself is never deleted by a job.
- * Software that is gone already is not an error: the result says nothing
- * changed.
+ * Software that is not on the site fails as not_installed.
  */
 final class Deletes extends Action {
 
@@ -46,7 +45,7 @@ final class Deletes extends Action {
 		$extra = [ 'slug' => $slug ];
 		$file  = self::plugin_file( $slug );
 		if ( null === $file ) {
-			return self::partial( '', '', [ 'The plugin is not installed: nothing to do.' ], $run, $started, $extra );
+			throw new JobFailed( 'not_installed', sprintf( 'The plugin "%s" is not installed on the site: Scanfully deleted nothing.', $slug ), self::partial( '', '', [], $run, $started, $extra ) );
 		}
 		if ( Main::is_own_plugin( $file ) ) {
 			throw new JobFailed( 'not_supported', 'Scanfully never deletes its own plugin through a job: that would end Scanfully Manage on the site. Delete it in WordPress.' );
@@ -93,7 +92,7 @@ final class Deletes extends Action {
 		$version = self::theme_version( $stylesheet );
 		$folder  = get_theme_root( $stylesheet ) . '/' . $stylesheet;
 		if ( '' === $version && ! is_dir( $folder ) ) {
-			return self::partial( '', '', [ 'The theme is not installed: nothing to do.' ], $run, $started, $extra );
+			throw new JobFailed( 'not_installed', sprintf( 'The theme "%s" is not installed on the site: Scanfully deleted nothing.', $stylesheet ), self::partial( '', '', [], $run, $started, $extra ) );
 		}
 		if ( (string) get_option( 'stylesheet' ) === $stylesheet ) {
 			throw new JobFailed( 'theme_in_use', 'The site uses the theme, so Scanfully did not delete it. Switch to another theme first.', self::partial( $version, $version, [], $run, $started, $extra ) );
