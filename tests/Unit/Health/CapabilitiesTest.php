@@ -73,7 +73,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertSame(
 			[
 				'plugin_version' => SCANFULLY_VERSION,
-				'actions' => [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ],
+				'actions' => [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'install_plugin', 'install_theme', 'install_plugin_upload', 'install_theme_upload', 'activate_plugin', 'deactivate_plugin', 'switch_theme', 'delete_plugin', 'delete_theme' ],
 				'file_mods_allowed' => true,
 				'auto_updater_enabled' => true,
 				'fs_method' => 'direct',
@@ -100,7 +100,7 @@ final class CapabilitiesTest extends TestCase {
 
 		$this->assertFalse( $capabilities['file_mods_allowed'] );
 		$this->assertFalse( $capabilities['auto_updater_enabled'] );
-		$this->assertSame( [ 'ping' ], $capabilities['actions'], 'no update action where WordPress may not change files' );
+		$this->assertSame( [ 'ping', 'activate_plugin', 'deactivate_plugin', 'switch_theme' ], $capabilities['actions'], 'no update action where WordPress may not change files' );
 	}
 
 	public function test_the_core_filter_can_turn_the_automatic_updater_off(): void {
@@ -116,7 +116,7 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'get_filesystem_method' )->justReturn( 'ftpext' );
 
 		$this->assertSame( 'ftpext', Capabilities::get()['fs_method'] );
-		$this->assertSame( [ 'ping' ], Capabilities::get()['actions'], 'no update action while WordPress would have to ask for FTP credentials' );
+		$this->assertSame( [ 'ping', 'activate_plugin', 'deactivate_plugin', 'switch_theme' ], Capabilities::get()['actions'], 'no update action while WordPress would have to ask for FTP credentials' );
 	}
 
 	public function test_a_method_is_usable_when_it_needs_no_one_to_type_credentials(): void {
@@ -130,7 +130,7 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'get_filesystem_method' )->justReturn( false );
 
 		$this->assertNull( Capabilities::get()['fs_method'] );
-		$this->assertSame( [ 'ping' ], Capabilities::get()['actions'], 'no update action when WordPress names no method' );
+		$this->assertSame( [ 'ping', 'activate_plugin', 'deactivate_plugin', 'switch_theme' ], Capabilities::get()['actions'], 'no update action when WordPress names no method' );
 	}
 
 	public function test_a_network(): void {

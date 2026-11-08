@@ -142,6 +142,10 @@ final class UpdatesTest extends TestCase {
 		Functions\when( 'get_core_updates' )->alias( fn() => $this->core_offers );
 		Functions\when( 'get_plugins' )->alias( [ $this, 'plugins' ] );
 		Functions\when( 'request_filesystem_credentials' )->justReturn( true );
+		Functions\when( 'delete_plugins' )->justReturn( true );
+		Functions\when( 'delete_theme' )->justReturn( true );
+		Functions\when( 'plugins_api' )->justReturn( null );
+		Functions\when( 'themes_api' )->justReturn( null );
 		Functions\when( 'wp_update_plugins' )->justReturn( null );
 		Functions\when( 'wp_update_themes' )->justReturn( null );
 		Functions\when( 'wp_version_check' )->alias(

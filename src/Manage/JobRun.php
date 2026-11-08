@@ -22,10 +22,26 @@ namespace Scanfully\Manage;
 final class JobRun {
 
 	/**
-	 * The activity event types the plugin sends for an update: while a job
-	 * runs, each one carries the job id, so Scanfully shows the update once.
+	 * The activity event types the plugin sends for what a job changes
+	 * (updates, installs, activation and deactivation, deletes and a theme
+	 * switch): while a job runs, each one carries the job id, so Scanfully
+	 * shows the change once.
 	 */
-	public const TAGGED_EVENTS = [ 'PluginUpdate', 'ThemeUpdate', 'CoreUpdate', 'PluginUpdateFailed', 'ThemeUpdateFailed', 'CoreUpdateFailed' ];
+	public const TAGGED_EVENTS = [
+		'PluginUpdate',
+		'ThemeUpdate',
+		'CoreUpdate',
+		'PluginUpdateFailed',
+		'ThemeUpdateFailed',
+		'CoreUpdateFailed',
+		'PluginInstalled',
+		'ThemeInstalled',
+		'PluginActivate',
+		'PluginDeactivate',
+		'PluginDeleted',
+		'ThemeDeleted',
+		'ThemeSwitched',
+	];
 
 	/**
 	 * PHP errors that stop the request.
@@ -106,6 +122,13 @@ final class JobRun {
 	private array $log = [];
 
 	/**
+	 * The download of a job that installs an upload, as the pull gave it.
+	 *
+	 * @var array{url: string, sha256: string}|null
+	 */
+	private ?array $package = null;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param string        $id               The job id.
@@ -137,6 +160,26 @@ final class JobRun {
 	public function arm(): void {
 		register_shutdown_function( [ $this, 'shutdown' ] );
 		add_filter( 'scanfully_event_data', [ $this, 'tag_event' ], 10, 2 );
+	}
+
+	/**
+	 * Use the download the pull gave for the job.
+	 *
+	 * @param array{url: string, sha256: string}|null $package The download.
+	 *
+	 * @return void
+	 */
+	public function set_package( ?array $package ): void {
+		$this->package = $package;
+	}
+
+	/**
+	 * The download the pull gave for the job: its URL and SHA-256.
+	 *
+	 * @return array{url: string, sha256: string}|null
+	 */
+	public function package(): ?array {
+		return $this->package;
 	}
 
 	/**
