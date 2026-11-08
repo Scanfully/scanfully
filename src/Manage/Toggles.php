@@ -67,7 +67,9 @@ final class Toggles extends Action {
 		}
 
 		// activate_plugin() loads the plugin's file inside an output
-		// buffer: an error thrown there leaves the buffer open.
+		// buffer: an error thrown there leaves the buffer open. On success
+		// WordPress closes its own, and a buffer the plugin opened is the
+		// plugin's.
 		$level = ob_get_level();
 		try {
 			$result = activate_plugin( $file, '', false, false );
@@ -80,7 +82,6 @@ final class Toggles extends Action {
 				self::partial( $version, $version, [], $run, $started, $extra + [ 'active' => self::active( $file ) ] )
 			);
 		}
-		self::close_buffers( $level );
 
 		if ( is_wp_error( $result ) ) {
 			$code    = (string) $result->get_error_code();
