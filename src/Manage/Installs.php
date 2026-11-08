@@ -109,7 +109,7 @@ final class Installs extends Action {
 		$sha256 = self::param( $params, 'sha256', self::SHA256, true );
 		self::prepare();
 
-		$download = Package::fetch( $run, $sha256 );
+		$download = self::fetch( $run, $sha256, $started );
 		try {
 			return self::install_plugin( $download['file'], $download['source'], '', '', $run, $started );
 		} finally {
@@ -134,11 +134,30 @@ final class Installs extends Action {
 		$sha256 = self::param( $params, 'sha256', self::SHA256, true );
 		self::prepare();
 
-		$download = Package::fetch( $run, $sha256 );
+		$download = self::fetch( $run, $sha256, $started );
 		try {
 			return self::install_theme( $download['file'], $download['source'], '', '', $run, $started );
 		} finally {
 			Package::remove( $download['file'] );
+		}
+	}
+
+	/**
+	 * Download the job's upload; a refused download still answers the
+	 * inventory, the duration and the run's log.
+	 *
+	 * @param JobRun $run     The run.
+	 * @param string $sha256  The signed SHA-256 of the ZIP.
+	 * @param float  $started When the action started.
+	 *
+	 * @return array{file: string, source: string}
+	 * @throws JobFailed When the download failed or is not the file Scanfully checked.
+	 */
+	private static function fetch( JobRun $run, string $sha256, float $started ): array {
+		try {
+			return Package::fetch( $run, $sha256 );
+		} catch ( JobFailed $e ) {
+			throw new JobFailed( $e->error_class(), $e->getMessage(), self::partial( '', '', [], $run, $started ) );
 		}
 	}
 

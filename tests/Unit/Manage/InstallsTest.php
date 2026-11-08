@@ -318,6 +318,8 @@ final class InstallsTest extends SiteTestCase {
 		$this->assertSame( 'The downloaded upload does not match the SHA-256 checksum Scanfully gave for it, so nothing was unpacked or installed.', $e->getMessage() );
 		$this->assertSame( [], $this->installs );
 		$this->assertFileDoesNotExist( $this->temp_files[0] );
+		$this->assertArrayHasKey( 'inventory', $e->result(), 'a refused download still answers the inventory' );
+		$this->assertSame( '', $e->result()['new_version'] );
 	}
 
 	public function test_an_upload_the_download_refuses_fails_as_package_and_leaves_no_file(): void {
