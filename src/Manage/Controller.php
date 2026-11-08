@@ -559,6 +559,7 @@ class Controller {
 					'at'         => $now,
 					'started_at' => $now,
 					'attempt'    => $attempt,
+					'action'     => isset( $job['action'] ) && is_string( $job['action'] ) ? $job['action'] : '',
 				];
 				if ( ! Ledger::move( $id, $row, $running ) ) {
 					RunLock::release( $id );
@@ -717,6 +718,7 @@ class Controller {
 			'at'         => time(),
 			'started_at' => $started,
 			'attempt'    => (int) ( $row['attempt'] ?? 0 ),
+			'action'     => isset( $row['action'] ) && is_string( $row['action'] ) ? $row['action'] : '',
 			'result'     => $result,
 		];
 		if ( Ledger::move( $id, $row, $done ) && $report ) {
@@ -760,7 +762,7 @@ class Controller {
 		if ( ! $taken ) {
 			return;
 		}
-		Ledger::move(
+		$reported = Ledger::move(
 			$id,
 			$row,
 			[
@@ -768,5 +770,12 @@ class Controller {
 				'at'    => time(),
 			]
 		);
+		if ( $reported && Runner::ACTION_PING !== ( $row['action'] ?? '' ) ) {
+			// Scanfully verifies a job from the site's first report after
+			// its result: one now, for every job, outside the window of
+			// the API's own sync requests (a second job within five
+			// minutes would get none).
+			Sync\Controller::request_report();
+		}
 	}
 }

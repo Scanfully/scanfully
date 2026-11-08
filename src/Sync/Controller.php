@@ -196,6 +196,25 @@ class Controller {
 	}
 
 	/**
+	 * Report the site's data now, for Scanfully Manage: the runner asks for
+	 * it right after it posted a job's result, so Scanfully verifies the job
+	 * from the site as the job left it. The same health sync as an
+	 * on-demand sync, scheduled and started at once without waiting for
+	 * it; this trigger is not bound by the window of the API's requests (it
+	 * neither waits for it nor uses it up), as every job needs its own
+	 * report.
+	 *
+	 * @return void
+	 */
+	public static function request_report(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! Options\Controller::get_options()->is_connected ) {
+			return;
+		}
+		as_schedule_single_action( time(), Cron\Controller::ACTION_SYNC_SITE_HEALTH, [], self::AS_GROUP );
+		self::run_queue_now();
+	}
+
+	/**
 	 * Start Action Scheduler's queue runner now, with the non-blocking
 	 * loopback request (admin-ajax) it sends itself on admin pages. Without
 	 * it the syncs wait for WP-Cron, which only runs on a later visit, so a

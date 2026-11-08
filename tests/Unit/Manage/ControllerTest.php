@@ -574,6 +574,47 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 1, $sent[0]['attempt'], 'the result carries the attempt' );
 	}
 
+	public function test_a_job_s_result_asks_for_a_report_outside_the_window_of_the_api_s_syncs(): void {
+		// The API asked for a sync a minute ago: its window holds for five
+		// minutes, and this trigger neither waits for it nor uses it up.
+		$this->transients['scanfully_sync_last_run'] = time() - 60;
+		$this->jobs( [ array_merge( self::ping( [ 'sub' => 'frobnicate' ] ), [ 'action' => 'frobnicate' ] ) ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"failed"}',
+		];
+		Controller::pull();
+		$this->assertFalse( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'no report before the result' );
+		$dispatched = count( $GLOBALS['scanfully_test_action_scheduler']['dispatched'] );
+
+		$this->run_pending();
+
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertTrue( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'the site reports after the result' );
+		$this->assertCount( $dispatched + 1, $GLOBALS['scanfully_test_action_scheduler']['dispatched'], 'and the queue runner starts now' );
+		$this->assertSame( time() - 60, $this->transients['scanfully_sync_last_run'], 'the window of the API\'s syncs is left as it was' );
+	}
+
+	public function test_a_ping_asks_for_no_report(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( Ledger::REPORTED, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertFalse( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'a ping is not verified' );
+	}
+
+	public function test_a_result_the_api_did_not_take_asks_for_no_report(): void {
+		$this->jobs( [ array_merge( self::ping( [ 'sub' => 'frobnicate' ] ), [ 'action' => 'frobnicate' ] ) ] );
+		Controller::pull(); // The API answers the result 500.
+		$this->run_pending();
+		$this->assertSame( Ledger::DONE, Ledger::get( self::JOB )['state'] ?? '' );
+		$this->assertFalse( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'not before the API took the result' );
+	}
+
 	public function test_a_result_the_api_could_not_take_is_sent_again_on_the_next_pull(): void {
 		$this->jobs( [ self::ping() ] );
 		Controller::pull();
