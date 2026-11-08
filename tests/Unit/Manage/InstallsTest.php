@@ -391,7 +391,16 @@ final class InstallsTest extends SiteTestCase {
 	}
 
 	public function test_a_malformed_upload_id_installs_nothing(): void {
-		$e = $this->failure( fn() => Installs::plugin_upload( [ 'upload_id' => '../x', 'sha256' => hash( 'sha256', $this->body ) ], static function (): void {}, $this->with_package( hash( 'sha256', $this->body ) ) ) );
+		$e = $this->failure(
+			fn() => Installs::plugin_upload(
+				[
+					'upload_id' => '../x',
+					'sha256' => hash( 'sha256', $this->body ),
+				],
+				static function (): void {},
+				$this->with_package( hash( 'sha256', $this->body ) )
+			)
+		);
 
 		$this->assertSame( 'other', $e->error_class() );
 		$this->assertSame( [], $this->downloads );
