@@ -27,7 +27,7 @@ use Scanfully\Sync\SignedRequest;
  * the first that fails:
  *
  * 1. the request is a GET (a HEAD from a link previewer neither burns the
- *    link nor counts against the limit);
+ *    link, counts against the limit nor writes the log);
  * 2. fewer than LIMIT links were opened on the site this minute (beyond
  *    it, nothing below runs and a burst is logged once, so the log is
  *    rate limited too), and the request came over HTTPS;
@@ -209,8 +209,10 @@ final class Controller {
 		];
 		$reason = self::check( $token, $method, $https, $now, $login, $user );
 		if ( '' !== $reason ) {
-			// A burst beyond the limit logs once, at its first refused link.
-			if ( self::REASON_RATE_LIMITED !== $reason || Attempts::LIMIT + 1 === self::$attempt ) {
+			// A burst beyond the limit logs once, at its first refused link;
+			// a HEAD or POST (a link previewer) is not counted, so it is not
+			// logged either, and no request writes the log beyond the limit.
+			if ( self::REASON_METHOD !== $reason && ( self::REASON_RATE_LIMITED !== $reason || Attempts::LIMIT + 1 === self::$attempt ) ) {
 				Log::refused( $reason, $now );
 			}
 

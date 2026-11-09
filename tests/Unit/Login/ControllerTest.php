@@ -137,7 +137,7 @@ final class ControllerTest extends LoginTestCase {
 
 		$this->assertSame( $reason, $result['reason'] );
 		$this->assertNull( $result['user'] );
-		$this->assertSame( [ $reason ], array_column( Log::recent(), 'reason' ), 'the reason is logged' );
+		$this->assertSame( Controller::REASON_METHOD === $reason ? [] : [ $reason ], array_column( Log::recent(), 'reason' ), 'the reason is logged, except a HEAD or POST' );
 	}
 
 	public function test_the_clock_skew_is_30_seconds_each_way(): void {
@@ -265,6 +265,7 @@ final class ControllerTest extends LoginTestCase {
 		}
 
 		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
+		$this->assertSame( [], Log::recent(), 'and nothing logged' );
 		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
 	}
 
