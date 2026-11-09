@@ -78,6 +78,7 @@ final class ScanfullyLoginTest extends TestCase {
 		delete_option( Burns::OPTION );
 		delete_option( Log::OPTION );
 		delete_transient( 'scanfully_login_attempts' );
+		delete_transient( 'scanfully_login_unsigned' );
 	}
 
 	protected function tearDown(): void {
@@ -93,6 +94,7 @@ final class ScanfullyLoginTest extends TestCase {
 			delete_option( Burns::OPTION );
 			delete_option( Log::OPTION );
 			delete_transient( 'scanfully_login_attempts' );
+			delete_transient( 'scanfully_login_unsigned' );
 			as_unschedule_all_actions( Events::ACTION_SEND_EVENT, [], 'scanfully' );
 		}
 		parent::tearDown();

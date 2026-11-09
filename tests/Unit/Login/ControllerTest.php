@@ -275,44 +275,42 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertSame( '', $this->open( $this->signed( $claims ), $now )['reason'] );
 	}
 
-	public function test_every_link_counts_against_the_limit_so_the_log_is_bounded_too(): void {
+	public function test_junk_never_counts_against_the_limit_and_logs_ten_lines_a_minute(): void {
+		$junk = [
+			fn() => $this->open( 'not a token', self::NOW, 'GET', false ),
+			fn() => $this->open( 'x' ),
+			fn() => $this->open( $this->signed( [], [], self::$other_key ) ),
+		];
 		for ( $i = 0; $i < 30; $i++ ) {
-			$this->open( 'not a token', self::NOW, 'GET', false );
+			$junk[ $i % 3 ]();
 		}
 
 		$this->assertSame(
-			array_merge( array_fill( 0, Attempts::LIMIT, Controller::REASON_NOT_HTTPS ), [ Controller::REASON_RATE_LIMITED ] ),
+			array_merge( array_slice( array_merge( ...array_fill( 0, 4, [ Controller::REASON_NOT_HTTPS, Controller::REASON_MALFORMED, Controller::REASON_SIGNATURE ] ) ), 0, Attempts::LIMIT ), [ Controller::REASON_UNSIGNED_BURST ] ),
 			array_column( Log::recent(), 'reason' ),
-			'thirty plain HTTP links write eleven log lines'
+			'thirty links that are not Scanfully\'s write eleven log lines'
 		);
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'none counted against the limit' );
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 1 )['reason'], 'a real link still gets in' );
+		$this->assertSame( Controller::REASON_MALFORMED, $this->open( 'x', self::NOW + 2 )['reason'], 'junk beyond the log limit is still refused for its reason' );
+		$this->assertCount( Attempts::LIMIT + 1, Log::recent(), 'without a line' );
+
+		$this->open( 'x', self::NOW + 60 );
+		$this->assertCount( Attempts::LIMIT + 2, Log::recent(), 'the next minute logs afresh' );
 	}
 
-	public function test_a_head_from_a_link_previewer_does_not_count_against_the_limit(): void {
-		for ( $i = 0; $i < 30; $i++ ) {
-			$this->assertSame( Controller::REASON_METHOD, $this->open( $this->signed(), self::NOW, 'HEAD' )['reason'] );
-		}
-
-		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
-		$this->assertSame( [], Log::recent(), 'and nothing logged' );
-		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
-	}
-
-	public function test_beyond_ten_links_a_minute_nothing_is_verified(): void {
+	public function test_beyond_ten_signed_links_a_minute_nothing_past_the_signature_is_checked(): void {
 		for ( $i = 0; $i < Attempts::LIMIT; $i++ ) {
 			$this->assertSame( '', $this->open( $this->signed(), self::NOW + 1 )['reason'] );
 		}
 		$burned = $this->db->rows[ Burns::OPTION ];
-		// Forget the key set: a signature check now would fetch it.
-		unset( $this->transients['scanfully_plugin_keys'], $this->transients['scanfully_plugin_keys_refetched'] );
-		$fetches = $this->fetches;
 
 		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed(), self::NOW + 2 )['reason'] );
-		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed(), self::NOW + 3 )['reason'] );
-		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( 'junk', self::NOW + 4 )['reason'] );
+		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed( [ 'aud' => 'another-site' ] ), self::NOW + 3 )['reason'], 'no claim is read' );
+		$this->assertSame( Controller::REASON_MALFORMED, $this->open( 'junk', self::NOW + 4 )['reason'], 'junk is refused for its own reason' );
 
-		$this->assertSame( $fetches, $this->fetches, 'no key set fetched' );
 		$this->assertSame( $burned, $this->db->rows[ Burns::OPTION ], 'no burn list touched' );
-		$this->assertSame( [ Controller::REASON_RATE_LIMITED ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
+		$this->assertSame( [ Controller::REASON_RATE_LIMITED, Controller::REASON_MALFORMED ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
 
 		$this->assertSame(
 			'',
@@ -327,6 +325,25 @@ final class ControllerTest extends LoginTestCase {
 			)['reason'],
 			'the next minute counts afresh'
 		);
+	}
+
+	public function test_the_key_set_is_fetched_at_most_once_per_few_minutes_whatever_is_sent(): void {
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->open( $this->signed( [], [ 'kid' => 'unknown-' . $i ] ) );
+		}
+
+		$this->assertSame( 1, $this->fetches );
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients );
+	}
+
+	public function test_a_head_from_a_link_previewer_does_not_count_against_the_limit(): void {
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->assertSame( Controller::REASON_METHOD, $this->open( $this->signed(), self::NOW, 'HEAD' )['reason'] );
+		}
+
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
+		$this->assertSame( [], Log::recent(), 'and nothing logged' );
+		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
 	}
 
 	public function test_the_log_never_holds_the_token(): void {
