@@ -174,6 +174,20 @@ final class Package {
 	}
 
 	/**
+	 * The flags to open the upload with: read only where PHP has
+	 * ZipArchive::RDONLY (PHP 7.4.3 and later), else the default, which
+	 * opens an existing file without creating or truncating it. Nothing is
+	 * ever written to the archive either way.
+	 *
+	 * @param bool $has_rdonly Whether ZipArchive::RDONLY exists.
+	 *
+	 * @return int
+	 */
+	public static function open_flags( bool $has_rdonly ): int {
+		return $has_rdonly ? \ZipArchive::RDONLY : 0;
+	}
+
+	/**
 	 * Check what an upload unpacks to before WordPress unpacks it: at most
 	 * 20,000 entries, all inside exactly one top-level folder, none with an
 	 * absolute path or "..", and at most 256 MB in all. The sizes a ZIP
@@ -194,7 +208,7 @@ final class Package {
 			throw new JobFailed( 'package', 'The site\'s PHP has no ZipArchive, so Scanfully cannot check the upload before it is unpacked, and did not install it.' );
 		}
 		$zip = new \ZipArchive();
-		if ( true !== $zip->open( $file, \ZipArchive::RDONLY ) ) {
+		if ( true !== $zip->open( $file, self::open_flags( defined( 'ZipArchive::RDONLY' ) ) ) ) {
 			throw new JobFailed( 'package', 'The upload is not a ZIP file the site can read, so nothing was unpacked or installed.' );
 		}
 		try {

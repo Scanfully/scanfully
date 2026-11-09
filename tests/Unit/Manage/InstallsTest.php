@@ -545,6 +545,28 @@ final class InstallsTest extends SiteTestCase {
 		$this->assertStringContainsString( 'two entries with the same name', $e->getMessage() );
 	}
 
+	public function test_the_upload_is_opened_read_only_where_php_can_and_with_the_default_flags_before_php_7_4_3(): void {
+		$this->assertSame( \ZipArchive::RDONLY, Package::open_flags( true ) );
+		$this->assertSame( 0, Package::open_flags( false ), 'ZipArchive::RDONLY is new in PHP 7.4.3' );
+
+		// The default flags open an existing ZIP as it is and refuse what is
+		// not one, as read only does.
+		$file = $this->tmp . '/flags.zip';
+		file_put_contents( $file, self::zip( [ 'flags/flags.php' => '<?php' ] ) );
+		$before = (string) file_get_contents( $file );
+		$zip    = new \ZipArchive();
+		$this->assertTrue( $zip->open( $file, Package::open_flags( false ) ) );
+		$this->assertSame( 1, $zip->count() );
+		$zip->close();
+		$this->assertSame( $before, (string) file_get_contents( $file ), 'left as it was' );
+
+		file_put_contents( $this->tmp . '/flags.txt', 'not a zip' );
+		$this->assertNotTrue( ( new \ZipArchive() )->open( $this->tmp . '/flags.txt', Package::open_flags( false ) ) );
+		$this->assertFileDoesNotExist( $this->tmp . '/missing.zip' );
+		$this->assertNotTrue( ( new \ZipArchive() )->open( $this->tmp . '/missing.zip', Package::open_flags( false ) ), 'nothing is created' );
+		$this->assertFileDoesNotExist( $this->tmp . '/missing.zip' );
+	}
+
 	public function test_a_zip_within_the_limits_passes_the_inspection(): void {
 		$file = $this->tmp . '/fine.zip';
 		file_put_contents(
