@@ -15,7 +15,10 @@ namespace Scanfully\Health;
  * plugin runs, whether WordPress may change files and update itself, how
  * WordPress would write files, whether the site is a network, whether Action
  * Scheduler runs and whether the must-use plugins folder is writable.
- * Scanfully reads it before it queues a job for the site.
+ * Scanfully reads it before it queues a job for the site. For one-click WP
+ * admin access it also names login among the actions when the site can sign
+ * a Scanfully user in, and lists the administrators a sign-in link may sign
+ * in as.
  *
  * Every check is cheap and asks for no credentials. A check that fails is
  * sent as null, which Scanfully reads as unknown, so the sync itself never
@@ -55,7 +58,7 @@ final class Capabilities {
 	/**
 	 * The capabilities object of the site data.
 	 *
-	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null}|array{} Empty while skip() runs.
+	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null}|array{} Empty while skip() runs.
 	 */
 	public static function get(): array {
 		if ( self::$skipped ) {
@@ -70,8 +73,12 @@ final class Capabilities {
 			// where WordPress may change files and can write them without
 			// asking for credentials; switching a plugin on or off and a
 			// theme switch always. On a network only ping and the updates,
-			// the actions that run there.
-			'actions' => \Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
+			// the actions that run there. Then login, which is no job: the
+			// site signs a Scanfully user in from a sign-in link.
+			'actions' => array_merge(
+				\Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
+				true === self::check( [ \Scanfully\Login\Controller::class, 'available' ] ) ? [ 'login' ] : []
+			),
 			'file_mods_allowed' => $file_mods_allowed,
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),
 			'fs_method' => $fs_method,
@@ -82,6 +89,9 @@ final class Capabilities {
 					return self::can_write_folder( defined( 'WPMU_PLUGIN_DIR' ) ? (string) WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins' );
 				}
 			),
+			// Who a sign-in link may sign in as: the administrators, or the
+			// super admins of a network, at most 50 by id.
+			'administrators' => self::check( [ \Scanfully\Login\Administrators::class, 'list' ] ),
 		];
 	}
 
