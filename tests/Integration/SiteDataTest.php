@@ -63,6 +63,21 @@ final class SiteDataTest extends TestCase {
 		$this->assertSame( 'Apache/2.4.58 (Ubuntu)', $this->find( $this->server_data(), 'web_server' ) );
 	}
 
+	public function test_the_site_url_is_the_raw_home_whatever_a_home_url_filter_answers(): void {
+		$filter = static function (): string {
+			return 'https://fr.example.test/';
+		};
+		add_filter( 'home_url', $filter );
+		try {
+			$data = Controller::get_site_data();
+		} finally {
+			remove_filter( 'home_url', $filter );
+		}
+
+		$this->assertSame( get_option( 'home' ), $this->find( $data, 'site_url' ) );
+		$this->assertSame( \Scanfully\Connect\Address::current(), \Scanfully\Connect\Address::normalize( (string) $this->find( $data, 'site_url' ) ), 'the address a sign-in link is checked against' );
+	}
+
 	public function test_plugin_slugs_use_the_folder_or_the_single_file_name(): void {
 		$method = new \ReflectionMethod( Controller::class, 'get_plugins' );
 		$method->setAccessible( true );
