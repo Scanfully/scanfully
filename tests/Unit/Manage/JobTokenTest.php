@@ -435,7 +435,11 @@ final class JobTokenTest extends TestCase {
 	}
 
 	public function test_a_queue_token_within_the_skew_and_in_upper_case_hex_checks_out(): void {
-		$this->assertSame( JobToken::VALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'exp' => time() - 30 ] ) ] ), self::SITE ), '30 seconds of skew' );
+		// One time for the token and the check, so a second ticking over
+		// between them cannot move the boundary.
+		$now = time();
+		$this->assertSame( JobToken::VALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'exp' => $now - 30 ] ) ] ), self::SITE, $now ), '30 seconds of skew' );
+		$this->assertSame( JobToken::INVALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'exp' => $now - 31 ] ) ] ), self::SITE, $now ), 'and not one more' );
 		$this->assertSame( JobToken::VALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'aud' => self::SITE ] ) ] ), self::SITE ), 'the audience as a string' );
 		$this->assertSame(
 			JobToken::VALID,
