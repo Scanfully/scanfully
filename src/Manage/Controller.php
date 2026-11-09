@@ -611,7 +611,7 @@ class Controller {
 					// Never run: reported failed, as Scanfully did not sign it
 					// for this site, job, attempt and parameters, both when it
 					// was queued and when it was handed out.
-					self::finish( $id, $now, Runner::failed( $now, time(), 'signature', 'The job\'s signed tokens are missing or do not match this site, job, attempt and parameters, so the plugin did not run it.' ) );
+					self::finish( $id, $now, Runner::failed( $now, time(), 'signature', 'The job\'s signed tokens are missing or do not match this site, job, attempt and parameters, or the signature from when it was queued has expired, so the plugin did not run it.' ) );
 					return;
 				}
 				self::run_started( $id, $job, $now );

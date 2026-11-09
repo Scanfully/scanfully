@@ -1828,6 +1828,7 @@ final class ControllerTest extends TestCase {
 		$this->assertCount( 1, $sent );
 		$this->assertSame( 'failed', $sent[0]['state'] );
 		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
+		$this->assertStringContainsString( 'or the signature from when it was queued has expired', $sent[0]['error']['message'] ?? '', 'the message covers an expired queue token' );
 		$this->assertSame( [], $sent[0]['result'], 'nothing ran' );
 		$this->assertNull( RunLock::holder( time() ), 'the run lock was never taken' );
 		$this->assertArrayNotHasKey( 'job', Ledger::get( self::JOB ) ?? [], 'from running on the row holds neither token' );
