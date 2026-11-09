@@ -459,7 +459,9 @@ final class Controller {
 
 	/**
 	 * The page of a refused link: the same for every reason, with a link to
-	 * the front page and nothing of the token or the reason.
+	 * the front page and nothing of the token or the reason. A small script
+	 * replaces the address with the bare path, so the token leaves the
+	 * address bar and the history.
 	 *
 	 * @return string
 	 */
@@ -473,6 +475,10 @@ final class Controller {
 			. '<meta name="robots" content="noindex, nofollow">'
 			. '<meta name="referrer" content="no-referrer">'
 			. '<title>' . $title . '</title>'
+			// Take the link out of the address bar and the history: a link
+			// refused before its burn is still valid for its minute. Without
+			// JavaScript the page works the same.
+			. '<script>try{history.replaceState(null,"",location.pathname)}catch(e){}</script>'
 			. '<style>body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f6f7f7;color:#1d2327}main{max-width:32rem;margin:15vh auto;padding:0 1rem}h1{font-size:1.5rem;font-weight:600}a{color:#2271b1}</style>'
 			. '</head><body><main>'
 			. '<h1>' . $title . '</h1>'

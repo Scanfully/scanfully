@@ -376,6 +376,8 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertStringContainsString( '<h1>This sign-in link is not valid</h1>', $page );
 		$this->assertStringContainsString( '<a href="https://scanfully.com/">Go to the front page</a>', $page );
 		$this->assertStringContainsString( '<meta name="referrer" content="no-referrer">', $page );
+		$this->assertStringContainsString( '<script>try{history.replaceState(null,"",location.pathname)}catch(e){}</script>', $page, 'the token leaves the address bar and the history' );
+		$this->assertSame( 1, substr_count( $page, '<script' ), 'one inline script, nothing loaded' );
 		$this->assertStringNotContainsString( 'eyJ', $page, 'nothing of the token' );
 		foreach ( [ 'expired', 'replayed', 'signature', 'administrator', 'scope' ] as $detail ) {
 			$this->assertStringNotContainsString( $detail, $page );
