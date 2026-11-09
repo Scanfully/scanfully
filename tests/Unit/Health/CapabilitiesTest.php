@@ -37,6 +37,8 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'is_multisite' )->justReturn( false );
 		Functions\when( 'as_schedule_single_action' )->justReturn( 1 );
 		Functions\when( 'wp_is_writable' )->alias( 'is_writable' );
+		Functions\when( 'wp_is_using_https' )->justReturn( false );
+		Functions\when( 'get_users' )->justReturn( [] );
 		if ( ! defined( 'WP_CONTENT_DIR' ) ) {
 			define( 'WP_CONTENT_DIR', sys_get_temp_dir() . '/scanfully-capabilities-content' );
 		}
@@ -79,6 +81,7 @@ final class CapabilitiesTest extends TestCase {
 				'fs_method' => 'direct',
 				'multisite' => false,
 				'action_scheduler' => true,
+				'administrators' => [],
 			],
 			array_diff_key( Capabilities::get(), [ 'mu_plugin_writable' => true ] )
 		);
@@ -216,5 +219,64 @@ final class CapabilitiesTest extends TestCase {
 		Functions\expect( 'get_filesystem_method' )->never();
 
 		$this->assertSame( [], Capabilities::skip( [ Capabilities::class, 'get' ] ) );
+	}
+
+	/**
+	 * Connect the site with these scopes.
+	 *
+	 * @param string $scopes The scopes, space separated.
+	 *
+	 * @return void
+	 */
+	private function connect( string $scopes ): void {
+		$options = [
+			'scanfully_connect_is_connected' => 'yes',
+			'scanfully_connect_site_id'      => 'site-1',
+			'scanfully_connect_flow'         => 'oauth',
+			'scanfully_connect_scopes'       => $scopes,
+		];
+		Functions\when( 'get_option' )->alias(
+			static function ( string $name, $fallback = false ) use ( $options ) {
+				return $options[ $name ] ?? $fallback;
+			}
+		);
+	}
+
+	public function test_a_site_that_can_sign_in_names_login_among_the_actions(): void {
+		$this->connect( 'wordpress:read wordpress:manage wordpress:login' );
+		Functions\when( 'wp_is_using_https' )->justReturn( true );
+
+		$actions = Capabilities::get()['actions'];
+
+		$this->assertSame( 'login', end( $actions ) );
+		$this->assertSame( array_values( $actions ), $actions, 'still a list' );
+	}
+
+	public function test_login_needs_https_and_the_scope(): void {
+		$this->connect( 'wordpress:read wordpress:login' );
+		$this->assertNotContains( 'login', Capabilities::get()['actions'], 'a site served over plain HTTP' );
+
+		Functions\when( 'wp_is_using_https' )->justReturn( true );
+		$this->connect( 'wordpress:read wordpress:manage' );
+		$this->assertNotContains( 'login', Capabilities::get()['actions'], 'without wordpress:login in the grant' );
+	}
+
+	public function test_a_network_that_can_sign_in(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		Functions\when( 'get_super_admins' )->justReturn( [] );
+		Functions\when( 'wp_is_using_https' )->justReturn( true );
+		$this->connect( 'wordpress:read wordpress:login' );
+
+		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'login' ], Capabilities::get()['actions'] );
+	}
+
+	public function test_administrators_that_cannot_be_read_are_unknown(): void {
+		Functions\when( 'get_users' )->alias(
+			static function () {
+				throw new \RuntimeException( 'no database' );
+			}
+		);
+
+		$this->assertNull( Capabilities::get()['administrators'] );
 	}
 }
