@@ -118,8 +118,8 @@ final class JobToken {
 	 * Check a job's queue token, after its job token checked out: through the
 	 * same verifier, Scanfully's (iss), for this site only (aud), sub queued,
 	 * jti the job's and the job token's, action and params_hash the job
-	 * token's and the job's, exp not passed (QUEUE_SKEW seconds of skew).
-	 * A job without one is not run.
+	 * token's and the job's, iat when it was queued, exp not passed
+	 * (QUEUE_SKEW seconds of skew). A job without one is not run.
 	 *
 	 * @param array                $job        The job as pulled.
 	 * @param string               $site_id    The site's Scanfully id.
@@ -145,6 +145,7 @@ final class JobToken {
 			|| ( $claims['jti'] ?? '' ) !== $job['id'] || ( $claims['jti'] ?? '' ) !== ( $job_claims['jti'] ?? null )
 			|| ( $claims['action'] ?? '' ) !== $job['action'] || ( $claims['action'] ?? '' ) !== ( $job_claims['sub'] ?? null )
 			|| '' === $params_hash || ! hash_equals( $hash, $params_hash ) || ! hash_equals( strtolower( (string) $job_claims['params_hash'] ), $params_hash )
+			|| ! isset( $claims['iat'] ) || ! is_int( $claims['iat'] )
 			|| ! isset( $claims['exp'] ) || ! is_int( $claims['exp'] ) || $claims['exp'] < $now - self::QUEUE_SKEW
 			|| ( isset( $claims['nbf'] ) && ( ! is_int( $claims['nbf'] ) || $claims['nbf'] > $now + self::QUEUE_SKEW ) ) ) {
 			return self::INVALID;

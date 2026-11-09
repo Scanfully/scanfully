@@ -408,6 +408,7 @@ final class JobTokenTest extends TestCase {
 			'no params hash'          => [ [ 'queue_token' => self::queue_token( [ 'params_hash' => null ] ) ], 'no params_hash' ],
 			'expired'                 => [ [ 'queue_token' => self::queue_token( [ 'exp' => time() - 31 ] ) ], 'its delivery window and longest run passed' ],
 			'no exp'                  => [ [ 'queue_token' => self::queue_token( [ 'exp' => null ] ) ], 'no exp' ],
+			'no iat'                  => [ [ 'queue_token' => self::queue_token( [ 'iat' => null ] ) ], 'no iat: when it was queued' ],
 			'exp as text'             => [ [ 'queue_token' => self::queue_token( [ 'exp' => (string) ( time() + 60 ) ] ) ], 'an exp that is not a number' ],
 			'not yet valid'           => [ [ 'queue_token' => self::queue_token( [ 'nbf' => time() + 3600 ] ) ], 'nbf in the future' ],
 		];
