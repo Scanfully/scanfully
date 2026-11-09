@@ -299,18 +299,19 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertCount( Attempts::LIMIT + 2, Log::recent(), 'the next minute logs afresh' );
 	}
 
-	public function test_beyond_ten_signed_links_a_minute_nothing_past_the_signature_is_checked(): void {
+	public function test_beyond_ten_links_a_minute_nothing_past_the_address_is_checked(): void {
 		for ( $i = 0; $i < Attempts::LIMIT; $i++ ) {
 			$this->assertSame( '', $this->open( $this->signed(), self::NOW + 1 )['reason'] );
 		}
 		$burned = $this->db->rows[ Burns::OPTION ];
 
 		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed(), self::NOW + 2 )['reason'] );
-		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed( [ 'aud' => 'another-site' ] ), self::NOW + 3 )['reason'], 'no claim is read' );
+		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed( [ 'sub' => 'manage' ] ), self::NOW + 3 )['reason'], 'no claim past the address is read' );
 		$this->assertSame( Controller::REASON_MALFORMED, $this->open( 'junk', self::NOW + 4 )['reason'], 'junk is refused for its own reason' );
+		$this->assertSame( Controller::REASON_AUDIENCE, $this->open( $this->signed( [ 'aud' => 'another-site' ] ), self::NOW + 5 )['reason'], 'another site\'s link is refused for its own reason' );
 
 		$this->assertSame( $burned, $this->db->rows[ Burns::OPTION ], 'no burn list touched' );
-		$this->assertSame( [ Controller::REASON_RATE_LIMITED, Controller::REASON_MALFORMED ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
+		$this->assertSame( [ Controller::REASON_RATE_LIMITED, Controller::REASON_MALFORMED, Controller::REASON_AUDIENCE ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
 
 		$this->assertSame(
 			'',
@@ -325,6 +326,36 @@ final class ControllerTest extends LoginTestCase {
 			)['reason'],
 			'the next minute counts afresh'
 		);
+	}
+
+	public function test_links_signed_for_another_site_or_address_never_count_against_the_limit(): void {
+		// A customer with a login-enabled site of their own mints links for
+		// it and sends them here: signed by Scanfully, but not for this site.
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->assertSame( Controller::REASON_AUDIENCE, $this->open( $this->signed( [ 'aud' => 'e5e5e5e5-5555-4555-8555-555555555555' ] ), self::NOW + 1 )['reason'] );
+		}
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'none counted against the limit' );
+		$this->assertArrayNotHasKey( Burns::OPTION, $this->db->rows, 'none burned' );
+		$this->assertSame(
+			array_merge( array_fill( 0, Attempts::LIMIT, Controller::REASON_AUDIENCE ), [ Controller::REASON_UNSIGNED_BURST ] ),
+			array_column( Log::recent(), 'reason' ),
+			'and the log is bounded as for junk'
+		);
+
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 2 )['reason'], 'a real link still gets in' );
+
+		foreach ( [ [ 'iss' => 'https://evil.example' ], [ 'host' => 'evil.example' ] ] as $wrong ) {
+			for ( $i = 0; $i < 15; $i++ ) {
+				$this->open( $this->signed( $wrong ), self::NOW + 3 );
+			}
+		}
+		$this->options['home'] = 'https://staging.scanfully.com';
+		for ( $i = 0; $i < 15; $i++ ) {
+			$this->assertSame( Controller::REASON_SITE_MOVED, $this->open( $this->signed(), self::NOW + 3 )['reason'] );
+		}
+		$this->options['home'] = 'https://scanfully.com';
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 4 )['reason'], 'another issuer, another address and a copy count nothing either' );
+		$this->assertSame( 2, $this->transients[ Attempts::TRANSIENT ][1] ?? null, 'only the two real links were counted' );
 	}
 
 	public function test_the_key_set_is_fetched_at_most_once_per_few_minutes_whatever_is_sent(): void {

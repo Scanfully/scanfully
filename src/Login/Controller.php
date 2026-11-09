@@ -32,18 +32,21 @@ use Scanfully\Sync\SignedRequest;
  * 3. the token has the form of a JWT and is not too long;
  * 4. the signature checks out against Scanfully's key with the header's
  *    kid (RS256);
- * 5. fewer than LIMIT links that passed 4 were opened on the site this
- *    minute (beyond it, nothing below runs and a burst is logged once). A
- *    link refused at 2 to 4 is not Scanfully's, or cannot be told to be:
- *    it never counts against this limit, so anyone sending junk cannot
- *    keep real links out; it has a counter of its own that only limits the
- *    log, LIMIT lines a minute and one for a burst beyond them;
- * 6. iss is Scanfully;
- * 7. aud names this site and nothing else, and this is the site it was
+ * 5. iss is Scanfully;
+ * 6. aud names this site and nothing else, and this is the site it was
  *    connected at (not a copy);
- * 8. host is this site's address now (Connect\Address::current(), the form
+ * 7. host is this site's address now (Connect\Address::current(), the form
  *    Connect\Address::normalize() gives), so a link Scanfully sent to
  *    another address (a domain changed in Scanfully) is worthless here;
+ * 8. fewer than LIMIT links that passed 7 were opened on the site this
+ *    minute (beyond it, nothing below runs and a burst is logged once). A
+ *    link refused at 2 to 7 is not Scanfully's, cannot be told to be, or is
+ *    not meant for this site at this address (a token minted for another
+ *    site is signed too): it never counts against this limit, so nobody
+ *    can keep this site's real links out, and it has a counter of its own
+ *    that only limits the log, LIMIT lines a minute and one for a burst
+ *    beyond them. Checks 2 to 7 read the request, the key set and a few
+ *    options, and touch no burn list;
  * 9. sub is login, so no other signed request works here;
  * 10. exp has not passed, with SKEW seconds of clock skew, iat is not in
  *     the future, and the token lives no longer than LIFETIME seconds;
@@ -148,15 +151,26 @@ final class Controller {
 
 	/**
 	 * Logged once a minute, in place of the refusals beyond the LIMIT of
-	 * links that were not Scanfully's (or could not be told to be).
+	 * links that were not Scanfully's, could not be told to be, or were not
+	 * meant for this site at this address.
 	 */
 	public const REASON_UNSIGNED_BURST = 'unsigned_burst';
 
 	/**
-	 * The reasons of a link refused before its signature checked out: they
-	 * count only against the log's own limit.
+	 * The reasons of a link refused before the rate limit: not Scanfully's,
+	 * or not meant for this site at this address. They count only against
+	 * the log's own limit, never against the rate limit.
 	 */
-	private const UNSIGNED_REASONS = [ self::REASON_NOT_HTTPS, self::REASON_MALFORMED, self::REASON_KEYS_UNAVAILABLE, self::REASON_SIGNATURE ];
+	private const UNCOUNTED_REASONS = [
+		self::REASON_NOT_HTTPS,
+		self::REASON_MALFORMED,
+		self::REASON_KEYS_UNAVAILABLE,
+		self::REASON_SIGNATURE,
+		self::REASON_ISSUER,
+		self::REASON_AUDIENCE,
+		self::REASON_SITE_MOVED,
+		self::REASON_ADDRESS,
+	];
 
 	/**
 	 * Hook the link.
@@ -248,9 +262,10 @@ final class Controller {
 	/**
 	 * Log a refusal, within the limits: a HEAD or POST (a link previewer) is
 	 * not logged; a burst of signed links beyond the limit logs once, at its
-	 * first refused link; links refused before their signature checked out
-	 * log LIMIT lines a minute, then one line for the rest of the burst. No
-	 * request writes the log beyond that.
+	 * first refused link; links refused before the rate limit (not
+	 * Scanfully's, or not meant for this site at this address) log LIMIT
+	 * lines a minute, then one line for the rest of the burst. No request
+	 * writes the log beyond that.
 	 *
 	 * @param string $reason The reason.
 	 * @param int    $now    The time.
@@ -267,7 +282,7 @@ final class Controller {
 			}
 			return;
 		}
-		if ( in_array( $reason, self::UNSIGNED_REASONS, true ) ) {
+		if ( in_array( $reason, self::UNCOUNTED_REASONS, true ) ) {
 			$unsigned = Attempts::take( $now, Attempts::UNSIGNED_TRANSIENT );
 			if ( $unsigned <= Attempts::LIMIT ) {
 				Log::refused( $reason, $now );
@@ -310,12 +325,6 @@ final class Controller {
 		if ( null === $claims ) {
 			return SignedRequest::keys_unavailable() ? self::REASON_KEYS_UNAVAILABLE : self::REASON_SIGNATURE;
 		}
-		// Only a link Scanfully signed counts against the limit; beyond it
-		// nothing below runs (no claim read, no burn list touched).
-		self::$attempt = Attempts::take( $now );
-		if ( self::$attempt > Attempts::LIMIT ) {
-			return self::REASON_RATE_LIMITED;
-		}
 		if ( ( $claims['iss'] ?? '' ) !== Main::get_oauth_url() ) {
 			return self::REASON_ISSUER;
 		}
@@ -327,6 +336,13 @@ final class Controller {
 		}
 		if ( ! self::names_this_address( $claims['host'] ?? null ) ) {
 			return self::REASON_ADDRESS;
+		}
+		// Only a link Scanfully signed for this site at this address counts
+		// against the limit; beyond it nothing below runs (no further claim
+		// read, no burn list touched).
+		self::$attempt = Attempts::take( $now );
+		if ( self::$attempt > Attempts::LIMIT ) {
+			return self::REASON_RATE_LIMITED;
 		}
 		if ( ( $claims['sub'] ?? '' ) !== self::SUB ) {
 			return self::REASON_PURPOSE;

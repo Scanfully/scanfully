@@ -9,12 +9,13 @@ namespace Scanfully\Login;
 
 /**
  * Counts the sign-in links opened on the site per minute, in two counters.
- * The limit counts only links whose signature checked out against
- * Scanfully's keys: beyond it a link is refused before its claims are read
- * or the burn list is touched. Links refused before their signature checked
- * out (plain HTTP, not a JWT, another key) are counted apart, and that
- * counter only limits how many of them are logged, so junk sent to the site
- * cannot keep real links out. The key set behind the signature check is
+ * The limit counts only links Scanfully signed for this site at its
+ * address (the signature, iss, aud, the copy check and host checked out):
+ * beyond it a link is refused before its other claims are read or the burn
+ * list is touched. Links refused before that (plain HTTP, not a JWT,
+ * another key, a token minted for another site or address) are counted
+ * apart, and that counter only limits how many of them are logged, so
+ * nothing sent to the site, signed or not, can keep its real links out. The key set behind the signature check is
  * fetched at most once per few minutes, whatever is sent.
  */
 final class Attempts {
@@ -30,8 +31,8 @@ final class Attempts {
 	public const TRANSIENT = 'scanfully_login_attempts';
 
 	/**
-	 * The transient counting the links refused before their signature
-	 * checked out, for the log's limit.
+	 * The transient counting the links refused before the rate limit, for
+	 * the log's limit.
 	 */
 	public const UNSIGNED_TRANSIENT = 'scanfully_login_unsigned';
 

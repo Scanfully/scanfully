@@ -15,8 +15,8 @@ namespace Scanfully\Login;
  * fires scanfully_login_refused so a site can pass them to its own logger.
  * The rate limits bound it: per minute, at most one line per signed link
  * below the limit and one for a burst beyond it, and at most LIMIT lines
- * for links refused before their signature checked out and one for a burst
- * of those.
+ * for links refused before the rate limit (not Scanfully's, or not meant
+ * for this site at this address) and one for a burst of those.
  */
 final class Log {
 
