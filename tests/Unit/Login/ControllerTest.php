@@ -82,6 +82,7 @@ final class ControllerTest extends LoginTestCase {
 			'not a JWT'                    => [ fn( self $t ) => $t->open( 'hello' ), Controller::REASON_MALFORMED ],
 			'too long'                     => [ fn( self $t ) => $t->open( 'eyJ' . str_repeat( 'a', 4096 ) . '.a.a' ), Controller::REASON_MALFORMED ],
 			'a JWT with other characters'  => [ fn( self $t ) => $t->open( $t->signed() . '<script>' ), Controller::REASON_MALFORMED ],
+			'a trailing newline'           => [ fn( self $t ) => $t->open( $t->signed() . "\n" ), Controller::REASON_MALFORMED ],
 			'signed with another key'      => [ fn( self $t ) => $t->open( $t->signed( [], [], self::$other_key ) ), Controller::REASON_SIGNATURE ],
 			'an unknown kid'               => [ fn( self $t ) => $t->open( $t->signed( [], [ 'kid' => 'key-9' ] ) ), Controller::REASON_SIGNATURE ],
 			'alg none'                     => [ fn( self $t ) => $t->open( $t->signed( [], [ 'alg' => 'none' ] ) ), Controller::REASON_SIGNATURE ],
@@ -256,6 +257,15 @@ final class ControllerTest extends LoginTestCase {
 			array_column( Log::recent(), 'reason' ),
 			'thirty plain HTTP links write eleven log lines'
 		);
+	}
+
+	public function test_a_head_from_a_link_previewer_does_not_count_against_the_limit(): void {
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->assertSame( Controller::REASON_METHOD, $this->open( $this->signed(), self::NOW, 'HEAD' )['reason'] );
+		}
+
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
+		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
 	}
 
 	public function test_beyond_ten_links_a_minute_nothing_is_verified(): void {

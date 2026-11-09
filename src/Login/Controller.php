@@ -26,10 +26,11 @@ use Scanfully\Sync\SignedRequest;
  * WordPress user (wp_user). The plugin checks, in this order, and stops at
  * the first that fails:
  *
- * 1. fewer than LIMIT links were opened on the site this minute (beyond
+ * 1. the request is a GET (a HEAD from a link previewer neither burns the
+ *    link nor counts against the limit);
+ * 2. fewer than LIMIT links were opened on the site this minute (beyond
  *    it, nothing below runs and a burst is logged once, so the log is
- *    rate limited too);
- * 2. the request is a GET over HTTPS;
+ *    rate limited too), and the request came over HTTPS;
  * 3. the token has the form of a JWT and is not too long;
  * 4. the signature checks out against Scanfully's key with the header's
  *    kid (RS256);
@@ -242,17 +243,17 @@ final class Controller {
 	private static function check( string $token, string $method, bool $https, int $now, array &$login, ?\WP_User &$user = null ): string {
 		$user          = null;
 		self::$attempt = 0;
+		if ( 'GET' !== $method ) {
+			return self::REASON_METHOD;
+		}
 		self::$attempt = Attempts::take( $now );
 		if ( self::$attempt > Attempts::LIMIT ) {
 			return self::REASON_RATE_LIMITED;
 		}
-		if ( 'GET' !== $method ) {
-			return self::REASON_METHOD;
-		}
 		if ( ! $https ) {
 			return self::REASON_NOT_HTTPS;
 		}
-		if ( strlen( $token ) > self::MAX_TOKEN_LENGTH || 1 !== preg_match( '/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/', $token ) || ! SignedRequest::looks_signed( $token ) ) {
+		if ( strlen( $token ) > self::MAX_TOKEN_LENGTH || 1 !== preg_match( '/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/D', $token ) || ! SignedRequest::looks_signed( $token ) ) {
 			return self::REASON_MALFORMED;
 		}
 
