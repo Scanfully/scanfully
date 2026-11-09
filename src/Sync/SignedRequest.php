@@ -51,6 +51,17 @@ class SignedRequest {
 	private static bool $keys_unavailable = false;
 
 	/**
+	 * Whether the last token checked names a key id that Scanfully's key set,
+	 * as cached or fetched within the last few minutes, does not have. During
+	 * a key rotation the set can come from a server that does not publish the
+	 * new key yet, and the next fetch is minutes away: a job waits for it
+	 * instead of failing for good.
+	 *
+	 * @var bool
+	 */
+	private static bool $key_unknown = false;
+
+	/**
 	 * Seconds between two fetches of the key set.
 	 */
 	private const REFETCH_WAIT = 5 * MINUTE_IN_SECONDS;
@@ -124,6 +135,7 @@ class SignedRequest {
 	 */
 	public static function claims( string $token ): ?array {
 		self::$keys_unavailable = false;
+		self::$key_unknown      = false;
 		$parts                  = explode( '.', $token );
 		if ( 3 !== count( $parts ) || ! function_exists( 'openssl_verify' ) ) {
 			return null;
@@ -149,13 +161,26 @@ class SignedRequest {
 	 * Whether the last token claims() checked could not be checked because
 	 * Scanfully's key set could not be fetched (no answer, an error, or
 	 * not a key set), now or at the last try a few minutes ago. A key id
-	 * that a fetched key set does not have is not this: that token is not
-	 * Scanfully's.
+	 * that a fetched key set does not have is not this: see key_unknown().
 	 *
 	 * @return bool
 	 */
 	public static function keys_unavailable(): bool {
 		return self::$keys_unavailable;
+	}
+
+	/**
+	 * Whether the last token claims() checked names a key id that a fetched
+	 * key set does not have (the set was fetched now, or within the refetch
+	 * wait, so no new fetch is tried yet). Such a token may be Scanfully's,
+	 * signed with a key published after the set was fetched: a job waits for
+	 * the next pull, as for an unavailable key set; a login or a poke is
+	 * refused as not signed.
+	 *
+	 * @return bool
+	 */
+	public static function key_unknown(): bool {
+		return self::$key_unknown;
 	}
 
 	/**
@@ -177,6 +202,7 @@ class SignedRequest {
 		// request each.
 		if ( false !== get_transient( self::REFETCH_TRANSIENT ) ) {
 			self::$keys_unavailable = false !== get_transient( self::FETCH_FAILED_TRANSIENT );
+			self::$key_unknown      = ! self::$keys_unavailable;
 			return null;
 		}
 		set_transient( self::REFETCH_TRANSIENT, 1, self::REFETCH_WAIT );
@@ -188,6 +214,7 @@ class SignedRequest {
 		}
 		delete_transient( self::FETCH_FAILED_TRANSIENT );
 		set_transient( self::KEYS_TRANSIENT, $keys, DAY_IN_SECONDS );
+		self::$key_unknown = ! isset( $keys[ $kid ] );
 
 		return $keys[ $kid ] ?? null;
 	}

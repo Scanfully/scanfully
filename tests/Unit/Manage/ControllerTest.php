@@ -1992,6 +1992,47 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
 	}
 
+	public function test_a_job_signed_with_a_key_the_fetched_set_does_not_have_yet_waits_and_runs_after_the_refetch(): void {
+		// A rolling deploy: the plugin fetches the key set from a server that
+		// publishes only the old key, while another server signs with key-1.
+		$old       = json_decode( self::$jwks, true );
+		$old['keys'][0]['kid'] = 'key-old';
+		$published = (string) json_encode( $old );
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( string $url ) use ( &$published ) {
+				if ( self::ISSUER . '/.well-known/scanfully-plugin-keys.json' === $url ) {
+					return [
+						'code' => 200,
+						'body' => $published,
+					];
+				}
+				return $this->answer( 'GET', $url, null );
+			}
+		);
+		$this->jobs( [ self::ping() ] );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( [], $this->requests_after_pull(), 'no heartbeat and no signature failure: the job waits' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( [], $this->requests_after_pull(), 'within the refetch wait it still waits' );
+
+		// The next fetch, after the wait, has the new key.
+		$published = self::$jwks;
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+	}
+
 	public function test_a_job_waits_while_another_job_holds_the_site_lock(): void {
 		RunLock::take( 'b2b2b2b2-2222-4222-8222-222222222222', time() + 600, time() );
 		$this->jobs( [ self::ping() ] );

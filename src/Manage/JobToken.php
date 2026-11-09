@@ -47,8 +47,11 @@ final class JobToken {
 
 	/**
 	 * The token could not be checked: Scanfully's key set could not be
-	 * fetched. The job waits for the next pull, as an expired one does, so
-	 * an outage during a key rotation does not use up its one attempt.
+	 * fetched, or the set fetched within the last few minutes does not have
+	 * the token's key id (during a rotation it can come from a server that
+	 * does not publish the new key yet). The job waits for the next pull, as
+	 * an expired one does, so a key rotation does not use up its one
+	 * attempt.
 	 */
 	public const UNVERIFIED = 'unverified';
 
@@ -86,7 +89,7 @@ final class JobToken {
 		}
 		$claims = SignedRequest::claims( $token );
 		if ( null === $claims ) {
-			return SignedRequest::keys_unavailable() ? self::UNVERIFIED : self::INVALID;
+			return SignedRequest::keys_unavailable() || SignedRequest::key_unknown() ? self::UNVERIFIED : self::INVALID;
 		}
 
 		// The parameters the action gets, hashed: their canonical JSON as
@@ -133,7 +136,7 @@ final class JobToken {
 		}
 		$claims = SignedRequest::claims( $token );
 		if ( null === $claims ) {
-			return SignedRequest::keys_unavailable() ? self::UNVERIFIED : self::INVALID;
+			return SignedRequest::keys_unavailable() || SignedRequest::key_unknown() ? self::UNVERIFIED : self::INVALID;
 		}
 		$params_hash = isset( $claims['params_hash'] ) && is_string( $claims['params_hash'] ) ? strtolower( $claims['params_hash'] ) : '';
 		if ( ( $claims['iss'] ?? '' ) !== Main::get_oauth_url()

@@ -338,7 +338,7 @@ final class JobTokenTest extends TestCase {
 		$this->assertArrayNotHasKey( 'scanfully_plugin_keys_fetch_failed', $this->transients );
 	}
 
-	public function test_a_key_id_the_fetched_set_does_not_have_is_invalid(): void {
+	public function test_a_key_id_the_fetched_set_does_not_have_leaves_the_job_unverified_so_it_waits(): void {
 		$header = self::b64url(
 			(string) json_encode(
 				[
@@ -350,8 +350,16 @@ final class JobTokenTest extends TestCase {
 		[ , $payload, $signature ] = explode( '.', self::token() );
 		$job                       = self::job( [ 'job_token' => $header . '.' . $payload . '.' . $signature ] );
 
-		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'the key set was fetched and has no such key' );
-		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( $job, self::SITE ), 'the key set was fetched now and has no such key: a key rotation may be under way' );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
+		$this->assertTrue( \Scanfully\Sync\SignedRequest::key_unknown() );
+		$this->assertFalse( \Scanfully\Sync\SignedRequest::keys_unavailable(), 'the set itself was fetched' );
+
+		[ , $payload, $signature ] = explode( '.', self::queue_token() );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( self::job( [ 'queue_token' => $header . '.' . $payload . '.' . $signature ] ), self::SITE ), 'the queue token the same' );
+
+		$this->assertSame( JobToken::INVALID, JobToken::check( self::job( [ 'job_token' => self::token( [], self::$other_key ) ] ), self::SITE ), 'a known key id with a signature that does not check out is invalid' );
+		$this->assertFalse( \Scanfully\Sync\SignedRequest::key_unknown() );
 	}
 
 	public function test_a_cached_key_set_without_the_key_and_a_failed_refetch_is_unverified(): void {
