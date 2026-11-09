@@ -159,6 +159,9 @@ class Main {
 		Manage\Controller::setup();
 		Connect\Scopes::setup();
 		Connect\Address::setup();
+
+		// One-click WP admin access: the sign-in links from Scanfully.
+		Login\Controller::setup();
 	}
 
 	/**
