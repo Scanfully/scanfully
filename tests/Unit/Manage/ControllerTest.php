@@ -1040,6 +1040,8 @@ final class ControllerTest extends TestCase {
 		return [
 			'insufficient_scope' => [ 'insufficient_scope' ],
 			'beta_required'      => [ 'beta_required' ],
+			'trial_expired'      => [ 'trial_expired' ],
+			'account_paused'     => [ 'account_paused' ],
 		];
 	}
 
@@ -1122,7 +1124,7 @@ final class ControllerTest extends TestCase {
 	}
 
 	public function test_a_pull_refused_for_the_scope_or_beta_pauses_the_clock_until_the_grant_changes(): void {
-		foreach ( [ 'insufficient_scope', 'beta_required' ] as $code ) {
+		foreach ( [ 'insufficient_scope', 'beta_required', 'trial_expired', 'account_paused' ] as $code ) {
 			$this->actions = [];
 			unset( $this->options['scanfully_manage_paused'], $this->options['last_request_error'] );
 			Controller::sync_clock();
@@ -1149,10 +1151,20 @@ final class ControllerTest extends TestCase {
 		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
 	}
 
-	public function test_a_poke_ends_the_pause(): void {
+	/**
+	 * A poke ends a pause for every permission answer: for an account whose
+	 * trial ended or that was paused for an overdue payment the grant does
+	 * not change when it is resolved, so a poke from Scanfully is what starts
+	 * the clock again.
+	 *
+	 * @dataProvider permission_codes
+	 *
+	 * @param string $code The error code of the 403.
+	 */
+	public function test_a_poke_ends_the_pause( string $code ): void {
 		$this->answers['GET /manage/jobs'] = [
 			'code' => 403,
-			'body' => '{"error":"beta_required"}',
+			'body' => '{"error":"' . $code . '"}',
 		];
 		Controller::pull();
 		$this->assertTrue( Controller::paused() );

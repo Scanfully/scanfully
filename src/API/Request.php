@@ -222,10 +222,11 @@ abstract class Request {
 
 	/**
 	 * The codes of a 403 that says what the connection may do, not that it
-	 * is broken: the grant lacks the scope of the route, or the account may
-	 * not use a closed-beta feature (Scanfully Manage).
+	 * is broken: the grant lacks the scope of the route, the account may not
+	 * use a closed-beta feature (Scanfully Manage), or the account's trial
+	 * ended or it is paused for an overdue payment.
 	 */
-	public const PERMISSION_CODES = [ 'insufficient_scope', 'beta_required' ];
+	public const PERMISSION_CODES = [ 'insufficient_scope', 'beta_required', 'trial_expired', 'account_paused' ];
 
 	/**
 	 * Whether an answer is a 403 about what the connection may do.
