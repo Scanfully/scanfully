@@ -421,7 +421,8 @@ class Controller {
 
 	/**
 	 * A job as the API sent it, checked: its id, action, parameters, attempt
-	 * and signed token, or null when it is not a job. The parameters are
+	 * and signed tokens (the per-attempt job token and the queue token), or
+	 * null when it is not a job. The parameters are
 	 * kept as their canonical JSON (params_json) and read back from it, so
 	 * the bytes the token is checked against are the parameters the action
 	 * gets: a job changed in the ledger after the pull does not verify.
@@ -429,7 +430,7 @@ class Controller {
 	 * @param mixed       $raw         The job from the API's answer, or as the ledger keeps it.
 	 * @param string|null $params_json The canonical JSON of its parameters from the raw answer.
 	 *
-	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, lease_until: string, params_json?: string, package?: array{url: string, sha256: string, size?: int}}|null
+	 * @return array{id: string, action: string, params: array, attempt: int, job_token: string, queue_token: string, lease_until: string, params_json?: string, package?: array{url: string, sha256: string, size?: int}}|null
 	 */
 	public static function job_of( $raw, ?string $params_json = null ): ?array {
 		if ( ! is_array( $raw ) || ! Ledger::valid_id( $raw['id'] ?? null ) ) {
@@ -442,6 +443,7 @@ class Controller {
 		$params  = $raw['params'] ?? [];
 		$attempt = $raw['attempt'] ?? 0;
 		$token   = $raw['job_token'] ?? '';
+		$queued  = $raw['queue_token'] ?? '';
 		$lease   = $raw['lease_until'] ?? '';
 
 		$job = [
@@ -450,6 +452,7 @@ class Controller {
 			'params'      => is_array( $params ) ? $params : [],
 			'attempt'     => is_int( $attempt ) && $attempt > 0 ? $attempt : 0,
 			'job_token'   => is_string( $token ) && strlen( $token ) <= 8192 ? $token : '',
+			'queue_token' => is_string( $queued ) && strlen( $queued ) <= 8192 ? $queued : '',
 			'lease_until' => is_string( $lease ) ? substr( $lease, 0, 64 ) : '',
 		];
 		$package = self::package_of( $raw['package'] ?? null );
@@ -508,8 +511,8 @@ class Controller {
 	 * that never started and comes back with a new attempt (its lease passed
 	 * and the API queued it again) keeps the new attempt and token.
 	 *
-	 * @param array{id: string, action: string, params: array, attempt: int, job_token: string} $job The job.
-	 * @param int                                                                               $now The time.
+	 * @param array{id: string, action: string, params: array, attempt: int, job_token: string, queue_token: string} $job The job.
+	 * @param int                                                                                                    $now The time.
 	 *
 	 * @return bool Whether an action was scheduled.
 	 */
@@ -522,7 +525,7 @@ class Controller {
 			return false;
 		}
 		$stored = isset( $row['job'] ) && is_array( $row['job'] ) ? $row['job'] : [];
-		if ( ( $stored['attempt'] ?? null ) !== $job['attempt'] || ( $stored['job_token'] ?? null ) !== $job['job_token'] ) {
+		if ( ( $stored['attempt'] ?? null ) !== $job['attempt'] || ( $stored['job_token'] ?? null ) !== $job['job_token'] || ( $stored['queue_token'] ?? null ) !== $job['queue_token'] ) {
 			$fresh        = $row;
 			$fresh['job'] = $job;
 			$fresh['at']  = $now;
@@ -606,8 +609,9 @@ class Controller {
 				}
 				if ( JobToken::INVALID === $check ) {
 					// Never run: reported failed, as Scanfully did not sign it
-					// for this site, job, attempt and parameters.
-					self::finish( $id, $now, Runner::failed( $now, time(), 'signature', 'The job\'s signed token is missing or does not match this site, job, attempt and parameters, so the plugin did not run it.' ) );
+					// for this site, job, attempt and parameters, both when it
+					// was queued and when it was handed out.
+					self::finish( $id, $now, Runner::failed( $now, time(), 'signature', 'The job\'s signed tokens are missing or do not match this site, job, attempt and parameters, so the plugin did not run it.' ) );
 					return;
 				}
 				self::run_started( $id, $job, $now );

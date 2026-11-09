@@ -119,7 +119,9 @@ final class ControllerTest extends TestCase {
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
-		self::$key  = openssl_pkey_new(
+		// Once per run: the data providers call this before PHPUnit does, and
+		// their tokens must stay signed with the key the tests publish.
+		self::$key  = self::$key ?? openssl_pkey_new(
 			[
 				'private_key_bits' => 2048,
 				'private_key_type' => OPENSSL_KEYTYPE_RSA,
@@ -367,13 +369,15 @@ final class ControllerTest extends TestCase {
 	}
 
 	/**
-	 * A ping job as the API sends it, signed.
+	 * A ping job as the API sends it, signed: its job token, and the queue
+	 * token Scanfully signed when it was queued, for the same action.
 	 *
-	 * @param array<string, mixed> $claims Claims of its token to change.
+	 * @param array<string, mixed> $claims       Claims of its job token to change.
+	 * @param array<string, mixed> $queue_claims Claims of its queue token to change.
 	 *
 	 * @return array<string, mixed>
 	 */
-	private static function ping( array $claims = [] ): array {
+	private static function ping( array $claims = [], array $queue_claims = [] ): array {
 		return [
 			'id'          => self::JOB,
 			'action'      => 'ping',
@@ -382,7 +386,49 @@ final class ControllerTest extends TestCase {
 			'lease_until' => '2026-11-07T12:02:00Z',
 			'created_at'  => '2026-11-07T12:00:00Z',
 			'job_token'   => self::job_token( $claims ),
+			'queue_token' => self::queue_token( array_merge( isset( $claims['sub'] ) ? [ 'action' => $claims['sub'] ] : [], $queue_claims ) ),
 		];
+	}
+
+	/**
+	 * A queue token as the API signs it when the ping job is queued, with
+	 * claims changed.
+	 *
+	 * @param array<string, mixed> $claims Claims to change; null removes one.
+	 * @param mixed                $key    The key to sign with; Scanfully's when null.
+	 */
+	private static function queue_token( array $claims = [], $key = null ): string {
+		$header  = self::b64url(
+			(string) json_encode(
+				[
+					'alg' => 'RS256',
+					'kid' => 'key-1',
+				]
+			)
+		);
+		$payload = self::b64url(
+			(string) json_encode(
+				array_filter(
+					array_merge(
+						[
+							'iss'         => self::ISSUER,
+							'sub'         => 'queued',
+							'aud'         => [ self::SITE ],
+							'jti'         => self::JOB,
+							'action'      => 'ping',
+							'params_hash' => hash( 'sha256', '{}' ),
+							'iat'         => time() - 60,
+							'exp'         => time() + DAY_IN_SECONDS,
+						],
+						$claims
+					),
+					static fn( $value ) => null !== $value
+				)
+			)
+		);
+		openssl_sign( $header . '.' . $payload, $signature, $key ?? self::$key, OPENSSL_ALGO_SHA256 );
+
+		return $header . '.' . $payload . '.' . self::b64url( $signature );
 	}
 
 	/**
@@ -522,6 +568,7 @@ final class ControllerTest extends TestCase {
 				'params'      => [],
 				'attempt'     => 1,
 				'job_token'   => Ledger::get( self::JOB )['job']['job_token'] ?? '',
+				'queue_token' => Ledger::get( self::JOB )['job']['queue_token'] ?? '',
 				'lease_until' => '2026-11-07T12:02:00Z',
 				'params_json' => '{}',
 			],
@@ -1728,6 +1775,66 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
 	}
 
+	/**
+	 * The ways a queue token fails, each with the job token as it should be.
+	 *
+	 * @return array<string, array{0: array<string, mixed>}>
+	 */
+	public static function provide_bad_queue_tokens(): array {
+		self::setUpBeforeClass();
+		$foreign = openssl_pkey_new(
+			[
+				'private_key_bits' => 2048,
+				'private_key_type' => OPENSSL_KEYTYPE_RSA,
+			]
+		);
+
+		return [
+			'missing'           => [ [ 'queue_token' => '' ] ],
+			'foreign'           => [ [ 'queue_token' => self::queue_token( [], $foreign ) ] ],
+			'mismatched action' => [ [ 'queue_token' => self::queue_token( [ 'action' => 'delete_plugin' ] ) ] ],
+			'mismatched params' => [ [ 'queue_token' => self::queue_token( [ 'params_hash' => hash( 'sha256', '{"slug":"evil"}' ) ] ) ] ],
+			'expired'           => [ [ 'queue_token' => self::queue_token( [ 'exp' => time() - HOUR_IN_SECONDS ] ) ] ],
+		];
+	}
+
+	/**
+	 * @dataProvider provide_bad_queue_tokens
+	 *
+	 * @param array<string, mixed> $change The job's fields to change.
+	 */
+	public function test_a_job_without_a_valid_queue_token_is_reported_signature_before_the_lock_and_the_heartbeat( array $change ): void {
+		$this->jobs( [ array_merge( self::ping(), $change ) ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$this->assertSame( $change['queue_token'], Ledger::get( self::JOB )['job']['queue_token'] ?? null, 'the ledger keeps the queue token with the job token' );
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'no heartbeat: the job never starts' );
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'failed', $sent[0]['state'] );
+		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
+		$this->assertSame( [], $sent[0]['result'], 'nothing ran' );
+		$this->assertNull( RunLock::holder( time() ), 'the run lock was never taken' );
+		$this->assertArrayNotHasKey( 'job', Ledger::get( self::JOB ) ?? [], 'from running on the row holds neither token' );
+	}
+
+	public function test_a_job_with_both_tokens_keeps_them_until_it_starts_and_then_neither(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$scheduled = Ledger::get( self::JOB )['job'] ?? [];
+		$this->assertNotSame( '', $scheduled['job_token'] ?? '' );
+		$this->assertNotSame( '', $scheduled['queue_token'] ?? '' );
+
+		$this->run_pending();
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+		$this->assertStringNotContainsString( (string) $scheduled['queue_token'], (string) ( $this->db->rows[ Ledger::PREFIX . self::JOB ] ?? '' ), 'the reported row keeps no token' );
+	}
+
 	public function test_parameters_changed_after_signing_are_refused(): void {
 		$job           = self::ping();
 		$job['params'] = [ 'slug' => 'evil' ];
@@ -1911,7 +2018,8 @@ final class ControllerTest extends TestCase {
 		$this->stub_wordpress_for_updates();
 		$job              = self::ping();
 		$job['action']    = 'update_translations';
-		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
 		$this->jobs( [ $job ] );
 		$this->result_taken();
 
@@ -1979,7 +2087,8 @@ final class ControllerTest extends TestCase {
 		$this->stub_wordpress_for_updates();
 		$job              = self::ping();
 		$job['action']    = 'update_translations';
-		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
 		$this->jobs( [ $job ] );
 		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
 			'code' => 200,
