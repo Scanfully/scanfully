@@ -119,7 +119,9 @@ final class ControllerTest extends TestCase {
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
-		self::$key  = openssl_pkey_new(
+		// Once per run: the data providers call this before PHPUnit does, and
+		// their tokens must stay signed with the key the tests publish.
+		self::$key  = self::$key ?? openssl_pkey_new(
 			[
 				'private_key_bits' => 2048,
 				'private_key_type' => OPENSSL_KEYTYPE_RSA,
@@ -367,13 +369,15 @@ final class ControllerTest extends TestCase {
 	}
 
 	/**
-	 * A ping job as the API sends it, signed.
+	 * A ping job as the API sends it, signed: its job token, and the queue
+	 * token Scanfully signed when it was queued, for the same action.
 	 *
-	 * @param array<string, mixed> $claims Claims of its token to change.
+	 * @param array<string, mixed> $claims       Claims of its job token to change.
+	 * @param array<string, mixed> $queue_claims Claims of its queue token to change.
 	 *
 	 * @return array<string, mixed>
 	 */
-	private static function ping( array $claims = [] ): array {
+	private static function ping( array $claims = [], array $queue_claims = [] ): array {
 		return [
 			'id'          => self::JOB,
 			'action'      => 'ping',
@@ -382,7 +386,49 @@ final class ControllerTest extends TestCase {
 			'lease_until' => '2026-11-07T12:02:00Z',
 			'created_at'  => '2026-11-07T12:00:00Z',
 			'job_token'   => self::job_token( $claims ),
+			'queue_token' => self::queue_token( array_merge( isset( $claims['sub'] ) ? [ 'action' => $claims['sub'] ] : [], $queue_claims ) ),
 		];
+	}
+
+	/**
+	 * A queue token as the API signs it when the ping job is queued, with
+	 * claims changed.
+	 *
+	 * @param array<string, mixed> $claims Claims to change; null removes one.
+	 * @param mixed                $key    The key to sign with; Scanfully's when null.
+	 */
+	private static function queue_token( array $claims = [], $key = null ): string {
+		$header  = self::b64url(
+			(string) json_encode(
+				[
+					'alg' => 'RS256',
+					'kid' => 'key-1',
+				]
+			)
+		);
+		$payload = self::b64url(
+			(string) json_encode(
+				array_filter(
+					array_merge(
+						[
+							'iss'         => self::ISSUER,
+							'sub'         => 'queued',
+							'aud'         => [ self::SITE ],
+							'jti'         => self::JOB,
+							'action'      => 'ping',
+							'params_hash' => hash( 'sha256', '{}' ),
+							'iat'         => time() - 60,
+							'exp'         => time() + DAY_IN_SECONDS,
+						],
+						$claims
+					),
+					static fn( $value ) => null !== $value
+				)
+			)
+		);
+		openssl_sign( $header . '.' . $payload, $signature, $key ?? self::$key, OPENSSL_ALGO_SHA256 );
+
+		return $header . '.' . $payload . '.' . self::b64url( $signature );
 	}
 
 	/**
@@ -522,6 +568,7 @@ final class ControllerTest extends TestCase {
 				'params'      => [],
 				'attempt'     => 1,
 				'job_token'   => Ledger::get( self::JOB )['job']['job_token'] ?? '',
+				'queue_token' => Ledger::get( self::JOB )['job']['queue_token'] ?? '',
 				'lease_until' => '2026-11-07T12:02:00Z',
 				'params_json' => '{}',
 			],
@@ -993,6 +1040,8 @@ final class ControllerTest extends TestCase {
 		return [
 			'insufficient_scope' => [ 'insufficient_scope' ],
 			'beta_required'      => [ 'beta_required' ],
+			'trial_expired'      => [ 'trial_expired' ],
+			'account_paused'     => [ 'account_paused' ],
 		];
 	}
 
@@ -1075,7 +1124,7 @@ final class ControllerTest extends TestCase {
 	}
 
 	public function test_a_pull_refused_for_the_scope_or_beta_pauses_the_clock_until_the_grant_changes(): void {
-		foreach ( [ 'insufficient_scope', 'beta_required' ] as $code ) {
+		foreach ( [ 'insufficient_scope', 'beta_required', 'trial_expired', 'account_paused' ] as $code ) {
 			$this->actions = [];
 			unset( $this->options['scanfully_manage_paused'], $this->options['last_request_error'] );
 			Controller::sync_clock();
@@ -1102,10 +1151,20 @@ final class ControllerTest extends TestCase {
 		$this->assertTrue( $this->pending( Controller::ACTION_PULL ) );
 	}
 
-	public function test_a_poke_ends_the_pause(): void {
+	/**
+	 * A poke ends a pause for every permission answer: for an account whose
+	 * trial ended or that was paused for an overdue payment the grant does
+	 * not change when it is resolved, so a poke from Scanfully is what starts
+	 * the clock again.
+	 *
+	 * @dataProvider permission_codes
+	 *
+	 * @param string $code The error code of the 403.
+	 */
+	public function test_a_poke_ends_the_pause( string $code ): void {
 		$this->answers['GET /manage/jobs'] = [
 			'code' => 403,
-			'body' => '{"error":"beta_required"}',
+			'body' => '{"error":"' . $code . '"}',
 		];
 		Controller::pull();
 		$this->assertTrue( Controller::paused() );
@@ -1293,6 +1352,53 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( '', Address::normalize( 'not an address' ) );
 	}
 
+	public function test_the_address_is_stored_as_its_hash_with_a_copy_only_for_the_notice(): void {
+		Address::remember();
+
+		$this->assertSame( hash( 'sha256', 'scanfully.com' ), $this->options['address'] ?? '' );
+		$this->assertSame( bin2hex( 'scanfully.com' ), $this->options['address_shown'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+		$this->assertFalse( Address::moved() );
+
+		// The copy for the notice is never compared.
+		$this->options['address_shown'] = bin2hex( 'staging.scanfully.com' );
+		$this->home                     = 'https://staging.scanfully.com';
+		$this->assertTrue( Address::moved() );
+	}
+
+	public function test_a_search_replace_of_the_domain_does_not_hide_a_copy(): void {
+		// Connected at scanfully.com; staging is made with
+		// wp search-replace 'scanfully.com' 'staging.scanfully.com', which
+		// rewrites home and every option value alike.
+		$this->stubTranslationFunctions();
+		Address::remember();
+		$this->home = str_replace( 'scanfully.com', 'staging.scanfully.com', $this->home );
+		foreach ( $this->options as $name => $value ) {
+			if ( is_string( $value ) ) {
+				$this->options[ $name ] = str_replace( 'scanfully.com', 'staging.scanfully.com', $value );
+			}
+		}
+
+		$this->assertSame( 'https://staging.scanfully.com', $this->home );
+		$this->assertTrue( Address::moved(), 'the copy is still noticed' );
+		$this->assertSame( 'scanfully.com', Address::stored(), 'and the notice still names the old address' );
+		$this->assertStringContainsString( 'a copy of scanfully.com.', Address::notice_text() );
+	}
+
+	public function test_an_address_stored_by_an_earlier_version_becomes_its_hash_on_first_read(): void {
+		$this->options['address'] = 'scanfully.com';
+
+		$this->assertFalse( Address::moved() );
+		$this->assertSame( hash( 'sha256', 'scanfully.com' ), $this->options['address'] );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+
+		$this->options['address'] = 'scanfully.com';
+		unset( $this->options['address_shown'] );
+		$this->home = 'https://staging.scanfully.com';
+		$this->assertTrue( Address::moved(), 'an earlier connection at another address' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+	}
+
 	public function test_a_move_to_https_or_another_case_is_the_same_site(): void {
 		$this->home = 'http://scanfully.com';
 		Address::remember();
@@ -1314,7 +1420,7 @@ final class ControllerTest extends TestCase {
 		// WPML or Polylang answer another home_url() in wp-admin, REST and cron.
 		$this->assertNotSame( home_url(), home_url() );
 		Address::remember();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 
 		$this->jobs( [] );
 		for ( $i = 0; $i < 3; $i++ ) {
@@ -1327,7 +1433,7 @@ final class ControllerTest extends TestCase {
 	public function test_a_copy_of_the_site_pulls_runs_reports_and_takes_pokes_for_nothing(): void {
 		// Connected at scanfully.com, with a job pulled and one result to send.
 		Address::remember();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		Controller::sync_clock();
 		$this->jobs( [ self::ping() ] );
 		Controller::pull();
@@ -1380,7 +1486,7 @@ final class ControllerTest extends TestCase {
 
 		Address::keep();
 
-		$this->assertSame( 'www.scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'www.scanfully.com', Address::stored() );
 		$this->assertFalse( Address::moved() );
 		$this->assertTrue( $this->pending( Controller::ACTION_PULL ), 'the clock runs again' );
 		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ), 'the scopes are read now' );
@@ -1396,21 +1502,21 @@ final class ControllerTest extends TestCase {
 		$this->jobs( [] );
 
 		Controller::pull();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
 
 		// Moved after that: the stored address stays, Manage pauses.
 		$this->home = 'https://scanfully-copy.com';
 		Controller::pull();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
 
 		// The scopes read adopts too, on a connection without Manage.
-		unset( $this->options['address'] );
+		unset( $this->options['address'], $this->options['address_shown'] );
 		$this->options['scopes'] = 'wordpress:read';
 		$this->connection( [ 'wordpress:read' ] );
 		Scopes::refresh();
-		$this->assertSame( 'scanfully-copy.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully-copy.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/plugin-connection' ) );
 	}
 
@@ -1681,6 +1787,67 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
 	}
 
+	/**
+	 * The ways a queue token fails, each with the job token as it should be.
+	 *
+	 * @return array<string, array{0: array<string, mixed>}>
+	 */
+	public static function provide_bad_queue_tokens(): array {
+		self::setUpBeforeClass();
+		$foreign = openssl_pkey_new(
+			[
+				'private_key_bits' => 2048,
+				'private_key_type' => OPENSSL_KEYTYPE_RSA,
+			]
+		);
+
+		return [
+			'missing'           => [ [ 'queue_token' => '' ] ],
+			'foreign'           => [ [ 'queue_token' => self::queue_token( [], $foreign ) ] ],
+			'mismatched action' => [ [ 'queue_token' => self::queue_token( [ 'action' => 'delete_plugin' ] ) ] ],
+			'mismatched params' => [ [ 'queue_token' => self::queue_token( [ 'params_hash' => hash( 'sha256', '{"slug":"evil"}' ) ] ) ] ],
+			'expired'           => [ [ 'queue_token' => self::queue_token( [ 'exp' => time() - HOUR_IN_SECONDS ] ) ] ],
+		];
+	}
+
+	/**
+	 * @dataProvider provide_bad_queue_tokens
+	 *
+	 * @param array<string, mixed> $change The job's fields to change.
+	 */
+	public function test_a_job_without_a_valid_queue_token_is_reported_signature_before_the_lock_and_the_heartbeat( array $change ): void {
+		$this->jobs( [ array_merge( self::ping(), $change ) ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$this->assertSame( $change['queue_token'], Ledger::get( self::JOB )['job']['queue_token'] ?? null, 'the ledger keeps the queue token with the job token' );
+		$this->run_pending();
+
+		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/heartbeat' ), 'no heartbeat: the job never starts' );
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertSame( 'failed', $sent[0]['state'] );
+		$this->assertSame( 'signature', $sent[0]['error']['class'] ?? '' );
+		$this->assertStringContainsString( 'or the signature from when it was queued has expired', $sent[0]['error']['message'] ?? '', 'the message covers an expired queue token' );
+		$this->assertSame( [], $sent[0]['result'], 'nothing ran' );
+		$this->assertNull( RunLock::holder( time() ), 'the run lock was never taken' );
+		$this->assertArrayNotHasKey( 'job', Ledger::get( self::JOB ) ?? [], 'from running on the row holds neither token' );
+	}
+
+	public function test_a_job_with_both_tokens_keeps_them_until_it_starts_and_then_neither(): void {
+		$this->jobs( [ self::ping() ] );
+		$this->result_taken();
+
+		Controller::pull();
+		$scheduled = Ledger::get( self::JOB )['job'] ?? [];
+		$this->assertNotSame( '', $scheduled['job_token'] ?? '' );
+		$this->assertNotSame( '', $scheduled['queue_token'] ?? '' );
+
+		$this->run_pending();
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+		$this->assertStringNotContainsString( (string) $scheduled['queue_token'], (string) ( $this->db->rows[ Ledger::PREFIX . self::JOB ] ?? '' ), 'the reported row keeps no token' );
+	}
+
 	public function test_parameters_changed_after_signing_are_refused(): void {
 		$job           = self::ping();
 		$job['params'] = [ 'slug' => 'evil' ];
@@ -1838,6 +2005,47 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
 	}
 
+	public function test_a_job_signed_with_a_key_the_fetched_set_does_not_have_yet_waits_and_runs_after_the_refetch(): void {
+		// A rolling deploy: the plugin fetches the key set from a server that
+		// publishes only the old key, while another server signs with key-1.
+		$old       = json_decode( self::$jwks, true );
+		$old['keys'][0]['kid'] = 'key-old';
+		$published = (string) json_encode( $old );
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( string $url ) use ( &$published ) {
+				if ( self::ISSUER . '/.well-known/scanfully-plugin-keys.json' === $url ) {
+					return [
+						'code' => 200,
+						'body' => $published,
+					];
+				}
+				return $this->answer( 'GET', $url, null );
+			}
+		);
+		$this->jobs( [ self::ping() ] );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( [], $this->requests_after_pull(), 'no heartbeat and no signature failure: the job waits' );
+		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '' );
+
+		Controller::pull();
+		$this->run_pending();
+		$this->assertSame( [], $this->requests_after_pull(), 'within the refetch wait it still waits' );
+
+		// The next fetch, after the wait, has the new key.
+		$published = self::$jwks;
+		unset( $this->transients['scanfully_plugin_keys_refetched'] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+	}
+
 	public function test_a_job_waits_while_another_job_holds_the_site_lock(): void {
 		RunLock::take( 'b2b2b2b2-2222-4222-8222-222222222222', time() + 600, time() );
 		$this->jobs( [ self::ping() ] );
@@ -1864,7 +2072,8 @@ final class ControllerTest extends TestCase {
 		$this->stub_wordpress_for_updates();
 		$job              = self::ping();
 		$job['action']    = 'update_translations';
-		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
 		$this->jobs( [ $job ] );
 		$this->result_taken();
 
@@ -1932,7 +2141,8 @@ final class ControllerTest extends TestCase {
 		$this->stub_wordpress_for_updates();
 		$job              = self::ping();
 		$job['action']    = 'update_translations';
-		$job['job_token'] = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
 		$this->jobs( [ $job ] );
 		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
 			'code' => 200,

@@ -22,7 +22,12 @@ use Scanfully\Options\Controller as OptionsController;
  * multilingual plugins and domain mappers use to change the address between
  * wp-admin, REST and cron), as host, port and path, lowercased, without the
  * scheme and without a trailing slash, so a move from http to https is the
- * same site. While the current address differs,
+ * same site. It is stored as the SHA-256 of that form, and only the hash is
+ * compared: a search-replace of the domain across the database (a common way
+ * to make a staging copy) rewrites home, but cannot rewrite a hash to match.
+ * A readable copy, hex-encoded so the same search-replace leaves it alone
+ * too, is kept only to name the address in the notice; it is never compared.
+ * While the current address differs,
  * Scanfully Manage is paused: no clock, no pull, no run, no result sent, and
  * the manage and scopes pokes are answered 409 site_moved. The copy never
  * refreshes the tokens (they are the original's: a refresh would rotate them
@@ -35,9 +40,17 @@ use Scanfully\Options\Controller as OptionsController;
 class Address {
 
 	/**
-	 * The option holding the address, without the Scanfully prefix.
+	 * The option holding the SHA-256 of the address (lowercase hex), without
+	 * the Scanfully prefix. Before 2.0 it held the address itself: that value
+	 * is turned into its hash on first read.
 	 */
 	public const OPTION = 'address';
+
+	/**
+	 * The option holding the address for the notice, hex-encoded, without
+	 * the Scanfully prefix. Never compared.
+	 */
+	public const SHOWN_OPTION = 'address_shown';
 
 	/**
 	 * The code of a poke answered while the address differs.
@@ -102,12 +115,50 @@ class Address {
 	}
 
 	/**
-	 * The address the site was connected from, or '' when none is stored.
+	 * The SHA-256 of an address in the stored form, as lowercase hex.
+	 *
+	 * @param string $address The normalized address.
+	 *
+	 * @return string
+	 */
+	public static function hash( string $address ): string {
+		return hash( 'sha256', $address );
+	}
+
+	/**
+	 * The hash of the address the site was connected from, or '' when none
+	 * is stored. A connection stored by an earlier version holds the
+	 * address itself: it is turned into its hash now, with the readable copy
+	 * for the notice. A stored address is never 64 hex characters (a host
+	 * label is at most 63), so the two forms never mix up.
+	 *
+	 * @return string
+	 */
+	public static function stored_hash(): string {
+		$stored = OptionsController::get_option( self::OPTION );
+		if ( '' === $stored || self::is_hash( $stored ) ) {
+			return $stored;
+		}
+		self::store( $stored );
+
+		return self::hash( $stored );
+	}
+
+	/**
+	 * The address the site was connected from, for the notice only, or ''
+	 * when none is stored. Never compared: moved() compares the hashes.
 	 *
 	 * @return string
 	 */
 	public static function stored(): string {
-		return OptionsController::get_option( self::OPTION );
+		self::stored_hash();
+		$shown = OptionsController::get_option( self::SHOWN_OPTION );
+		if ( '' === $shown || 0 !== strlen( $shown ) % 2 || ! ctype_xdigit( $shown ) ) {
+			return '';
+		}
+		$address = hex2bin( $shown );
+
+		return false === $address ? '' : $address;
 	}
 
 	/**
@@ -117,7 +168,31 @@ class Address {
 	 * @return void
 	 */
 	public static function remember(): void {
-		OptionsController::set_option( self::OPTION, self::current() );
+		self::store( self::current() );
+	}
+
+	/**
+	 * Store an address as the connection's own: its hash, and its readable
+	 * copy for the notice.
+	 *
+	 * @param string $address The normalized address.
+	 *
+	 * @return void
+	 */
+	private static function store( string $address ): void {
+		OptionsController::set_option( self::OPTION, self::hash( $address ) );
+		OptionsController::set_option( self::SHOWN_OPTION, bin2hex( $address ), false );
+	}
+
+	/**
+	 * Whether a stored value is a hash: 64 lowercase hex characters.
+	 *
+	 * @param string $value The stored value.
+	 *
+	 * @return bool
+	 */
+	private static function is_hash( string $value ): bool {
+		return 1 === preg_match( '/^[0-9a-f]{64}$/D', $value );
 	}
 
 	/**
@@ -127,14 +202,15 @@ class Address {
 	 * @return void
 	 */
 	public static function adopt_if_missing(): void {
-		if ( OptionsController::get_options()->is_connected && '' === self::stored() && '' !== self::current() ) {
+		if ( OptionsController::get_options()->is_connected && '' === self::stored_hash() && '' !== self::current() ) {
 			self::remember();
 		}
 	}
 
 	/**
 	 * Whether the site runs at another address than the one it was
-	 * connected from: a copy of the site, or the site moved.
+	 * connected from: a copy of the site, or the site moved. The hash of the
+	 * current address is compared with the stored hash.
 	 *
 	 * @return bool
 	 */
@@ -142,9 +218,9 @@ class Address {
 		if ( ! OptionsController::get_options()->is_connected ) {
 			return false;
 		}
-		$stored = self::stored();
+		$stored = self::stored_hash();
 
-		return '' !== $stored && self::current() !== $stored;
+		return '' !== $stored && ! hash_equals( $stored, self::hash( self::current() ) );
 	}
 
 	/**

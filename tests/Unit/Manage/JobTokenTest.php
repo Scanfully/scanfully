@@ -63,8 +63,10 @@ final class JobTokenTest extends TestCase {
 			'private_key_bits' => 2048,
 			'private_key_type' => OPENSSL_KEYTYPE_RSA,
 		];
-		self::$key       = openssl_pkey_new( $settings );
-		self::$other_key = openssl_pkey_new( $settings );
+		// Once per run: the data providers call this before PHPUnit does, and
+		// their tokens must stay signed with the key the tests publish.
+		self::$key       = self::$key ?? openssl_pkey_new( $settings );
+		self::$other_key = self::$other_key ?? openssl_pkey_new( $settings );
 		$details         = openssl_pkey_get_details( self::$key );
 		self::$jwks      = (string) json_encode(
 			[
@@ -149,6 +151,31 @@ final class JobTokenTest extends TestCase {
 	}
 
 	/**
+	 * A queue token as the API signs it when the job is queued, with claims
+	 * changed.
+	 *
+	 * @param array<string, mixed> $claims Claims to change; null removes one.
+	 * @param mixed                $key    The key to sign with.
+	 * @param string               $alg    The algorithm named in the header.
+	 */
+	private static function queue_token( array $claims = [], $key = null, string $alg = 'RS256' ): string {
+		return self::token(
+			array_merge(
+				[
+					'sub'         => 'queued',
+					'action'      => 'update_plugin',
+					'attempt'     => null,
+					'iat'         => time() - HOUR_IN_SECONDS,
+					'exp'         => time() + DAY_IN_SECONDS,
+				],
+				$claims
+			),
+			$key,
+			$alg
+		);
+	}
+
+	/**
 	 * The job the token is for, as the pull keeps it.
 	 *
 	 * @param array<string, mixed> $change Fields to change.
@@ -164,8 +191,9 @@ final class JobTokenTest extends TestCase {
 					'target_version' => '5.3.1',
 					'slug'           => 'akismet',
 				],
-				'attempt'   => 2,
-				'job_token' => self::token(),
+				'attempt'     => 2,
+				'job_token'   => self::token(),
+				'queue_token' => self::queue_token(),
 			],
 			$change
 		);
@@ -310,7 +338,7 @@ final class JobTokenTest extends TestCase {
 		$this->assertArrayNotHasKey( 'scanfully_plugin_keys_fetch_failed', $this->transients );
 	}
 
-	public function test_a_key_id_the_fetched_set_does_not_have_is_invalid(): void {
+	public function test_a_key_id_the_fetched_set_does_not_have_leaves_the_job_unverified_so_it_waits(): void {
 		$header = self::b64url(
 			(string) json_encode(
 				[
@@ -322,8 +350,16 @@ final class JobTokenTest extends TestCase {
 		[ , $payload, $signature ] = explode( '.', self::token() );
 		$job                       = self::job( [ 'job_token' => $header . '.' . $payload . '.' . $signature ] );
 
-		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'the key set was fetched and has no such key' );
-		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( $job, self::SITE ), 'the key set was fetched now and has no such key: a key rotation may be under way' );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( $job, self::SITE ), 'also within the refetch wait' );
+		$this->assertTrue( \Scanfully\Sync\SignedRequest::key_unknown() );
+		$this->assertFalse( \Scanfully\Sync\SignedRequest::keys_unavailable(), 'the set itself was fetched' );
+
+		[ , $payload, $signature ] = explode( '.', self::queue_token() );
+		$this->assertSame( JobToken::UNVERIFIED, JobToken::check( self::job( [ 'queue_token' => $header . '.' . $payload . '.' . $signature ] ), self::SITE ), 'the queue token the same' );
+
+		$this->assertSame( JobToken::INVALID, JobToken::check( self::job( [ 'job_token' => self::token( [], self::$other_key ) ] ), self::SITE ), 'a known key id with a signature that does not check out is invalid' );
+		$this->assertFalse( \Scanfully\Sync\SignedRequest::key_unknown() );
 	}
 
 	public function test_a_cached_key_set_without_the_key_and_a_failed_refetch_is_unverified(): void {
@@ -336,6 +372,98 @@ final class JobTokenTest extends TestCase {
 	public function test_an_empty_key_set_is_a_failed_fetch_not_a_set_to_cache(): void {
 		$this->assertNull( \Scanfully\Sync\SignedRequest::parse_keys( '{"keys":[]}' ) );
 		$this->assertNull( \Scanfully\Sync\SignedRequest::parse_keys( '{"keys":[{"kty":"EC","kid":"x"}]}' ) );
+	}
+
+	/**
+	 * @dataProvider provide_queue_tokens_that_do_not_check_out
+	 *
+	 * @param array<string, mixed> $job   The job's fields to change.
+	 * @param string               $label What is wrong.
+	 */
+	public function test_a_job_whose_queue_token_does_not_check_out_is_invalid( array $job, string $label ): void {
+		$this->assertSame( JobToken::INVALID, JobToken::check( self::job( $job ), self::SITE ), $label );
+	}
+
+	/**
+	 * @return array<string, array{0: array<string, mixed>, 1: string}>
+	 */
+	public static function provide_queue_tokens_that_do_not_check_out(): array {
+		self::setUpBeforeClass();
+
+		return [
+			'missing'                 => [ [ 'queue_token' => '' ], 'a job without a queue token, as a row queued before it was signed' ],
+			'absent'                  => [ [ 'queue_token' => null ], 'no queue_token field at all' ],
+			'not a JWT'               => [ [ 'queue_token' => 'sfy_sat_token' ], 'not a token' ],
+			'foreign'                 => [ [ 'queue_token' => self::queue_token( [], self::$other_key ) ], 'signed with a key Scanfully does not publish' ],
+			'HS256'                   => [ [ 'queue_token' => self::queue_token( [], null, 'HS256' ) ], 'another algorithm' ],
+			'the job token twice'     => [ [ 'queue_token' => self::token() ], 'the per-attempt token handed in as the queue token' ],
+			'another issuer'          => [ [ 'queue_token' => self::queue_token( [ 'iss' => 'https://api.scanfully.dev' ] ) ], 'another issuer' ],
+			'another site'            => [ [ 'queue_token' => self::queue_token( [ 'aud' => [ 'another-site' ] ] ) ], 'queued for another site' ],
+			'more sites'              => [ [ 'queue_token' => self::queue_token( [ 'aud' => [ self::SITE, 'another-site' ] ] ) ], 'an audience of more sites' ],
+			'another purpose'         => [ [ 'queue_token' => self::queue_token( [ 'sub' => 'update_plugin' ] ) ], 'sub is not queued' ],
+			'another job'             => [ [ 'queue_token' => self::queue_token( [ 'jti' => 'b2b2b2b2-2222-4222-8222-222222222222' ] ) ], 'the queue token of another job' ],
+			'mismatched action'       => [ [ 'queue_token' => self::queue_token( [ 'action' => 'delete_plugin' ] ) ], 'queued as another action than the job token names' ],
+			'no action'               => [ [ 'queue_token' => self::queue_token( [ 'action' => null ] ) ], 'no action' ],
+			'mismatched params'       => [ [ 'queue_token' => self::queue_token( [ 'params_hash' => hash( 'sha256', '{"slug":"evil"}' ) ] ) ], 'queued with other parameters' ],
+			'no params hash'          => [ [ 'queue_token' => self::queue_token( [ 'params_hash' => null ] ) ], 'no params_hash' ],
+			'expired'                 => [ [ 'queue_token' => self::queue_token( [ 'exp' => time() - 31 ] ) ], 'its delivery window and longest run passed' ],
+			'no exp'                  => [ [ 'queue_token' => self::queue_token( [ 'exp' => null ] ) ], 'no exp' ],
+			'no iat'                  => [ [ 'queue_token' => self::queue_token( [ 'iat' => null ] ) ], 'no iat: when it was queued' ],
+			'exp as text'             => [ [ 'queue_token' => self::queue_token( [ 'exp' => (string) ( time() + 60 ) ] ) ], 'an exp that is not a number' ],
+			'not yet valid'           => [ [ 'queue_token' => self::queue_token( [ 'nbf' => time() + 3600 ] ) ], 'nbf in the future' ],
+		];
+	}
+
+	public function test_a_queue_token_and_a_job_token_must_name_the_same_action_and_params(): void {
+		// The row was changed after it was queued: the pull signs a job token
+		// for what the row holds now, which the queue token does not.
+		$job = self::job(
+			[
+				'action'    => 'delete_plugin',
+				'job_token' => self::token( [ 'sub' => 'delete_plugin' ] ),
+			]
+		);
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'another action' );
+
+		$job = self::job(
+			[
+				'params'    => [ 'slug' => 'evil' ],
+				'job_token' => self::token( [ 'params_hash' => hash( 'sha256', '{"slug":"evil"}' ) ] ),
+			]
+		);
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'other parameters' );
+	}
+
+	public function test_a_queue_token_within_the_skew_and_in_upper_case_hex_checks_out(): void {
+		// One time for the token and the check, so a second ticking over
+		// between them cannot move the boundary.
+		$now = time();
+		$this->assertSame( JobToken::VALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'exp' => $now - 30 ] ) ] ), self::SITE, $now ), '30 seconds of skew' );
+		$this->assertSame( JobToken::INVALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'exp' => $now - 31 ] ) ] ), self::SITE, $now ), 'and not one more' );
+		$this->assertSame( JobToken::VALID, JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'aud' => self::SITE ] ) ] ), self::SITE ), 'the audience as a string' );
+		$this->assertSame(
+			JobToken::VALID,
+			JobToken::check( self::job( [ 'queue_token' => self::queue_token( [ 'params_hash' => strtoupper( hash( 'sha256', '{"slug":"akismet","target_version":"5.3.1"}' ) ) ] ) ] ), self::SITE ),
+			'the hash in upper case'
+		);
+	}
+
+	public function test_the_job_token_is_checked_first_so_a_passed_lease_still_waits(): void {
+		$job = self::job(
+			[
+				'job_token'   => self::token( [ 'exp' => time() - HOUR_IN_SECONDS ] ),
+				'queue_token' => '',
+			]
+		);
+		$this->assertSame( JobToken::EXPIRED, JobToken::check( $job, self::SITE ), 'the next pull brings a new attempt and both tokens' );
+
+		$job = self::job(
+			[
+				'job_token'   => '',
+				'queue_token' => self::queue_token(),
+			]
+		);
+		$this->assertSame( JobToken::INVALID, JobToken::check( $job, self::SITE ), 'a queue token alone runs nothing' );
 	}
 
 	public function test_the_expiry_of_a_token_is_its_exp(): void {

@@ -134,7 +134,8 @@ abstract class LoginTestCase extends TestCase {
 			'scanfully_connect_site_id'      => self::SITE,
 			'scanfully_connect_flow'         => 'oauth',
 			'scanfully_connect_scopes'       => 'wordpress:read wordpress:login',
-			'scanfully_connect_address'      => 'scanfully.com',
+			'scanfully_connect_address'      => hash( 'sha256', 'scanfully.com' ),
+			'scanfully_connect_address_shown' => bin2hex( 'scanfully.com' ),
 			'home'                           => 'https://scanfully.com',
 		];
 		$this->users     = [
@@ -219,6 +220,7 @@ abstract class LoginTestCase extends TestCase {
 		return [
 			'iss'     => self::ISSUER,
 			'aud'     => self::SITE,
+			'host'    => 'scanfully.com',
 			'sub'     => 'login',
 			'jti'     => 'c3c3c3c3-3333-4333-8333-' . bin2hex( random_bytes( 6 ) ),
 			'iat'     => self::NOW,

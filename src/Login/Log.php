@@ -13,8 +13,10 @@ namespace Scanfully\Login;
  * the last KEEP in an option that is not autoloaded, writes them to the PHP
  * error log while WP_DEBUG_LOG is on, as the plugin's other logs do, and
  * fires scanfully_login_refused so a site can pass them to its own logger.
- * The rate limit bounds it: at most one line per refused link below the
- * limit, and one for a burst beyond it.
+ * The rate limits bound it: per minute, at most one line per signed link
+ * below the limit and one for a burst beyond it, and at most LIMIT lines
+ * for links refused before the rate limit (not Scanfully's, or not meant
+ * for this site at this address) and one for a burst of those.
  */
 final class Log {
 

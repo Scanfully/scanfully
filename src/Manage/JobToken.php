@@ -15,10 +15,20 @@ use Scanfully\Sync\SignedRequest;
  * an RS256 JWT from the same key pair as the pokes that names Scanfully
  * (iss), this site (aud), the action (sub), the job (jti), the attempt, the
  * SHA-256 of the job's parameters (params_hash) and the end of the lease
- * (exp). The plugin runs nothing without one: whoever can write a job row at
- * Scanfully, but cannot sign, cannot make a site run anything.
+ * (exp). Next to it the pull hands out the job's queue token (queue_token),
+ * which Scanfully signed when the job was queued, in the same transaction
+ * as the job row: it names Scanfully (iss), this site (aud), the purpose
+ * (sub queued), the job (jti), the action and params_hash, and lives for the
+ * delivery window and the action's longest run (exp). The plugin runs a job
+ * only when both check out and agree on the job, the action and the
+ * parameters: the job token says Scanfully hands this attempt to this site
+ * now (a forged pull answer or a changed ledger row does not verify); the
+ * queue token says Scanfully queued this action with these parameters for
+ * this site (whoever can write a job row at Scanfully, but cannot sign,
+ * cannot make a site run anything, because the pull signs a job token from
+ * whatever the row holds).
  *
- * The token is not burned like a poke's jti: the ledger already keeps a job
+ * Neither token is burned like a poke's jti: the ledger already keeps a job
  * id to one run, and a job whose first heartbeat got no yes is checked again
  * when it is retried.
  */
@@ -37,8 +47,11 @@ final class JobToken {
 
 	/**
 	 * The token could not be checked: Scanfully's key set could not be
-	 * fetched. The job waits for the next pull, as an expired one does, so
-	 * an outage during a key rotation does not use up its one attempt.
+	 * fetched, or the set fetched within the last few minutes does not have
+	 * the token's key id (during a rotation it can come from a server that
+	 * does not publish the new key yet). The job waits for the next pull, as
+	 * an expired one does, so a key rotation does not use up its one
+	 * attempt.
 	 */
 	public const UNVERIFIED = 'unverified';
 
@@ -48,11 +61,23 @@ final class JobToken {
 	public const INVALID = 'invalid';
 
 	/**
-	 * Check a job's token.
+	 * The purpose a queue token names (sub).
+	 */
+	public const QUEUED_SUB = 'queued';
+
+	/**
+	 * Seconds of clock difference a queue token's exp may have.
+	 */
+	public const QUEUE_SKEW = 30;
+
+	/**
+	 * Check a job's tokens: the per-attempt job token first (a lease that
+	 * passed answers EXPIRED, so the job waits for the next pull), then the
+	 * queue token, which must name the same job, action and parameters.
 	 *
-	 * @param array{id: string, action: string, params: array, attempt?: int, job_token?: string, params_json?: string} $job     The job as pulled.
-	 * @param string                                                                                                    $site_id The site's Scanfully id.
-	 * @param int|null                                                                                                  $now     The time.
+	 * @param array{id: string, action: string, params: array, attempt?: int, job_token?: string, queue_token?: string, params_json?: string} $job     The job as pulled.
+	 * @param string                                                                                                                          $site_id The site's Scanfully id.
+	 * @param int|null                                                                                                                        $now     The time.
 	 *
 	 * @return string One of VALID, EXPIRED, UNVERIFIED, INVALID.
 	 */
@@ -64,7 +89,7 @@ final class JobToken {
 		}
 		$claims = SignedRequest::claims( $token );
 		if ( null === $claims ) {
-			return SignedRequest::keys_unavailable() ? self::UNVERIFIED : self::INVALID;
+			return SignedRequest::keys_unavailable() || SignedRequest::key_unknown() ? self::UNVERIFIED : self::INVALID;
 		}
 
 		// The parameters the action gets, hashed: their canonical JSON as
@@ -84,6 +109,46 @@ final class JobToken {
 		}
 		if ( $claims['exp'] < $now - SignedRequest::LEEWAY ) {
 			return self::EXPIRED;
+		}
+
+		return self::check_queued( $job, $site_id, $claims, $hash, $now );
+	}
+
+	/**
+	 * Check a job's queue token, after its job token checked out: through the
+	 * same verifier, Scanfully's (iss), for this site only (aud), sub queued,
+	 * jti the job's and the job token's, action and params_hash the job
+	 * token's and the job's, iat when it was queued, exp not passed
+	 * (QUEUE_SKEW seconds of skew). A job without one is not run.
+	 *
+	 * @param array                $job        The job as pulled.
+	 * @param string               $site_id    The site's Scanfully id.
+	 * @param array<string, mixed> $job_claims The job token's claims.
+	 * @param string               $hash       The SHA-256 of the job's parameters.
+	 * @param int                  $now        The time.
+	 *
+	 * @return string One of VALID, UNVERIFIED, INVALID.
+	 */
+	private static function check_queued( array $job, string $site_id, array $job_claims, string $hash, int $now ): string {
+		$token = isset( $job['queue_token'] ) && is_string( $job['queue_token'] ) ? $job['queue_token'] : '';
+		if ( '' === $token || ! SignedRequest::looks_signed( $token ) ) {
+			return self::INVALID;
+		}
+		$claims = SignedRequest::claims( $token );
+		if ( null === $claims ) {
+			return SignedRequest::keys_unavailable() || SignedRequest::key_unknown() ? self::UNVERIFIED : self::INVALID;
+		}
+		$params_hash = isset( $claims['params_hash'] ) && is_string( $claims['params_hash'] ) ? strtolower( $claims['params_hash'] ) : '';
+		if ( ( $claims['iss'] ?? '' ) !== Main::get_oauth_url()
+			|| ! self::names_only( $claims['aud'] ?? null, $site_id )
+			|| ( $claims['sub'] ?? '' ) !== self::QUEUED_SUB
+			|| ( $claims['jti'] ?? '' ) !== $job['id'] || ( $claims['jti'] ?? '' ) !== ( $job_claims['jti'] ?? null )
+			|| ( $claims['action'] ?? '' ) !== $job['action'] || ( $claims['action'] ?? '' ) !== ( $job_claims['sub'] ?? null )
+			|| '' === $params_hash || ! hash_equals( $hash, $params_hash ) || ! hash_equals( strtolower( (string) $job_claims['params_hash'] ), $params_hash )
+			|| ! isset( $claims['iat'] ) || ! is_int( $claims['iat'] )
+			|| ! isset( $claims['exp'] ) || ! is_int( $claims['exp'] ) || $claims['exp'] < $now - self::QUEUE_SKEW
+			|| ( isset( $claims['nbf'] ) && ( ! is_int( $claims['nbf'] ) || $claims['nbf'] > $now + self::QUEUE_SKEW ) ) ) {
+			return self::INVALID;
 		}
 
 		return self::VALID;

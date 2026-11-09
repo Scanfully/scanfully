@@ -421,6 +421,20 @@ class Controller {
 	}
 
 	/**
+	 * The site's address as reported to Scanfully: the raw home option,
+	 * which honours WP_HOME but not the home_url filters that multilingual
+	 * plugins and domain mappers use to answer another address in wp-admin,
+	 * REST or cron. Falls back to home_url() when the option is not a string.
+	 *
+	 * @return string
+	 */
+	public static function site_address(): string {
+		$home = get_option( 'home' );
+
+		return is_string( $home ) && '' !== $home ? $home : home_url();
+	}
+
+	/**
 	 * Get the site data sent to Scanfully.
 	 *
 	 * @return array
@@ -460,7 +474,11 @@ class Controller {
 				// capabilities. On multisite count_users() is kept, because it
 				// counts this site's users rather than the whole network's.
 				'user_count' => is_multisite() ? (int) count_users()['total_users'] : (int) get_user_count(),
-				'site_url' => home_url(),
+				// The raw home option (WP_HOME when set), never a home_url
+				// filter's answer: Scanfully signs this address, normalized,
+				// into a sign-in link, and the plugin checks it against
+				// Connect\Address::current(), which reads the same option.
+				'site_url' => self::site_address(),
 
 				'server_arch' => self::get_server_arch(),
 				'os_id' => self::get_os_id(),

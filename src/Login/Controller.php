@@ -21,30 +21,40 @@ use Scanfully\Sync\SignedRequest;
  * sends: an RS256 JWT checked against Scanfully's published keys by the
  * same code that checks the pokes and the job tokens (SignedRequest), with
  * no shared secret and no other way in. It names Scanfully (iss), this site
- * (aud), the purpose (sub login), one use (jti), a life of 60 seconds (iat,
- * exp), the Scanfully user (uid, name), how they asked (via) and the
- * WordPress user (wp_user). The plugin checks, in this order, and stops at
- * the first that fails:
+ * (aud), the address the link was built for (host), the purpose (sub
+ * login), one use (jti), a life of 60 seconds (iat, exp), the Scanfully user
+ * (uid, name), how they asked (via) and the WordPress user (wp_user). The
+ * plugin checks, in this order, and stops at the first that fails:
  *
  * 1. the request is a GET (a HEAD from a link previewer neither burns the
  *    link, counts against the limit nor writes the log);
- * 2. fewer than LIMIT links were opened on the site this minute (beyond
- *    it, nothing below runs and a burst is logged once, so the log is
- *    rate limited too), and the request came over HTTPS;
+ * 2. the request came over HTTPS;
  * 3. the token has the form of a JWT and is not too long;
  * 4. the signature checks out against Scanfully's key with the header's
  *    kid (RS256);
  * 5. iss is Scanfully;
  * 6. aud names this site and nothing else, and this is the site it was
  *    connected at (not a copy);
- * 7. sub is login, so no other signed request works here;
- * 8. exp has not passed, with SKEW seconds of clock skew, iat is not in the
- *    future, and the token lives no longer than LIFETIME seconds;
- * 9. the claims a login needs are there: jti, uid, wp_user, name and via;
- * 10. the jti was not seen before: it is burned now, on first sight, so a
+ * 7. host is this site's address now (Connect\Address::current(), the form
+ *    Connect\Address::normalize() gives), so a link Scanfully sent to
+ *    another address (a domain changed in Scanfully) is worthless here;
+ * 8. fewer than LIMIT links that passed 7 were opened on the site this
+ *    minute (beyond it, nothing below runs and a burst is logged once). A
+ *    link refused at 2 to 7 is not Scanfully's, cannot be told to be, or is
+ *    not meant for this site at this address (a token minted for another
+ *    site is signed too): it never counts against this limit, so nobody
+ *    can keep this site's real links out, and it has a counter of its own
+ *    that only limits the log, LIMIT lines a minute and one for a burst
+ *    beyond them. Checks 2 to 7 read the request, the key set and a few
+ *    options, and touch no burn list;
+ * 9. sub is login, so no other signed request works here;
+ * 10. exp has not passed, with SKEW seconds of clock skew, iat is not in
+ *     the future, and the token lives no longer than LIFETIME seconds;
+ * 11. the claims a login needs are there: jti, uid, wp_user, name and via;
+ * 12. the jti was not seen before: it is burned now, on first sight, so a
  *     token refused below cannot be tried again either;
- * 11. the plugin's own copy of the grant holds wordpress:login;
- * 12. wp_user exists and is an administrator (a super admin on a network).
+ * 13. the plugin's own copy of the grant holds wordpress:login;
+ * 14. wp_user exists and is an administrator (a super admin on a network).
  *
  * Then it sets the WordPress auth cookie for that user (not remember me),
  * fires scanfully_login_signed_in (the ScanfullyLogin activity event) and
@@ -110,8 +120,8 @@ final class Controller {
 	public const PRIORITY = 2;
 
 	/**
-	 * The number of the last attempt in its minute; 0 when the last check
-	 * stopped before it was counted.
+	 * The number of the last signed link in its minute; 0 when the last
+	 * check stopped before it was counted.
 	 *
 	 * @var int
 	 */
@@ -127,6 +137,7 @@ final class Controller {
 	public const REASON_ISSUER           = 'wrong_issuer';
 	public const REASON_AUDIENCE         = 'wrong_site';
 	public const REASON_SITE_MOVED       = 'site_moved';
+	public const REASON_ADDRESS          = 'wrong_address';
 	public const REASON_PURPOSE          = 'not_a_login_token';
 	public const REASON_EXPIRED          = 'expired';
 	public const REASON_NOT_YET_VALID    = 'not_yet_valid';
@@ -137,6 +148,29 @@ final class Controller {
 	public const REASON_BURN_LIST_BUSY   = 'burn_list_busy';
 	public const REASON_SCOPE            = 'scope_missing';
 	public const REASON_USER             = 'not_an_administrator';
+
+	/**
+	 * Logged once a minute, in place of the refusals beyond the LIMIT of
+	 * links that were not Scanfully's, could not be told to be, or were not
+	 * meant for this site at this address.
+	 */
+	public const REASON_UNSIGNED_BURST = 'unsigned_burst';
+
+	/**
+	 * The reasons of a link refused before the rate limit: not Scanfully's,
+	 * or not meant for this site at this address. They count only against
+	 * the log's own limit, never against the rate limit.
+	 */
+	private const UNCOUNTED_REASONS = [
+		self::REASON_NOT_HTTPS,
+		self::REASON_MALFORMED,
+		self::REASON_KEYS_UNAVAILABLE,
+		self::REASON_SIGNATURE,
+		self::REASON_ISSUER,
+		self::REASON_AUDIENCE,
+		self::REASON_SITE_MOVED,
+		self::REASON_ADDRESS,
+	];
 
 	/**
 	 * Hook the link.
@@ -209,12 +243,7 @@ final class Controller {
 		];
 		$reason = self::check( $token, $method, $https, $now, $login, $user );
 		if ( '' !== $reason ) {
-			// A burst beyond the limit logs once, at its first refused link;
-			// a HEAD or POST (a link previewer) is not counted, so it is not
-			// logged either, and no request writes the log beyond the limit.
-			if ( self::REASON_METHOD !== $reason && ( self::REASON_RATE_LIMITED !== $reason || Attempts::LIMIT + 1 === self::$attempt ) ) {
-				Log::refused( $reason, $now );
-			}
+			self::log( $reason, $now );
 
 			return [
 				'reason' => $reason,
@@ -228,6 +257,41 @@ final class Controller {
 			'user'   => $user,
 			'login'  => $login,
 		];
+	}
+
+	/**
+	 * Log a refusal, within the limits: a HEAD or POST (a link previewer) is
+	 * not logged; a burst of signed links beyond the limit logs once, at its
+	 * first refused link; links refused before the rate limit (not
+	 * Scanfully's, or not meant for this site at this address) log LIMIT
+	 * lines a minute, then one line for the rest of the burst. No request
+	 * writes the log beyond that.
+	 *
+	 * @param string $reason The reason.
+	 * @param int    $now    The time.
+	 *
+	 * @return void
+	 */
+	private static function log( string $reason, int $now ): void {
+		if ( self::REASON_METHOD === $reason ) {
+			return;
+		}
+		if ( self::REASON_RATE_LIMITED === $reason ) {
+			if ( Attempts::LIMIT + 1 === self::$attempt ) {
+				Log::refused( $reason, $now );
+			}
+			return;
+		}
+		if ( in_array( $reason, self::UNCOUNTED_REASONS, true ) ) {
+			$unsigned = Attempts::take( $now, Attempts::UNSIGNED_TRANSIENT );
+			if ( $unsigned <= Attempts::LIMIT ) {
+				Log::refused( $reason, $now );
+			} elseif ( Attempts::LIMIT + 1 === $unsigned ) {
+				Log::refused( self::REASON_UNSIGNED_BURST, $now );
+			}
+			return;
+		}
+		Log::refused( $reason, $now );
 	}
 
 	/**
@@ -247,10 +311,6 @@ final class Controller {
 		self::$attempt = 0;
 		if ( 'GET' !== $method ) {
 			return self::REASON_METHOD;
-		}
-		self::$attempt = Attempts::take( $now );
-		if ( self::$attempt > Attempts::LIMIT ) {
-			return self::REASON_RATE_LIMITED;
 		}
 		if ( ! $https ) {
 			return self::REASON_NOT_HTTPS;
@@ -273,6 +333,16 @@ final class Controller {
 		}
 		if ( Connect\Address::moved() ) {
 			return self::REASON_SITE_MOVED;
+		}
+		if ( ! self::names_this_address( $claims['host'] ?? null ) ) {
+			return self::REASON_ADDRESS;
+		}
+		// Only a link Scanfully signed for this site at this address counts
+		// against the limit; beyond it nothing below runs (no further claim
+		// read, no burn list touched).
+		self::$attempt = Attempts::take( $now );
+		if ( self::$attempt > Attempts::LIMIT ) {
+			return self::REASON_RATE_LIMITED;
 		}
 		if ( ( $claims['sub'] ?? '' ) !== self::SUB ) {
 			return self::REASON_PURPOSE;
@@ -391,6 +461,22 @@ final class Controller {
 		}
 
 		return is_array( $audience ) && [ $site_id ] === array_values( $audience );
+	}
+
+	/**
+	 * Whether a host claim is this site's address now: a non-empty string
+	 * equal to Connect\Address::current(). Scanfully puts the address it
+	 * built the link for into the token, in the same normalized form; a link
+	 * sent to another host and replayed here does not match.
+	 *
+	 * @param mixed $host The host claim.
+	 *
+	 * @return bool
+	 */
+	private static function names_this_address( $host ): bool {
+		$current = Connect\Address::current();
+
+		return is_string( $host ) && '' !== $host && '' !== $current && hash_equals( $current, $host );
 	}
 
 	/**

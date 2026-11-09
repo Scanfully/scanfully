@@ -92,6 +92,14 @@ final class ControllerTest extends LoginTestCase {
 			'another site'                 => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => 'e5e5e5e5-5555-4555-8555-555555555555' ] ) ), Controller::REASON_AUDIENCE ],
 			'this site and another'        => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => [ self::SITE, 'e5e5e5e5-5555-4555-8555-555555555555' ] ] ) ), Controller::REASON_AUDIENCE ],
 			'no audience'                  => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => null ] ) ), Controller::REASON_AUDIENCE ],
+			'another host'                 => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'evil.example' ] ) ), Controller::REASON_ADDRESS ],
+			'a host under this one'        => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'scanfully.com.evil.example' ] ) ), Controller::REASON_ADDRESS ],
+			'this host with a path'        => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'scanfully.com/blog' ] ) ), Controller::REASON_ADDRESS ],
+			'this host with a scheme'      => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'https://scanfully.com' ] ) ), Controller::REASON_ADDRESS ],
+			'this host not normalized'     => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'Scanfully.com' ] ) ), Controller::REASON_ADDRESS ],
+			'an empty host'                => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => '' ] ) ), Controller::REASON_ADDRESS ],
+			'no host'                      => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => null ] ) ), Controller::REASON_ADDRESS ],
+			'a host as a list'             => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => [ 'scanfully.com' ] ] ) ), Controller::REASON_ADDRESS ],
 			'a job token'                  => [ fn( self $t ) => $t->open( $t->signed( [ 'sub' => 'update_plugin' ] ) ), Controller::REASON_PURPOSE ],
 			'a manage poke'                => [ fn( self $t ) => $t->open( $t->signed( [ 'sub' => 'manage' ] ) ), Controller::REASON_PURPOSE ],
 			'expired beyond the skew'      => [ fn( self $t ) => $t->open( $t->signed(), self::NOW + 60 + 31 ), Controller::REASON_EXPIRED ],
@@ -166,6 +174,24 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertSame( Controller::REASON_SITE_MOVED, $this->open( $this->signed() )['reason'] );
 	}
 
+	public function test_a_link_sent_to_another_address_is_refused_and_not_burned(): void {
+		// Scanfully's domain was pointed at another host: the link minted for
+		// it is caught there and replayed here, within its minute.
+		$token = $this->signed( [ 'host' => 'evil.example' ] );
+
+		$this->assertSame( Controller::REASON_ADDRESS, $this->open( $token )['reason'] );
+		$this->assertArrayNotHasKey( Burns::OPTION, $this->db->rows, 'refused before its burn' );
+		$this->assertSame( [ Controller::REASON_ADDRESS ], array_column( Log::recent(), 'reason' ) );
+	}
+
+	public function test_the_host_is_the_raw_home_with_its_port_and_path(): void {
+		$this->options['home']                      = 'https://Scanfully.com:8443/blog/';
+		$this->options['scanfully_connect_address'] = hash( 'sha256', 'scanfully.com:8443/blog' );
+
+		$this->assertSame( Controller::REASON_ADDRESS, $this->open( $this->signed() )['reason'], 'the bare host is not this address' );
+		$this->assertSame( '', $this->open( $this->signed( [ 'host' => 'scanfully.com:8443/blog' ] ) )['reason'] );
+	}
+
 	public function test_a_site_that_is_not_connected_signs_nobody_in(): void {
 		$this->options['scanfully_connect_is_connected'] = '';
 		$this->options['scanfully_connect_site_id']      = '';
@@ -209,6 +235,7 @@ final class ControllerTest extends LoginTestCase {
 		$steps = [
 			Controller::REASON_ISSUER        => [ 'iss' => self::ISSUER ],
 			Controller::REASON_AUDIENCE      => [ 'aud' => self::SITE ],
+			Controller::REASON_ADDRESS       => [ 'host' => 'scanfully.com' ],
 			Controller::REASON_PURPOSE       => [ 'sub' => 'login' ],
 			Controller::REASON_EXPIRED       => [ 'exp' => self::NOW + 60 ],
 			Controller::REASON_CLAIMS        => [ 'via' => 'dashboard' ],
@@ -219,6 +246,7 @@ final class ControllerTest extends LoginTestCase {
 		$claims = [
 			'iss'     => 'https://evil.example',
 			'aud'     => 'another-site',
+			'host'    => 'evil.example',
 			'sub'     => 'update_plugin',
 			'exp'     => self::NOW - 600,
 			'iat'     => self::NOW - 660,
@@ -247,44 +275,43 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertSame( '', $this->open( $this->signed( $claims ), $now )['reason'] );
 	}
 
-	public function test_every_link_counts_against_the_limit_so_the_log_is_bounded_too(): void {
+	public function test_junk_never_counts_against_the_limit_and_logs_ten_lines_a_minute(): void {
+		$junk = [
+			fn() => $this->open( 'not a token', self::NOW, 'GET', false ),
+			fn() => $this->open( 'x' ),
+			fn() => $this->open( $this->signed( [], [], self::$other_key ) ),
+		];
 		for ( $i = 0; $i < 30; $i++ ) {
-			$this->open( 'not a token', self::NOW, 'GET', false );
+			$junk[ $i % 3 ]();
 		}
 
 		$this->assertSame(
-			array_merge( array_fill( 0, Attempts::LIMIT, Controller::REASON_NOT_HTTPS ), [ Controller::REASON_RATE_LIMITED ] ),
+			array_merge( array_slice( array_merge( ...array_fill( 0, 4, [ Controller::REASON_NOT_HTTPS, Controller::REASON_MALFORMED, Controller::REASON_SIGNATURE ] ) ), 0, Attempts::LIMIT ), [ Controller::REASON_UNSIGNED_BURST ] ),
 			array_column( Log::recent(), 'reason' ),
-			'thirty plain HTTP links write eleven log lines'
+			'thirty links that are not Scanfully\'s write eleven log lines'
 		);
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'none counted against the limit' );
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 1 )['reason'], 'a real link still gets in' );
+		$this->assertSame( Controller::REASON_MALFORMED, $this->open( 'x', self::NOW + 2 )['reason'], 'junk beyond the log limit is still refused for its reason' );
+		$this->assertCount( Attempts::LIMIT + 1, Log::recent(), 'without a line' );
+
+		$this->open( 'x', self::NOW + 60 );
+		$this->assertCount( Attempts::LIMIT + 2, Log::recent(), 'the next minute logs afresh' );
 	}
 
-	public function test_a_head_from_a_link_previewer_does_not_count_against_the_limit(): void {
-		for ( $i = 0; $i < 30; $i++ ) {
-			$this->assertSame( Controller::REASON_METHOD, $this->open( $this->signed(), self::NOW, 'HEAD' )['reason'] );
-		}
-
-		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
-		$this->assertSame( [], Log::recent(), 'and nothing logged' );
-		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
-	}
-
-	public function test_beyond_ten_links_a_minute_nothing_is_verified(): void {
+	public function test_beyond_ten_links_a_minute_nothing_past_the_address_is_checked(): void {
 		for ( $i = 0; $i < Attempts::LIMIT; $i++ ) {
 			$this->assertSame( '', $this->open( $this->signed(), self::NOW + 1 )['reason'] );
 		}
 		$burned = $this->db->rows[ Burns::OPTION ];
-		// Forget the key set: a signature check now would fetch it.
-		unset( $this->transients['scanfully_plugin_keys'], $this->transients['scanfully_plugin_keys_refetched'] );
-		$fetches = $this->fetches;
 
 		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed(), self::NOW + 2 )['reason'] );
-		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed(), self::NOW + 3 )['reason'] );
-		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( 'junk', self::NOW + 4 )['reason'] );
+		$this->assertSame( Controller::REASON_RATE_LIMITED, $this->open( $this->signed( [ 'sub' => 'manage' ] ), self::NOW + 3 )['reason'], 'no claim past the address is read' );
+		$this->assertSame( Controller::REASON_MALFORMED, $this->open( 'junk', self::NOW + 4 )['reason'], 'junk is refused for its own reason' );
+		$this->assertSame( Controller::REASON_AUDIENCE, $this->open( $this->signed( [ 'aud' => 'another-site' ] ), self::NOW + 5 )['reason'], 'another site\'s link is refused for its own reason' );
 
-		$this->assertSame( $fetches, $this->fetches, 'no key set fetched' );
 		$this->assertSame( $burned, $this->db->rows[ Burns::OPTION ], 'no burn list touched' );
-		$this->assertSame( [ Controller::REASON_RATE_LIMITED ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
+		$this->assertSame( [ Controller::REASON_RATE_LIMITED, Controller::REASON_MALFORMED, Controller::REASON_AUDIENCE ], array_column( Log::recent(), 'reason' ), 'a burst is logged once' );
 
 		$this->assertSame(
 			'',
@@ -299,6 +326,55 @@ final class ControllerTest extends LoginTestCase {
 			)['reason'],
 			'the next minute counts afresh'
 		);
+	}
+
+	public function test_links_signed_for_another_site_or_address_never_count_against_the_limit(): void {
+		// A customer with a login-enabled site of their own mints links for
+		// it and sends them here: signed by Scanfully, but not for this site.
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->assertSame( Controller::REASON_AUDIENCE, $this->open( $this->signed( [ 'aud' => 'e5e5e5e5-5555-4555-8555-555555555555' ] ), self::NOW + 1 )['reason'] );
+		}
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'none counted against the limit' );
+		$this->assertArrayNotHasKey( Burns::OPTION, $this->db->rows, 'none burned' );
+		$this->assertSame(
+			array_merge( array_fill( 0, Attempts::LIMIT, Controller::REASON_AUDIENCE ), [ Controller::REASON_UNSIGNED_BURST ] ),
+			array_column( Log::recent(), 'reason' ),
+			'and the log is bounded as for junk'
+		);
+
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 2 )['reason'], 'a real link still gets in' );
+
+		foreach ( [ [ 'iss' => 'https://evil.example' ], [ 'host' => 'evil.example' ] ] as $wrong ) {
+			for ( $i = 0; $i < 15; $i++ ) {
+				$this->open( $this->signed( $wrong ), self::NOW + 3 );
+			}
+		}
+		$this->options['home'] = 'https://staging.scanfully.com';
+		for ( $i = 0; $i < 15; $i++ ) {
+			$this->assertSame( Controller::REASON_SITE_MOVED, $this->open( $this->signed(), self::NOW + 3 )['reason'] );
+		}
+		$this->options['home'] = 'https://scanfully.com';
+		$this->assertSame( '', $this->open( $this->signed(), self::NOW + 4 )['reason'], 'another issuer, another address and a copy count nothing either' );
+		$this->assertSame( 2, $this->transients[ Attempts::TRANSIENT ][1] ?? null, 'only the two real links were counted' );
+	}
+
+	public function test_the_key_set_is_fetched_at_most_once_per_few_minutes_whatever_is_sent(): void {
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->open( $this->signed( [], [ 'kid' => 'unknown-' . $i ] ) );
+		}
+
+		$this->assertSame( 1, $this->fetches );
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients );
+	}
+
+	public function test_a_head_from_a_link_previewer_does_not_count_against_the_limit(): void {
+		for ( $i = 0; $i < 30; $i++ ) {
+			$this->assertSame( Controller::REASON_METHOD, $this->open( $this->signed(), self::NOW, 'HEAD' )['reason'] );
+		}
+
+		$this->assertArrayNotHasKey( Attempts::TRANSIENT, $this->transients, 'no attempt counted' );
+		$this->assertSame( [], Log::recent(), 'and nothing logged' );
+		$this->assertSame( '', $this->open( $this->signed() )['reason'], 'the GET that follows still gets in' );
 	}
 
 	public function test_the_log_never_holds_the_token(): void {
