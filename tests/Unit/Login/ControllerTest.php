@@ -92,6 +92,14 @@ final class ControllerTest extends LoginTestCase {
 			'another site'                 => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => 'e5e5e5e5-5555-4555-8555-555555555555' ] ) ), Controller::REASON_AUDIENCE ],
 			'this site and another'        => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => [ self::SITE, 'e5e5e5e5-5555-4555-8555-555555555555' ] ] ) ), Controller::REASON_AUDIENCE ],
 			'no audience'                  => [ fn( self $t ) => $t->open( $t->signed( [ 'aud' => null ] ) ), Controller::REASON_AUDIENCE ],
+			'another host'                 => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'evil.example' ] ) ), Controller::REASON_ADDRESS ],
+			'a host under this one'        => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'scanfully.com.evil.example' ] ) ), Controller::REASON_ADDRESS ],
+			'this host with a path'        => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'scanfully.com/blog' ] ) ), Controller::REASON_ADDRESS ],
+			'this host with a scheme'      => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'https://scanfully.com' ] ) ), Controller::REASON_ADDRESS ],
+			'this host not normalized'     => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => 'Scanfully.com' ] ) ), Controller::REASON_ADDRESS ],
+			'an empty host'                => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => '' ] ) ), Controller::REASON_ADDRESS ],
+			'no host'                      => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => null ] ) ), Controller::REASON_ADDRESS ],
+			'a host as a list'             => [ fn( self $t ) => $t->open( $t->signed( [ 'host' => [ 'scanfully.com' ] ] ) ), Controller::REASON_ADDRESS ],
 			'a job token'                  => [ fn( self $t ) => $t->open( $t->signed( [ 'sub' => 'update_plugin' ] ) ), Controller::REASON_PURPOSE ],
 			'a manage poke'                => [ fn( self $t ) => $t->open( $t->signed( [ 'sub' => 'manage' ] ) ), Controller::REASON_PURPOSE ],
 			'expired beyond the skew'      => [ fn( self $t ) => $t->open( $t->signed(), self::NOW + 60 + 31 ), Controller::REASON_EXPIRED ],
@@ -166,6 +174,24 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertSame( Controller::REASON_SITE_MOVED, $this->open( $this->signed() )['reason'] );
 	}
 
+	public function test_a_link_sent_to_another_address_is_refused_and_not_burned(): void {
+		// Scanfully's domain was pointed at another host: the link minted for
+		// it is caught there and replayed here, within its minute.
+		$token = $this->signed( [ 'host' => 'evil.example' ] );
+
+		$this->assertSame( Controller::REASON_ADDRESS, $this->open( $token )['reason'] );
+		$this->assertArrayNotHasKey( Burns::OPTION, $this->db->rows, 'refused before its burn' );
+		$this->assertSame( [ Controller::REASON_ADDRESS ], array_column( Log::recent(), 'reason' ) );
+	}
+
+	public function test_the_host_is_the_raw_home_with_its_port_and_path(): void {
+		$this->options['home']                      = 'https://Scanfully.com:8443/blog/';
+		$this->options['scanfully_connect_address'] = 'scanfully.com:8443/blog';
+
+		$this->assertSame( Controller::REASON_ADDRESS, $this->open( $this->signed() )['reason'], 'the bare host is not this address' );
+		$this->assertSame( '', $this->open( $this->signed( [ 'host' => 'scanfully.com:8443/blog' ] ) )['reason'] );
+	}
+
 	public function test_a_site_that_is_not_connected_signs_nobody_in(): void {
 		$this->options['scanfully_connect_is_connected'] = '';
 		$this->options['scanfully_connect_site_id']      = '';
@@ -209,6 +235,7 @@ final class ControllerTest extends LoginTestCase {
 		$steps = [
 			Controller::REASON_ISSUER        => [ 'iss' => self::ISSUER ],
 			Controller::REASON_AUDIENCE      => [ 'aud' => self::SITE ],
+			Controller::REASON_ADDRESS       => [ 'host' => 'scanfully.com' ],
 			Controller::REASON_PURPOSE       => [ 'sub' => 'login' ],
 			Controller::REASON_EXPIRED       => [ 'exp' => self::NOW + 60 ],
 			Controller::REASON_CLAIMS        => [ 'via' => 'dashboard' ],
@@ -219,6 +246,7 @@ final class ControllerTest extends LoginTestCase {
 		$claims = [
 			'iss'     => 'https://evil.example',
 			'aud'     => 'another-site',
+			'host'    => 'evil.example',
 			'sub'     => 'update_plugin',
 			'exp'     => self::NOW - 600,
 			'iat'     => self::NOW - 660,

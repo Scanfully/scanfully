@@ -21,10 +21,10 @@ use Scanfully\Sync\SignedRequest;
  * sends: an RS256 JWT checked against Scanfully's published keys by the
  * same code that checks the pokes and the job tokens (SignedRequest), with
  * no shared secret and no other way in. It names Scanfully (iss), this site
- * (aud), the purpose (sub login), one use (jti), a life of 60 seconds (iat,
- * exp), the Scanfully user (uid, name), how they asked (via) and the
- * WordPress user (wp_user). The plugin checks, in this order, and stops at
- * the first that fails:
+ * (aud), the address the link was built for (host), the purpose (sub
+ * login), one use (jti), a life of 60 seconds (iat, exp), the Scanfully user
+ * (uid, name), how they asked (via) and the WordPress user (wp_user). The
+ * plugin checks, in this order, and stops at the first that fails:
  *
  * 1. the request is a GET (a HEAD from a link previewer neither burns the
  *    link, counts against the limit nor writes the log);
@@ -37,14 +37,17 @@ use Scanfully\Sync\SignedRequest;
  * 5. iss is Scanfully;
  * 6. aud names this site and nothing else, and this is the site it was
  *    connected at (not a copy);
- * 7. sub is login, so no other signed request works here;
- * 8. exp has not passed, with SKEW seconds of clock skew, iat is not in the
+ * 7. host is this site's address now (Connect\Address::current(), the form
+ *    Connect\Address::normalize() gives), so a link Scanfully sent to
+ *    another address (a domain changed in Scanfully) is worthless here;
+ * 8. sub is login, so no other signed request works here;
+ * 9. exp has not passed, with SKEW seconds of clock skew, iat is not in the
  *    future, and the token lives no longer than LIFETIME seconds;
- * 9. the claims a login needs are there: jti, uid, wp_user, name and via;
- * 10. the jti was not seen before: it is burned now, on first sight, so a
+ * 10. the claims a login needs are there: jti, uid, wp_user, name and via;
+ * 11. the jti was not seen before: it is burned now, on first sight, so a
  *     token refused below cannot be tried again either;
- * 11. the plugin's own copy of the grant holds wordpress:login;
- * 12. wp_user exists and is an administrator (a super admin on a network).
+ * 12. the plugin's own copy of the grant holds wordpress:login;
+ * 13. wp_user exists and is an administrator (a super admin on a network).
  *
  * Then it sets the WordPress auth cookie for that user (not remember me),
  * fires scanfully_login_signed_in (the ScanfullyLogin activity event) and
@@ -127,6 +130,7 @@ final class Controller {
 	public const REASON_ISSUER           = 'wrong_issuer';
 	public const REASON_AUDIENCE         = 'wrong_site';
 	public const REASON_SITE_MOVED       = 'site_moved';
+	public const REASON_ADDRESS          = 'wrong_address';
 	public const REASON_PURPOSE          = 'not_a_login_token';
 	public const REASON_EXPIRED          = 'expired';
 	public const REASON_NOT_YET_VALID    = 'not_yet_valid';
@@ -274,6 +278,9 @@ final class Controller {
 		if ( Connect\Address::moved() ) {
 			return self::REASON_SITE_MOVED;
 		}
+		if ( ! self::names_this_address( $claims['host'] ?? null ) ) {
+			return self::REASON_ADDRESS;
+		}
 		if ( ( $claims['sub'] ?? '' ) !== self::SUB ) {
 			return self::REASON_PURPOSE;
 		}
@@ -391,6 +398,22 @@ final class Controller {
 		}
 
 		return is_array( $audience ) && [ $site_id ] === array_values( $audience );
+	}
+
+	/**
+	 * Whether a host claim is this site's address now: a non-empty string
+	 * equal to Connect\Address::current(). Scanfully puts the address it
+	 * built the link for into the token, in the same normalized form; a link
+	 * sent to another host and replayed here does not match.
+	 *
+	 * @param mixed $host The host claim.
+	 *
+	 * @return bool
+	 */
+	private static function names_this_address( $host ): bool {
+		$current = Connect\Address::current();
+
+		return is_string( $host ) && '' !== $host && '' !== $current && hash_equals( $current, $host );
 	}
 
 	/**

@@ -146,6 +146,7 @@ final class ScanfullyLoginTest extends TestCase {
 					[
 						'iss'     => Main::get_oauth_url(),
 						'aud'     => self::SITE,
+						'host'    => Address::current(),
 						'sub'     => 'login',
 						'jti'     => wp_generate_uuid4(),
 						'iat'     => time(),
@@ -202,6 +203,14 @@ final class ScanfullyLoginTest extends TestCase {
 		$this->assertSame( Controller::REASON_AUDIENCE, Controller::attempt( $this->token( $admin, [ 'aud' => 'another-site' ] ), 'GET', true, time() )['reason'] );
 		$this->assertSame( Controller::REASON_PURPOSE, Controller::attempt( $this->token( $admin, [ 'sub' => 'update_plugin' ] ), 'GET', true, time() )['reason'] );
 		$this->assertSame( Controller::REASON_NOT_HTTPS, Controller::attempt( $this->token( $admin ), 'GET', false, time() )['reason'] );
+	}
+
+	public function test_a_link_for_another_address_is_refused_and_not_burned(): void {
+		$admin = $this->make_user( 'administrator' );
+		$token = $this->token( $admin, [ 'host' => 'evil.example' ] );
+
+		$this->assertSame( Controller::REASON_ADDRESS, Controller::attempt( $token, 'GET', true, time() )['reason'] );
+		$this->assertFalse( get_option( Burns::OPTION ), 'refused before its burn' );
 	}
 
 	public function test_a_login_queues_the_activity_event(): void {

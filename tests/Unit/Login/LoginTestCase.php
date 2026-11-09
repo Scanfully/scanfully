@@ -219,6 +219,7 @@ abstract class LoginTestCase extends TestCase {
 		return [
 			'iss'     => self::ISSUER,
 			'aud'     => self::SITE,
+			'host'    => 'scanfully.com',
 			'sub'     => 'login',
 			'jti'     => 'c3c3c3c3-3333-4333-8333-' . bin2hex( random_bytes( 6 ) ),
 			'iat'     => self::NOW,
