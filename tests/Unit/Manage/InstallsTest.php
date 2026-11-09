@@ -517,6 +517,34 @@ final class InstallsTest extends SiteTestCase {
 		$this->assertSame( 'package', $lie->error_class() );
 	}
 
+	public function test_a_zip_with_two_entries_of_one_name_is_refused(): void {
+		// A small entry and a large one, then the large one renamed to the
+		// small one's name in its local header and the central directory:
+		// read by name, the large one would never be counted.
+		$file  = $this->tmp . '/twins.zip';
+		$bytes = self::zip(
+			[
+				'twin/aaaa.txt' => 'a',
+				'twin/bbbb.txt' => str_repeat( "\0", 300000 ),
+			]
+		);
+		$bytes = str_replace( 'twin/bbbb.txt', 'twin/aaaa.txt', $bytes );
+		// It also lies about its size, so only reading every entry finds it.
+		$at    = strpos( $bytes, "PK\x01\x02", (int) strpos( $bytes, "PK\x01\x02" ) + 4 );
+		$bytes = substr_replace( $bytes, pack( 'V', 1 ), $at + 24, 4 );
+		file_put_contents( $file, $bytes );
+		$zip = new \ZipArchive();
+		$zip->open( $file );
+		$this->assertSame( [ 'twin/aaaa.txt', 'twin/aaaa.txt' ], [ $zip->statIndex( 0 )['name'], $zip->statIndex( 1 )['name'] ], 'the crafted archive holds one name twice' );
+		$this->assertSame( 1, $zip->statIndex( 1 )['size'], 'and declares 1 byte for the large one' );
+		$zip->close();
+
+		$e = $this->failure( fn() => Package::inspect( $file, $this->run, 200000 ) );
+
+		$this->assertSame( 'package', $e->error_class() );
+		$this->assertStringContainsString( 'two entries with the same name', $e->getMessage() );
+	}
+
 	public function test_a_zip_within_the_limits_passes_the_inspection(): void {
 		$file = $this->tmp . '/fine.zip';
 		file_put_contents(

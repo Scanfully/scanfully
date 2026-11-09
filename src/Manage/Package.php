@@ -203,6 +203,7 @@ final class Package {
 				throw new JobFailed( 'package', sprintf( 'The upload holds %d entries; Scanfully installs a ZIP of 1 to %d, so nothing was unpacked or installed.', $count, $max_entries ) );
 			}
 			$names    = [];
+			$seen     = [];
 			$declared = 0;
 			for ( $i = 0; $i < $count; $i++ ) {
 				$stat = $zip->statIndex( $i );
@@ -211,17 +212,26 @@ final class Package {
 				}
 				$names[ $i ] = (string) $stat['name'];
 				$declared   += (int) $stat['size'];
+				// Each entry is read by its name below: two entries with one
+				// name would let the first be counted twice and the second
+				// never, and unpacking would put one over the other.
+				if ( isset( $seen[ $names[ $i ] ] ) ) {
+					throw new JobFailed( 'package', 'The upload has two entries with the same name, so nothing was unpacked or installed.' );
+				}
+				$seen[ $names[ $i ] ] = true;
 			}
 			self::check_names( $names );
 			if ( $declared > $max_bytes ) {
 				throw new JobFailed( 'package', self::too_large( $max_bytes ) );
 			}
 			$unpacked = 0;
-			foreach ( $names as $i => $name ) {
+			foreach ( $names as $name ) {
 				if ( '/' === substr( $name, -1 ) ) {
 					continue;
 				}
-				$stream = $zip->getStreamIndex( $i );
+				// By name: getStreamIndex() exists only from PHP 8.2. The names
+				// are unique (checked above), so the name is the entry.
+				$stream = $zip->getStream( $name );
 				if ( ! is_resource( $stream ) ) {
 					throw new JobFailed( 'package', 'The upload has an entry the site cannot unpack, so nothing was unpacked or installed.' );
 				}
