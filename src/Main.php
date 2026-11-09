@@ -205,6 +205,7 @@ class Main {
 		Events\Controller::register( new Events\UserDeleted() ); // when a user is deleted.
 		Events\Controller::register( new Events\UserRoleChanged() ); // when a user's role is changed.
 		Events\Controller::register( new Events\UserLogin() ); // when a user with elevated rights logs in.
+		Events\Controller::register( new Events\ScanfullyLogin() ); // when a Scanfully user signs in with one-click WP admin access.
 		Events\FailedLogins\Counter::setup(); // counts failed logins per hour, sent by the hourly job.
 		Events\Controller::register( new Events\AppPasswordCreated() ); // when an application password is created for a user with elevated rights.
 		Events\Controller::register( new Events\AppPasswordRevoked() ); // when an application password of a user with elevated rights is revoked.
