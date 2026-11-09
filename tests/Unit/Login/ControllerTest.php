@@ -186,7 +186,7 @@ final class ControllerTest extends LoginTestCase {
 
 	public function test_the_host_is_the_raw_home_with_its_port_and_path(): void {
 		$this->options['home']                      = 'https://Scanfully.com:8443/blog/';
-		$this->options['scanfully_connect_address'] = 'scanfully.com:8443/blog';
+		$this->options['scanfully_connect_address'] = hash( 'sha256', 'scanfully.com:8443/blog' );
 
 		$this->assertSame( Controller::REASON_ADDRESS, $this->open( $this->signed() )['reason'], 'the bare host is not this address' );
 		$this->assertSame( '', $this->open( $this->signed( [ 'host' => 'scanfully.com:8443/blog' ] ) )['reason'] );

@@ -29,7 +29,7 @@ final class ScanfullyLoginTest extends TestCase {
 
 	private const SITE = 'b1b1b1b1-1111-4111-8111-111111111111';
 
-	private const OPTIONS = [ 'is_connected', 'site_id', 'flow', 'scopes', 'address' ];
+	private const OPTIONS = [ 'is_connected', 'site_id', 'flow', 'scopes', 'address', 'address_shown' ];
 
 	/**
 	 * The signing key.
@@ -64,7 +64,7 @@ final class ScanfullyLoginTest extends TestCase {
 		update_option( 'scanfully_connect_site_id', self::SITE );
 		update_option( 'scanfully_connect_flow', 'oauth' );
 		update_option( 'scanfully_connect_scopes', 'wordpress:read wordpress:login' );
-		update_option( 'scanfully_connect_address', Address::current() );
+		Address::remember();
 
 		$this->key = openssl_pkey_new(
 			[

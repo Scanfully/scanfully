@@ -1293,6 +1293,53 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( '', Address::normalize( 'not an address' ) );
 	}
 
+	public function test_the_address_is_stored_as_its_hash_with_a_copy_only_for_the_notice(): void {
+		Address::remember();
+
+		$this->assertSame( hash( 'sha256', 'scanfully.com' ), $this->options['address'] ?? '' );
+		$this->assertSame( bin2hex( 'scanfully.com' ), $this->options['address_shown'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+		$this->assertFalse( Address::moved() );
+
+		// The copy for the notice is never compared.
+		$this->options['address_shown'] = bin2hex( 'staging.scanfully.com' );
+		$this->home                     = 'https://staging.scanfully.com';
+		$this->assertTrue( Address::moved() );
+	}
+
+	public function test_a_search_replace_of_the_domain_does_not_hide_a_copy(): void {
+		// Connected at scanfully.com; staging is made with
+		// wp search-replace 'scanfully.com' 'staging.scanfully.com', which
+		// rewrites home and every option value alike.
+		$this->stubTranslationFunctions();
+		Address::remember();
+		$this->home = str_replace( 'scanfully.com', 'staging.scanfully.com', $this->home );
+		foreach ( $this->options as $name => $value ) {
+			if ( is_string( $value ) ) {
+				$this->options[ $name ] = str_replace( 'scanfully.com', 'staging.scanfully.com', $value );
+			}
+		}
+
+		$this->assertSame( 'https://staging.scanfully.com', $this->home );
+		$this->assertTrue( Address::moved(), 'the copy is still noticed' );
+		$this->assertSame( 'scanfully.com', Address::stored(), 'and the notice still names the old address' );
+		$this->assertStringContainsString( 'a copy of scanfully.com.', Address::notice_text() );
+	}
+
+	public function test_an_address_stored_by_an_earlier_version_becomes_its_hash_on_first_read(): void {
+		$this->options['address'] = 'scanfully.com';
+
+		$this->assertFalse( Address::moved() );
+		$this->assertSame( hash( 'sha256', 'scanfully.com' ), $this->options['address'] );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+
+		$this->options['address'] = 'scanfully.com';
+		unset( $this->options['address_shown'] );
+		$this->home = 'https://staging.scanfully.com';
+		$this->assertTrue( Address::moved(), 'an earlier connection at another address' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
+	}
+
 	public function test_a_move_to_https_or_another_case_is_the_same_site(): void {
 		$this->home = 'http://scanfully.com';
 		Address::remember();
@@ -1314,7 +1361,7 @@ final class ControllerTest extends TestCase {
 		// WPML or Polylang answer another home_url() in wp-admin, REST and cron.
 		$this->assertNotSame( home_url(), home_url() );
 		Address::remember();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 
 		$this->jobs( [] );
 		for ( $i = 0; $i < 3; $i++ ) {
@@ -1327,7 +1374,7 @@ final class ControllerTest extends TestCase {
 	public function test_a_copy_of_the_site_pulls_runs_reports_and_takes_pokes_for_nothing(): void {
 		// Connected at scanfully.com, with a job pulled and one result to send.
 		Address::remember();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		Controller::sync_clock();
 		$this->jobs( [ self::ping() ] );
 		Controller::pull();
@@ -1380,7 +1427,7 @@ final class ControllerTest extends TestCase {
 
 		Address::keep();
 
-		$this->assertSame( 'www.scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'www.scanfully.com', Address::stored() );
 		$this->assertFalse( Address::moved() );
 		$this->assertTrue( $this->pending( Controller::ACTION_PULL ), 'the clock runs again' );
 		$this->assertTrue( $this->pending( Scopes::ACTION_CHECK_NOW ), 'the scopes are read now' );
@@ -1396,21 +1443,21 @@ final class ControllerTest extends TestCase {
 		$this->jobs( [] );
 
 		Controller::pull();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
 
 		// Moved after that: the stored address stays, Manage pauses.
 		$this->home = 'https://scanfully-copy.com';
 		Controller::pull();
-		$this->assertSame( 'scanfully.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/manage/jobs' ) );
 
 		// The scopes read adopts too, on a connection without Manage.
-		unset( $this->options['address'] );
+		unset( $this->options['address'], $this->options['address_shown'] );
 		$this->options['scopes'] = 'wordpress:read';
 		$this->connection( [ 'wordpress:read' ] );
 		Scopes::refresh();
-		$this->assertSame( 'scanfully-copy.com', $this->options['address'] ?? '' );
+		$this->assertSame( 'scanfully-copy.com', Address::stored() );
 		$this->assertCount( 1, $this->sent( 'GET', '/plugin-connection' ) );
 	}
 
