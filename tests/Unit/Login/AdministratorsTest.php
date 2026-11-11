@@ -57,7 +57,14 @@ final class AdministratorsTest extends LoginTestCase {
 		$this->assertSame( 'Site Owner', Administrators::list()[0]['display_name'] );
 	}
 
-	public function test_a_network_lists_its_super_admins_by_id_at_most_fifty(): void {
+	public function test_a_network_lists_no_one(): void {
+		$this->network = true;
+		Functions\when( 'get_super_admins' )->justReturn( [ 'admin1' ] );
+
+		$this->assertSame( [], Administrators::list(), 'a connection on a network is for monitoring only' );
+	}
+
+	public function test_the_super_admins_are_read_by_id_at_most_fifty(): void {
 		$this->network = true;
 		$this->users   = [];
 		$logins        = [];
@@ -77,10 +84,14 @@ final class AdministratorsTest extends LoginTestCase {
 			}
 		);
 
-		$list = Administrators::list();
+		// The network connection (made by a super admin, not built yet) will
+		// sign in super admins; the reading of them is kept for it.
+		$method = new \ReflectionMethod( Administrators::class, 'super_admins' );
+		$method->setAccessible( true );
+		$list = array_map( static fn( $user ): int => (int) $user->ID, $method->invoke( null ) );
 
 		$this->assertCount( 50, $list );
-		$this->assertSame( range( 1, 50 ), array_column( $list, 'id' ) );
+		$this->assertSame( range( 1, 50 ), $list );
 	}
 
 	public function test_an_administrator_is_one_by_role_or_on_a_network_a_super_admin(): void {

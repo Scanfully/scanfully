@@ -136,11 +136,11 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertSame( [ 'ping', 'activate_plugin', 'deactivate_plugin', 'switch_theme' ], Capabilities::get()['actions'], 'no update action when WordPress names no method' );
 	}
 
-	public function test_a_network(): void {
+	public function test_a_network_is_monitoring_only(): void {
 		Functions\when( 'is_multisite' )->justReturn( true );
 
 		$this->assertTrue( Capabilities::get()['multisite'] );
-		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations' ], Capabilities::get()['actions'], 'on a network only what runs there' );
+		$this->assertSame( [], Capabilities::get()['actions'], 'a connection on a network runs no job' );
 	}
 
 	public function test_action_scheduler_before_its_data_store_is_ready(): void {
@@ -261,13 +261,15 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertNotContains( 'login', Capabilities::get()['actions'], 'without wordpress:login in the grant' );
 	}
 
-	public function test_a_network_that_can_sign_in(): void {
+	public function test_a_network_offers_no_job_and_no_login_whatever_the_grant(): void {
 		Functions\when( 'is_multisite' )->justReturn( true );
-		Functions\when( 'get_super_admins' )->justReturn( [] );
+		Functions\when( 'get_super_admins' )->justReturn( [ 'admin' ] );
 		Functions\when( 'wp_is_using_https' )->justReturn( true );
-		$this->connect( 'wordpress:read wordpress:login' );
+		$this->connect( 'wordpress:read wordpress:manage wordpress:login' );
 
-		$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'login' ], Capabilities::get()['actions'] );
+		$capabilities = Capabilities::get();
+		$this->assertSame( [], $capabilities['actions'], 'neither the jobs nor login' );
+		$this->assertSame( [], $capabilities['administrators'], 'no one to sign in as' );
 	}
 
 	public function test_administrators_that_cannot_be_read_are_unknown(): void {

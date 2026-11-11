@@ -79,6 +79,10 @@ class Controller {
 			self::handle_request_connect_error();
 		}
 
+		if ( isset( $_GET[ Multisite::CONFIRM_NEEDED ] ) ) {
+			self::print_notice( Multisite::confirm_needed() );
+		}
+
 		if ( isset( $_GET['scanfully-connect-done'] ) ) {
 			// add success message.
 			self::print_notice( __( 'Successfully connected to Scanfully', 'scanfully' ), 'success' );
@@ -99,6 +103,14 @@ class Controller {
 		// check permissions.
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
+		}
+
+		// on a multisite network the connection is for monitoring only, and
+		// the admin confirms that before it starts (see Multisite).
+		$confirm = isset( $_GET[ Multisite::CONFIRM_FIELD ] ) && is_string( $_GET[ Multisite::CONFIRM_FIELD ] ) ? sanitize_text_field( wp_unslash( $_GET[ Multisite::CONFIRM_FIELD ] ) ) : '';
+		if ( ! Multisite::confirmed( [ Multisite::CONFIRM_FIELD => $confirm ] ) ) {
+			wp_safe_redirect( add_query_arg( Multisite::CONFIRM_NEEDED, 1, Page::get_page_url() ) );
+			exit;
 		}
 
 		// the admin approves on Scanfully's OAuth server what Scanfully may do

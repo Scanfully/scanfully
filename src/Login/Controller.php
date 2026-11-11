@@ -28,7 +28,9 @@ use Scanfully\Sync\SignedRequest;
  *
  * 1. the request is a GET (a HEAD from a link previewer neither burns the
  *    link, counts against the limit nor writes the log);
- * 2. the request came over HTTPS;
+ * 2. the request came over HTTPS, and the site is not part of a multisite
+ *    network, where a connection is for monitoring only and signs no one
+ *    in (Connect\Multisite);
  * 3. the token has the form of a JWT and is not too long;
  * 4. the signature checks out against Scanfully's key with the header's
  *    kid (RS256);
@@ -148,6 +150,7 @@ final class Controller {
 	public const REASON_BURN_LIST_BUSY   = 'burn_list_busy';
 	public const REASON_SCOPE            = 'scope_missing';
 	public const REASON_USER             = 'not_an_administrator';
+	public const REASON_MONITORING_ONLY  = 'monitoring_only';
 
 	/**
 	 * Logged once a minute, in place of the refusals beyond the LIMIT of
@@ -158,8 +161,9 @@ final class Controller {
 
 	/**
 	 * The reasons of a link refused before the rate limit: not Scanfully's,
-	 * or not meant for this site at this address. They count only against
-	 * the log's own limit, never against the rate limit.
+	 * not meant for this site at this address, or on a multisite network,
+	 * where no link signs anyone in. They count only against the log's own
+	 * limit, never against the rate limit.
 	 */
 	private const UNCOUNTED_REASONS = [
 		self::REASON_NOT_HTTPS,
@@ -170,6 +174,7 @@ final class Controller {
 		self::REASON_AUDIENCE,
 		self::REASON_SITE_MOVED,
 		self::REASON_ADDRESS,
+		self::REASON_MONITORING_ONLY,
 	];
 
 	/**
@@ -195,12 +200,16 @@ final class Controller {
 
 	/**
 	 * Whether the plugin's own copy of the grant holds wordpress:login, on a
-	 * connection that lives on Scanfully's OAuth server.
+	 * connection that lives on Scanfully's OAuth server and is not a
+	 * monitoring-only one (a site of a multisite network, see
+	 * Connect\Multisite).
 	 *
 	 * @return bool
 	 */
 	private static function granted(): bool {
-		return Connect\Scopes::applies() && in_array( Connect\OAuth::SCOPE_LOGIN, Connect\Controller::granted_scopes(), true );
+		return ! Connect\Multisite::monitoring_only()
+			&& Connect\Scopes::applies()
+			&& in_array( Connect\OAuth::SCOPE_LOGIN, Connect\Controller::granted_scopes(), true );
 	}
 
 	/**
@@ -314,6 +323,11 @@ final class Controller {
 		}
 		if ( ! $https ) {
 			return self::REASON_NOT_HTTPS;
+		}
+		// A connection on a multisite network is for monitoring only: no link
+		// signs anyone in there, whatever it holds (see Connect\Multisite).
+		if ( Connect\Multisite::monitoring_only() ) {
+			return self::REASON_MONITORING_ONLY;
 		}
 		if ( strlen( $token ) > self::MAX_TOKEN_LENGTH || 1 !== preg_match( '/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/D', $token ) || ! SignedRequest::looks_signed( $token ) ) {
 			return self::REASON_MALFORMED;

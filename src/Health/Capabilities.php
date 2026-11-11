@@ -72,9 +72,10 @@ final class Capabilities {
 			// The actions that write files (updates, installs, deletes) only
 			// where WordPress may change files and can write them without
 			// asking for credentials; switching a plugin on or off and a
-			// theme switch always. On a network only ping and the updates,
-			// the actions that run there. Then login, which is no job: the
-			// site signs a Scanfully user in from a sign-in link.
+			// theme switch always. None on a multisite network, whose
+			// connection is for monitoring only. Then login, which is no job:
+			// the site signs a Scanfully user in from a sign-in link (never on
+			// a network either).
 			'actions' => array_merge(
 				\Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
 				true === self::check( [ \Scanfully\Login\Controller::class, 'available' ] ) ? [ 'login' ] : []
@@ -89,8 +90,8 @@ final class Capabilities {
 					return self::can_write_folder( defined( 'WPMU_PLUGIN_DIR' ) ? (string) WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins' );
 				}
 			),
-			// Who a sign-in link may sign in as: the administrators, or the
-			// super admins of a network, at most 50 by id.
+			// Who a sign-in link may sign in as: the administrators, at most
+			// 50 by id; none on a multisite network.
 			'administrators' => self::check( [ \Scanfully\Login\Administrators::class, 'list' ] ),
 		];
 	}
