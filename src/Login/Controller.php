@@ -528,7 +528,9 @@ final class Controller {
 		do_action( self::ACTION_SIGNED_IN, $user, $login );
 
 		self::send_headers();
-		wp_safe_redirect( admin_url(), 302 );
+		// a super admin of a network connected as a whole lands in Network
+		// Admin; a sign-in on a multisite only ever runs on that connection.
+		wp_safe_redirect( Connect\Network::multisite() ? network_admin_url() : admin_url(), 302 );
 		exit;
 	}
 

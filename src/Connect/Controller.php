@@ -33,15 +33,36 @@ class Controller {
 	 * @return bool
 	 */
 	private static function user_has_access(): bool {
-		return current_user_can( 'manage_options' );
+		if ( Network::in_network_admin() ) {
+			return Network::user_may_manage();
+		}
+
+		// while the network connection applies here (the main site of a
+		// network connected as a whole), only Network Admin changes it.
+		return current_user_can( 'manage_options' ) && ! OptionsController::network_scope();
 	}
 
 	/**
-	 * Route connect, disconnect and reconnect requests to their handlers.
+	 * Route connect, disconnect and reconnect requests to their handlers: in
+	 * Network Admin those of the network connection, in the network's
+	 * options; elsewhere the site's own.
 	 *
 	 * @return void
 	 */
 	public static function catch_connect_requests(): void {
+		if ( Network::in_network_admin() ) {
+			OptionsController::with_scope( true, [ self::class, 'route_requests' ] );
+			return;
+		}
+		self::route_requests();
+	}
+
+	/**
+	 * Route the requests of the connection in the current scope.
+	 *
+	 * @return void
+	 */
+	public static function route_requests(): void {
 
 		// handle start connect request.
 		if ( isset( $_GET['scanfully-connect'] ) ) {
@@ -105,13 +126,7 @@ class Controller {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
-		// on a multisite network the connection is for monitoring only, and
-		// the admin confirms that before it starts (see Multisite).
-		$confirm = isset( $_GET[ Multisite::CONFIRM_FIELD ] ) && is_string( $_GET[ Multisite::CONFIRM_FIELD ] ) ? sanitize_text_field( wp_unslash( $_GET[ Multisite::CONFIRM_FIELD ] ) ) : '';
-		if ( ! Multisite::confirmed( [ Multisite::CONFIRM_FIELD => $confirm ] ) ) {
-			wp_safe_redirect( add_query_arg( Multisite::CONFIRM_NEEDED, 1, Page::get_page_url() ) );
-			exit;
-		}
+		self::require_confirmation();
 
 		// the admin approves on Scanfully's OAuth server what Scanfully may do
 		// on this site, and comes back with a code.
@@ -163,9 +178,25 @@ class Controller {
 		if ( ! self::user_has_access() ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
+		self::require_confirmation();
 
 		wp_redirect( OAuth::authorize_url() ); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect -- Scanfully's own OAuth server, on another host.
 		exit;
+	}
+
+	/**
+	 * On a site of a multisite network whose connection is for monitoring
+	 * only, a new connection request needs the admin's confirmation (see
+	 * Multisite): without it, back to the page, which asks for it.
+	 *
+	 * @return void
+	 */
+	private static function require_confirmation(): void {
+		$confirm = isset( $_GET[ Multisite::CONFIRM_FIELD ] ) && is_string( $_GET[ Multisite::CONFIRM_FIELD ] ) ? sanitize_text_field( wp_unslash( $_GET[ Multisite::CONFIRM_FIELD ] ) ) : '';
+		if ( ! Multisite::confirmed( [ Multisite::CONFIRM_FIELD => $confirm ] ) ) {
+			wp_safe_redirect( add_query_arg( Multisite::CONFIRM_NEEDED, 1, Page::get_page_url() ) );
+			exit;
+		}
 	}
 
 	/**
@@ -191,6 +222,13 @@ class Controller {
 			self::revoke_tokens();
 		}
 		OptionsController::clear();
+
+		// a site of a network connects again from its page, where the admin
+		// confirms the connection is for monitoring only.
+		if ( Multisite::monitoring_only() ) {
+			wp_safe_redirect( Page::get_page_url() );
+			exit;
+		}
 
 		// straight into a new connection, where the admin can choose again
 		// what Scanfully may do.
@@ -239,6 +277,11 @@ class Controller {
 			wp_die( 'Could not complete Scanfully connection: invalid response from the Scanfully API. Please try again or contact support.' );
 		}
 
+		// the network connection takes over the main site's own connection.
+		if ( Network::in_network_admin() ) {
+			self::end_main_site_connection();
+		}
+
 		$now = gmdate( self::DATE_FORMAT );
 		OptionsController::set_options(
 			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
@@ -246,10 +289,35 @@ class Controller {
 		Scopes::forget_change();
 		Address::remember();
 		self::store_grant( Scopes::of( $tokens['scopes'] ) ?? [ OAuth::SCOPE_READ ] );
+		// the network connection applies from now on, on the main site.
+		OptionsController::detect_scope();
 		self::schedule_first_syncs();
 
 		wp_redirect( add_query_arg( [ 'scanfully-connect-done' => '1' ], Page::get_page_url() ) );
 		exit;
+	}
+
+	/**
+	 * End the main site's own connection, which the network connection
+	 * replaces: Scanfully forgets its tokens (not from a copy of the site,
+	 * whose tokens are the original's) and the main site its options, with
+	 * what depends on them, before the network's are stored.
+	 *
+	 * @return void
+	 */
+	private static function end_main_site_connection(): void {
+		OptionsController::with_scope(
+			false,
+			static function (): void {
+				if ( ! OptionsController::get_options()->is_connected ) {
+					return;
+				}
+				if ( ! Address::moved() ) {
+					self::revoke_tokens();
+				}
+				OptionsController::clear();
+			}
+		);
 	}
 
 	/**

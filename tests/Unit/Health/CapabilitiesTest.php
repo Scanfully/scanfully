@@ -11,6 +11,7 @@ use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use ReflectionMethod;
 use Scanfully\Health\Capabilities;
+use Scanfully\Options\Controller as OptionsController;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
@@ -80,6 +81,7 @@ final class CapabilitiesTest extends TestCase {
 				'auto_updater_enabled' => true,
 				'fs_method' => 'direct',
 				'multisite' => false,
+				'connection_kind' => 'single',
 				'action_scheduler' => true,
 				'administrators' => [],
 			],
@@ -270,6 +272,43 @@ final class CapabilitiesTest extends TestCase {
 		$capabilities = Capabilities::get();
 		$this->assertSame( [], $capabilities['actions'], 'neither the jobs nor login' );
 		$this->assertSame( [], $capabilities['administrators'], 'no one to sign in as' );
+	}
+
+	public function test_the_network_connection_runs_the_network_actions_and_signs_in_super_admins(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		Functions\when( 'get_super_admins' )->justReturn( [ 'admin' ] );
+		Functions\when( 'get_user_by' )->justReturn( false );
+		Functions\when( 'wp_is_using_https' )->justReturn( true );
+		$this->network_connect( 'wordpress:read wordpress:manage wordpress:login' );
+
+		$capabilities = OptionsController::with_scope( true, [ Capabilities::class, 'get' ] );
+		$this->assertSame( 'network', $capabilities['connection_kind'] );
+		$this->assertSame(
+			[ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'install_plugin', 'install_theme', 'install_plugin_upload', 'install_theme_upload', 'delete_plugin', 'delete_theme', 'login' ],
+			$capabilities['actions'],
+			'activating, deactivating and switching themes act per site: not on a network'
+		);
+		$this->assertSame( 'subsite', Capabilities::get()['connection_kind'], 'any other connection on a network' );
+	}
+
+	/**
+	 * Stub the network's options as a connected network with the scopes.
+	 *
+	 * @param string $scopes The granted scopes.
+	 */
+	private function network_connect( string $scopes ): void {
+		$options = [
+			'scanfully_connect_is_connected' => 'yes',
+			'scanfully_connect_site_id'      => 'network-1',
+			'scanfully_connect_flow'         => 'oauth',
+			'scanfully_connect_scopes'       => $scopes,
+		];
+		Functions\when( 'get_site_option' )->alias(
+			static function ( string $name, $fallback = false ) use ( $options ) {
+				return $options[ $name ] ?? $fallback;
+			}
+		);
+		Functions\when( 'get_option' )->justReturn( false );
 	}
 
 	public function test_administrators_that_cannot_be_read_are_unknown(): void {

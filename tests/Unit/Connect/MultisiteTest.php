@@ -30,6 +30,7 @@ final class MultisiteTest extends TestCase {
 		parent::setUp();
 		Functions\when( '__' )->returnArg();
 		Functions\when( 'is_multisite' )->alias( fn(): bool => $this->network );
+		Functions\when( 'is_network_admin' )->justReturn( false );
 	}
 
 	protected function tearDown(): void {

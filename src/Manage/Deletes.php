@@ -54,6 +54,15 @@ final class Deletes extends Action {
 		if ( is_plugin_active( $file ) || ( is_multisite() && is_plugin_active_for_network( $file ) ) ) {
 			throw new JobFailed( 'plugin_active', 'The plugin is switched on, so Scanfully did not delete it. Switch it off first.', self::partial( $version, $version, [], $run, $started, $extra ) );
 		}
+		$elsewhere = self::network_site_using(
+			static function ( int $site ) use ( $file ): bool {
+				return in_array( $file, (array) get_blog_option( $site, 'active_plugins', [] ), true );
+			}
+		);
+		if ( null !== $elsewhere ) {
+			/* translators: %s: the address of a site of the network. */
+			throw new JobFailed( 'plugin_active', sprintf( 'The plugin is switched on on %s, a site of the network, so Scanfully did not delete it. Switch it off there first.', $elsewhere ), self::partial( $version, $version, [], $run, $started, $extra ) );
+		}
 		self::connect_filesystem( 'delete' );
 
 		try {
@@ -100,6 +109,14 @@ final class Deletes extends Action {
 		if ( (string) get_option( 'template' ) === $stylesheet ) {
 			throw new JobFailed( 'theme_in_use', 'The theme is the parent of the theme the site uses, so Scanfully did not delete it.', self::partial( $version, $version, [], $run, $started, $extra ) );
 		}
+		$elsewhere = self::network_site_using(
+			static function ( int $site ) use ( $stylesheet ): bool {
+				return (string) get_blog_option( $site, 'stylesheet' ) === $stylesheet || (string) get_blog_option( $site, 'template' ) === $stylesheet;
+			}
+		);
+		if ( null !== $elsewhere ) {
+			throw new JobFailed( 'theme_in_use', sprintf( '%s, a site of the network, uses the theme or a child of it, so Scanfully did not delete it.', $elsewhere ), self::partial( $version, $version, [], $run, $started, $extra ) );
+		}
 		self::connect_filesystem( 'delete' );
 
 		try {
@@ -109,6 +126,40 @@ final class Deletes extends Action {
 		}
 
 		return self::deleted( $result, $folder, $version, 'theme', $run, $started, $extra );
+	}
+
+	/**
+	 * On a multisite network, the address of the first other site of the
+	 * network for which uses() is true, or null; on a single site always
+	 * null. Every site counts, archived, spam and deleted ones too: they can
+	 * come back.
+	 *
+	 * @param callable(int): bool $uses Whether the site with that id uses the software.
+	 *
+	 * @return string|null
+	 */
+	private static function network_site_using( callable $uses ): ?string {
+		if ( ! \Scanfully\Connect\Network::multisite() ) {
+			return null;
+		}
+		$current = get_current_blog_id();
+		for ( $offset = 0; ; $offset += 500 ) {
+			$sites = get_sites(
+				[
+					'fields' => 'ids',
+					'number' => 500,
+					'offset' => $offset,
+				]
+			);
+			foreach ( $sites as $site ) {
+				if ( (int) $site !== $current && $uses( (int) $site ) ) {
+					return (string) get_home_url( (int) $site );
+				}
+			}
+			if ( count( $sites ) < 500 ) {
+				return null;
+			}
+		}
 	}
 
 	/**

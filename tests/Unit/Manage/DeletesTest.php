@@ -43,6 +43,36 @@ final class DeletesTest extends SiteTestCase {
 		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/hello-fixture' );
 	}
 
+	public function test_on_a_network_a_plugin_or_theme_another_site_uses_is_not_deleted(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		Functions\when( 'is_plugin_active_for_network' )->justReturn( false );
+		Functions\when( 'get_current_blog_id' )->justReturn( 1 );
+		Functions\when( 'get_sites' )->justReturn( [ 1, 2, 3 ] );
+		Functions\when( 'get_home_url' )->alias( static fn( int $site ): string => 'https://scanfully.com/site-' . $site );
+		$blog_options = [
+			2 => [ 'active_plugins' => [], 'stylesheet' => 'twentytwentyfour', 'template' => 'twentytwentyfour' ],
+			3 => [ 'active_plugins' => [ 'hello-fixture/hello-fixture.php' ], 'stylesheet' => 'blocksy-child', 'template' => 'blocksy' ],
+		];
+		Functions\when( 'get_blog_option' )->alias( static fn( int $site, string $name, $fallback = false ) => $blog_options[ $site ][ $name ] ?? $fallback );
+
+		$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->run ) );
+		$this->assertSame( 'plugin_active', $e->error_class() );
+		$this->assertStringContainsString( 'https://scanfully.com/site-3', $e->getMessage() );
+		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/hello-fixture' );
+
+		foreach ( [ 'blocksy', 'blocksy-child' ] as $theme ) {
+			$e = $this->failure( fn() => Deletes::theme( [ 'stylesheet' => $theme ], static function (): void {}, $this->run ) );
+			$this->assertSame( 'theme_in_use', $e->error_class(), $theme . ' is the theme or parent of site 3' );
+			$this->assertDirectoryExists( get_theme_root( $theme ) . '/' . $theme );
+		}
+
+		// No other site uses it: deleted.
+		$blog_options[3]['active_plugins'] = [];
+		Functions\when( 'get_blog_option' )->alias( static fn( int $site, string $name, $fallback = false ) => $blog_options[ $site ][ $name ] ?? $fallback );
+		Deletes::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->run );
+		$this->assertDirectoryDoesNotExist( WP_PLUGIN_DIR . '/hello-fixture' );
+	}
+
 	public function test_the_scanfully_plugin_is_never_deleted(): void {
 		$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'scanfully' ], static function (): void {}, $this->run ) );
 

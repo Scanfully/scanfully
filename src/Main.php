@@ -122,6 +122,14 @@ class Main {
 		/** Stop autoloading tokens stored by earlier versions (runs once). */
 		Options\Controller::maybe_stop_autoloading_tokens();
 
+		/**
+		 * Where the connection lives for this request: the network's options
+		 * on the main site of a network connected as a whole, else the site's
+		 * own; again whenever WordPress switches to another site.
+		 */
+		Options\Controller::detect_scope();
+		add_action( 'switch_blog', [ Options\Controller::class, 'detect_scope' ] );
+
 		/** Register all events */
 		$this->register_events();
 
@@ -131,6 +139,7 @@ class Main {
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();
+		Connect\Network::setup();
 		Connect\AdminNotice::setup();
 
 		/** Register Page Edit */

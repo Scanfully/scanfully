@@ -49,6 +49,8 @@ final class OAuthTest extends TestCase {
 			}
 		);
 		Functions\when( 'get_current_user_id' )->justReturn( 3 );
+		Functions\when( 'is_multisite' )->justReturn( false );
+		Functions\when( 'is_network_admin' )->justReturn( false );
 		Functions\when( 'wp_generate_password' )->alias( static fn( $length ) => str_repeat( 'v', $length ) );
 		Functions\when( 'set_transient' )->alias(
 			function ( string $key, $value ) {
@@ -78,12 +80,27 @@ final class OAuthTest extends TestCase {
 		$this->assertSame( 'https://api.scanfully.com/v1/sites', $query['resource'] );
 		$this->assertSame( 'wordpress:read', $query['scope'] );
 		$this->assertSame( 'https://wp.scanfully.com', $query['site'] );
+		$this->assertSame( 'single', $query['kind'] );
 		$this->assertSame( OAuth::redirect_uri(), $query['redirect_uri'] );
 		$this->assertStringStartsWith( 'https://wp.scanfully.com/wp-admin/', $query['redirect_uri'] );
 		$this->assertStringContainsString( 'scanfully-oauth=1', $query['redirect_uri'] );
 		$this->assertSame( 'S256', $query['code_challenge_method'] );
 		$this->assertSame( Controller::code_challenge( Controller::get_code_verifier() ), $query['code_challenge'] );
 		$this->assertSame( Controller::get_state(), $query['state'] );
+	}
+
+	public function test_a_site_of_a_network_asks_for_a_subsite_connection_and_network_admin_for_the_network(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		parse_str( (string) parse_url( OAuth::authorize_url(), PHP_URL_QUERY ), $query );
+		$this->assertSame( 'subsite', $query['kind'] );
+		$this->assertStringContainsString( '/wp-admin/options-general.php', $query['redirect_uri'] );
+
+		Functions\when( 'is_network_admin' )->justReturn( true );
+		Functions\when( 'network_admin_url' )->alias( static fn( $path = '' ) => 'https://wp.scanfully.com/wp-admin/network/' . $path );
+		parse_str( (string) parse_url( OAuth::authorize_url(), PHP_URL_QUERY ), $query );
+		$this->assertSame( 'network', $query['kind'] );
+		$this->assertStringStartsWith( 'https://wp.scanfully.com/wp-admin/network/settings.php?page=scanfully', $query['redirect_uri'] );
+		$this->assertStringContainsString( 'scanfully-oauth=1', $query['redirect_uri'] );
 	}
 
 	public function test_a_code_is_exchanged_with_its_verifier_and_return_address(): void {

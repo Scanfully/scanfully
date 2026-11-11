@@ -172,6 +172,7 @@ abstract class LoginTestCase extends TestCase {
 		Functions\when( 'wp_remote_retrieve_body' )->alias( fn( $resp ) => $resp['body'] );
 		Functions\when( 'get_userdata' )->alias( fn( $id ) => $this->users[ $id ] ?? false );
 		Functions\when( 'is_multisite' )->alias( fn() => $this->network );
+		Functions\when( 'is_network_admin' )->justReturn( false );
 		Functions\when( 'is_super_admin' )->alias(
 			function ( $id ) {
 				$user = $this->users[ $id ] ?? null;

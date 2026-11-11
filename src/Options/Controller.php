@@ -9,6 +9,13 @@ namespace Scanfully\Options;
 
 /**
  * The options class handles everything related to the plugin options.
+ *
+ * The connection lives in one of two places: the site's own options, or on a
+ * multisite network's main site, while the network is connected as a whole,
+ * the network's options (site options, see Connect\Network). Every read and
+ * write of a connection option goes to the place that applies (the scope),
+ * which is decided when the plugin boots and again when WordPress switches
+ * to another site.
  */
 class Controller {
 
@@ -18,6 +25,61 @@ class Controller {
 	 * @var string
 	 */
 	private static string $db_prefix = 'scanfully_connect_';
+
+	/**
+	 * Whether the network connection applies to this request, as detected.
+	 *
+	 * @var bool
+	 */
+	private static bool $network = false;
+
+	/**
+	 * The scope a caller chose for what it does now, over the detected one;
+	 * null when none.
+	 *
+	 * @var bool|null
+	 */
+	private static ?bool $forced = null;
+
+	/**
+	 * Decide the scope for this request: the network's options on the main
+	 * site of a network connected as a whole, the site's own otherwise.
+	 *
+	 * @return void
+	 */
+	public static function detect_scope(): void {
+		self::$network = \Scanfully\Connect\Network::applies();
+	}
+
+	/**
+	 * Whether the connection options are the network's.
+	 *
+	 * @return bool
+	 */
+	public static function network_scope(): bool {
+		return self::$forced ?? self::$network;
+	}
+
+	/**
+	 * Run a callable with the connection options in the given scope: the
+	 * network's (true) or the site's own (false).
+	 *
+	 * @template T
+	 *
+	 * @param bool          $network Whether to use the network's options.
+	 * @param callable(): T $run     What to run.
+	 *
+	 * @return T
+	 */
+	public static function with_scope( bool $network, callable $run ) {
+		$before       = self::$forced;
+		self::$forced = $network;
+		try {
+			return $run();
+		} finally {
+			self::$forced = $before;
+		}
+	}
 
 	/**
 	 * Get options helper
@@ -48,9 +110,19 @@ class Controller {
 	 * @return Options
 	 */
 	public static function get_fresh_options(): Options {
+		$names = [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected' ];
+		if ( self::network_scope() ) {
+			$network = get_current_network_id();
+			wp_cache_delete( $network . ':notoptions', 'site-options' );
+			foreach ( $names as $name ) {
+				wp_cache_delete( $network . ':' . self::$db_prefix . $name, 'site-options' );
+			}
+
+			return self::get_options();
+		}
 		wp_cache_delete( 'alloptions', 'options' );
 		wp_cache_delete( 'notoptions', 'options' );
-		foreach ( [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected' ] as $name ) {
+		foreach ( $names as $name ) {
 			wp_cache_delete( self::$db_prefix . $name, 'options' );
 		}
 
@@ -65,7 +137,9 @@ class Controller {
 	 * @return string
 	 */
 	public static function get_option( string $name ): string {
-		return apply_filters( 'scanfully_option', get_option( self::$db_prefix . $name ) );
+		$value = self::network_scope() ? get_site_option( self::$db_prefix . $name ) : get_option( self::$db_prefix . $name );
+
+		return apply_filters( 'scanfully_option', $value );
 	}
 
 	/**
@@ -99,7 +173,26 @@ class Controller {
 	 * @return void
 	 */
 	public static function set_option( string $name, string $value, bool $autoload = true ): void {
+		if ( self::network_scope() ) {
+			update_site_option( self::$db_prefix . $name, $value );
+			return;
+		}
 		update_option( self::$db_prefix . $name, $value, $autoload );
+	}
+
+	/**
+	 * Delete an option in the scope that applies.
+	 *
+	 * @param string $name The option name (without the Scanfully prefix).
+	 *
+	 * @return void
+	 */
+	private static function delete_option( string $name ): void {
+		if ( self::network_scope() ) {
+			delete_site_option( self::$db_prefix . $name );
+			return;
+		}
+		delete_option( self::$db_prefix . $name );
 	}
 
 	/**
@@ -136,30 +229,17 @@ class Controller {
 	 * @return void
 	 */
 	public static function clear() {
-		delete_option( self::$db_prefix . 'is_connected' );
-		delete_option( self::$db_prefix . 'site_id' );
-		delete_option( self::$db_prefix . 'access_token' );
-		delete_option( self::$db_prefix . 'refresh_token' );
-		delete_option( self::$db_prefix . 'expires' );
-		delete_option( self::$db_prefix . 'last_used' );
-		delete_option( self::$db_prefix . 'date_connected' );
+		foreach ( [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected', 'scopes', 'flow', 'address', 'address_shown' ] as $name ) {
+			self::delete_option( $name );
+		}
+		// written by the API requests on the site that runs them, by its raw name.
 		delete_option( self::$db_prefix . 'last_request_error' );
-		delete_option( self::$db_prefix . 'scopes' );
-		delete_option( self::$db_prefix . 'flow' );
-		delete_option( self::$db_prefix . 'address' );
-		delete_option( self::$db_prefix . 'address_shown' );
 		delete_transient( 'scanfully_oauth_unavailable' );
 
-		// Email deliverability sub-feature: per-site secret + cached state.
-		delete_option( self::$db_prefix . 'email_deliverability_enabled' );
-		delete_option( self::$db_prefix . 'email_deliverability_secret' );
-		delete_option( self::$db_prefix . 'email_deliverability_inbound_address' );
-		delete_option( self::$db_prefix . 'email_deliverability_interval_seconds' );
-		delete_option( self::$db_prefix . 'email_deliverability_last_failure_at' );
-		delete_option( self::$db_prefix . 'email_deliverability_last_as_run_at' );
-		delete_option( self::$db_prefix . 'email_deliverability_from_address' );
-		delete_option( self::$db_prefix . 'email_deliverability_last_api_error' );
-		delete_option( self::$db_prefix . 'email_deliverability_last_api_error_at' );
+		// Email deliverability sub-feature: per-connection secret + cached state.
+		foreach ( [ 'enabled', 'secret', 'inbound_address', 'interval_seconds', 'last_failure_at', 'last_as_run_at', 'from_address', 'last_api_error', 'last_api_error_at' ] as $name ) {
+			self::delete_option( 'email_deliverability_' . $name );
+		}
 
 		// WooCheckout probe secret: without this, whoever held the old secret
 		// could still sign probe requests after a disconnect. The literal name
@@ -169,5 +249,10 @@ class Controller {
 		\Scanfully\Cron\Controller::clear_refresh_failures();
 
 		do_action( 'scanfully_options_cleared' );
+
+		// a cleared network connection no longer applies.
+		if ( null === self::$forced ) {
+			self::detect_scope();
+		}
 	}
 }

@@ -18,13 +18,13 @@ class Buttons {
 	 * @return void
 	 */
 	public static function connect(): void {
+		// the page the button is on: a site's settings, or Network Admin.
 		$url = add_query_arg(
 			[
-				'page'                    => 'scanfully',
 				'scanfully-connect'       => 1,
 				'scanfully-connect-nonce' => wp_create_nonce( 'scanfully-connect-redirect' ),
 			],
-			admin_url( 'options-general.php' )
+			Page::get_page_url()
 		);
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" class="scanfully-connect-button scanfully-connect-button-authorize">
@@ -47,7 +47,7 @@ class Buttons {
 	public static function connect_monitoring_only(): void {
 		?>
 		<form method="get" action="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>" class="scanfully-connect-monitoring-only">
-			<input type="hidden" name="page" value="scanfully"/>
+			<input type="hidden" name="page" value="<?php echo esc_attr( Page::SLUG ); ?>"/>
 			<input type="hidden" name="scanfully-connect" value="1"/>
 			<input type="hidden" name="scanfully-connect-nonce" value="<?php echo esc_attr( wp_create_nonce( 'scanfully-connect-redirect' ) ); ?>"/>
 			<p>
@@ -75,16 +75,40 @@ class Buttons {
 	public static function change_access(): void {
 		$url = add_query_arg(
 			[
-				'page'                         => 'scanfully',
-				'scanfully-change-access'      => 1,
+				'scanfully-change-access'       => 1,
 				'scanfully-change-access-nonce' => wp_create_nonce( 'scanfully-change-access' ),
 			],
-			admin_url( 'options-general.php' )
+			Page::get_page_url()
 		);
 		?>
 		<a href="<?php echo esc_url( $url ); ?>" class="scanfully-connect-button scanfully-connect-button-dashboard">
 			<span><?php esc_html_e( 'Change what Scanfully may do', 'scanfully' ); ?></span>
 		</a>
+		<?php
+	}
+
+	/**
+	 * Change what Scanfully may do on a site of a multisite network: a form
+	 * whose box the admin ticks to confirm the new connection is for
+	 * monitoring only (see Multisite), before the same request as
+	 * change_access().
+	 *
+	 * @return void
+	 */
+	public static function change_access_monitoring_only(): void {
+		?>
+		<form method="get" action="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>" class="scanfully-change-access-monitoring-only">
+			<input type="hidden" name="page" value="<?php echo esc_attr( Page::SLUG ); ?>"/>
+			<input type="hidden" name="scanfully-change-access" value="1"/>
+			<input type="hidden" name="scanfully-change-access-nonce" value="<?php echo esc_attr( wp_create_nonce( 'scanfully-change-access' ) ); ?>"/>
+			<label>
+				<input type="checkbox" name="<?php echo esc_attr( Multisite::CONFIRM_FIELD ); ?>" value="1" required/>
+				<?php echo esc_html( Multisite::confirmation() ); ?>
+			</label>
+			<button type="submit" class="scanfully-connect-button scanfully-connect-button-dashboard">
+				<span><?php esc_html_e( 'Change what Scanfully may do', 'scanfully' ); ?></span>
+			</button>
+		</form>
 		<?php
 	}
 
@@ -96,11 +120,10 @@ class Buttons {
 	public static function disconnect(): void {
 		$url = add_query_arg(
 			[
-				'page'                       => 'scanfully',
 				'scanfully-disconnect'       => 1,
 				'scanfully-disconnect-nonce' => wp_create_nonce( 'scanfully-disconnect-redirect' ),
 			],
-			admin_url( 'options-general.php' )
+			Page::get_page_url()
 		);
 		// a copy of the site asks first, and says the original keeps its
 		// connection: only this copy forgets it.

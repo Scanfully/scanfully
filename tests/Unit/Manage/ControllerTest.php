@@ -146,6 +146,7 @@ final class ControllerTest extends TestCase {
 		parent::setUp();
 		// A single site; the monitoring-only network case has its own test.
 		Functions\when( 'is_multisite' )->justReturn( false );
+		Functions\when( 'is_network_admin' )->justReturn( false );
 		$this->db         = new FakeWpdb();
 		$GLOBALS['wpdb']  = $this->db;
 		$this->options    = [
