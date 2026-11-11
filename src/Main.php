@@ -142,6 +142,9 @@ class Main {
 		/** A new site data report when a site of a connected network changes. */
 		Health\Subsites::setup();
 
+		/** Register PHP error monitoring (the handlers start in the main plugin file or the must-use plugin) */
+		Errors\Controller::setup();
+
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();

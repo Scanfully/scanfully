@@ -40,6 +40,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 // Load Action Scheduler before plugins_loaded priority 0 so it can register its version.
 require __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
+// Catch PHP errors from here on. The must-use plugin, when it could be
+// installed, already does from before any plugin loads.
+require_once __DIR__ . '/src/Errors/load.php';
+\Scanfully\Errors\Monitor::boot( 'plugin' );
+
 // Declare compatibility with WooCommerce's HPOS order storage and the
 // Cart/Checkout blocks. WooCommerce only accepts this inside
 // before_woocommerce_init.
@@ -81,6 +86,10 @@ add_action(
 register_activation_hook(
 	__FILE__,
 	function () {
+		// A connection that stayed while the plugin was inactive catches PHP
+		// errors again from before other plugins load.
+		\Scanfully\Errors\MuPlugin::maybe_install();
+
 		// The connection was last used before the deactivation, so its first
 		// report needs a moment before anything calls it stale.
 		set_transient( 'scanfully_recently_activated', 1, 5 * MINUTE_IN_SECONDS );
@@ -90,12 +99,19 @@ register_activation_hook(
 // register deactivation hook.
 register_deactivation_hook(
 	__FILE__,
-	function () {
+	function ( $network_wide = false ) {
 		// Tell Scanfully first, so the site's owner learns why the plugin
 		// stopped reporting.
 		if ( class_exists( '\\Scanfully\\Connect\\Controller' ) ) {
 			\Scanfully\Connect\Controller::report_deactivated();
 		}
 		\Scanfully\Cron\Controller::clear_scheduled_events();
+
+		// The must-use plugin serves the whole network: remove it when the
+		// plugin is deactivated on a single site or for the whole network.
+		// On a network site it does nothing while the plugin is inactive there.
+		if ( ! is_multisite() || $network_wide ) {
+			\Scanfully\Errors\MuPlugin::remove();
+		}
 	}
 );
