@@ -10,7 +10,7 @@ namespace Scanfully\Events\MediaChanges;
 use Scanfully\Events\ContentEvent;
 use Scanfully\Events\Content\MinuteStore;
 use Scanfully\Events\Controller;
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Collector
@@ -765,7 +765,7 @@ final class Collector {
 		}
 
 		// A site that isn't connected has nowhere to send events.
-		if ( [] === $items || ! Options\Controller::get_options()->is_connected ) {
+		if ( [] === $items || ! Targets::reachable() ) {
 			return;
 		}
 

@@ -49,6 +49,8 @@ final class BuilderTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 
 		Functions\when( 'get_option' )->justReturn( 'yes' );
 		Functions\when( 'esc_html' )->returnArg();

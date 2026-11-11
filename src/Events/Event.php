@@ -7,7 +7,7 @@
 
 namespace Scanfully\Events;
 
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Event
@@ -160,9 +160,10 @@ abstract class Event {
 	 */
 	public function listener_callback( ...$args ): void {
 
-		// A site that isn't connected has nowhere to send events; the job
-		// would only be discarded when it runs.
-		if ( ! Options\Controller::get_options()->is_connected ) {
+		// A site without a target (its own connection, or a network that
+		// monitors it) has nowhere to send events; the job would only be
+		// discarded when it runs.
+		if ( ! Targets::reachable() ) {
 			return;
 		}
 
@@ -186,7 +187,9 @@ abstract class Event {
 
 	/**
 	 * Schedule the API request as a background job so it does not block the
-	 * current request.
+	 * current request: one job per target of the site (its own connection,
+	 * and the network's child site for a monitored subsite), each named by
+	 * its key, never its token.
 	 *
 	 * @param string $type The event type.
 	 * @param array  $user The user who made the change.
@@ -195,18 +198,20 @@ abstract class Event {
 	 * @return void
 	 */
 	protected function schedule( string $type, array $user, array $data ): void {
-		as_schedule_single_action(
-			time(),
-			Controller::ACTION_SEND_EVENT,
-			self::fit_args(
-				[
-					'type' => $type,
-					'user' => $user,
-					'data' => $data,
-				]
-			),
-			'scanfully'
+		// Fitted with room for the longest target key.
+		$args = self::fit_args(
+			[
+				'type'    => $type,
+				'user'    => $user,
+				'data'    => $data,
+				'attempt' => 0,
+				'target'  => str_repeat( 'x', 72 ),
+			]
 		);
+		foreach ( Targets::here() as $target ) {
+			$args['target'] = $target->key();
+			as_schedule_single_action( time(), Controller::ACTION_SEND_EVENT, $args, 'scanfully' );
+		}
 	}
 
 	/**

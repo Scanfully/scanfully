@@ -28,6 +28,8 @@ final class ScanfullyLoginTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		Functions\when( 'get_option' )->justReturn( 'yes' );
 		Functions\when( 'is_email' )->alias( static fn( $email ) => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) );
 		Functions\when( 'sanitize_text_field' )->alias( static fn( $value ) => trim( strip_tags( (string) $value ) ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- WordPress is not loaded in unit tests.

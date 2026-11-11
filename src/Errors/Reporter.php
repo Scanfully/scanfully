@@ -8,7 +8,8 @@
 namespace Scanfully\Errors;
 
 use Scanfully\API\ErrorsRequest;
-use Scanfully\Options;
+use Scanfully\Connect\Target;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Reporter
@@ -72,12 +73,17 @@ final class Reporter {
 	}
 
 	/**
-	 * Send what is waiting.
+	 * Send what is waiting, to every target of the site (its own connection,
+	 * and a monitored subsite's child site). A site with two targets keeps
+	 * what one of them got while the other did not take it yet (Store's sent
+	 * markers), so neither gets a count twice; the store gives up a count
+	 * once both have it.
 	 *
 	 * @return void
 	 */
 	public static function send(): void {
-		if ( ! Options\Controller::get_options()->is_connected ) {
+		$targets = Targets::now();
+		if ( [] === $targets ) {
 			return;
 		}
 		if ( ! Monitor::should_run() ) {
@@ -87,7 +93,7 @@ final class Reporter {
 
 		$now     = time();
 		$stored  = Store::read();
-		$known   = Store::known();
+		$known   = Store::known_by_all( $targets );
 		$entries = [];
 		$counts  = [];
 		$order   = [];
@@ -121,9 +127,91 @@ final class Reporter {
 			$entries,
 			static fn( string $a, string $b ): int => $order[ $a ] <=> $order[ $b ]
 		);
-		$batch = array_slice( $entries, 0, self::MAX_PER_REQUEST, true );
+		$batch  = array_slice( $entries, 0, self::MAX_PER_REQUEST, true );
+		$counts = array_intersect_key( $counts, $batch );
 
-		$status = ( new ErrorsRequest() )->send( self::payload( array_values( $batch ), array_sum( $overflow ) ) );
+		$all_done = true;
+		$got      = [];
+		foreach ( $targets as $target ) {
+			$sent    = Store::sent( $target );
+			$existed = [] !== $sent;
+			if ( ! self::send_to( $target, $batch, $counts, $overflow, $sent, $now ) ) {
+				$all_done = false;
+			}
+			$got[] = [ $target, $sent, $existed ];
+		}
+		self::forget_former_targets( $targets );
+
+		// What every target has goes from the store.
+		$take = [];
+		foreach ( $counts as $key => $count ) {
+			$min = min( array_map( static fn( array $one ): int => (int) ( $one[1][ $key ] ?? 0 ), $got ) );
+			if ( $min > 0 ) {
+				$take[ $key ] = $min;
+			}
+		}
+		$take_hours = [];
+		foreach ( $overflow as $hour => $count ) {
+			$min = min( array_map( static fn( array $one ): int => (int) ( $one[1][ 'o:' . $hour ] ?? 0 ), $got ) );
+			if ( $min > 0 ) {
+				$take_hours[ $hour ] = $min;
+			}
+		}
+		if ( [] !== $take ) {
+			Store::take( $take );
+		}
+		// Hours that are over lose their counters here, so only once every
+		// target has taken what it could.
+		if ( $all_done ) {
+			Store::take_hours( $take_hours, $current );
+			Store::delete_old_locks( Monitor::DIRECT_PERIOD, $now );
+		}
+		foreach ( $got as [ $target, $sent, $existed ] ) {
+			foreach ( $take as $key => $count ) {
+				$sent[ $key ] = (int) ( $sent[ $key ] ?? 0 ) - $count;
+			}
+			foreach ( $take_hours as $hour => $count ) {
+				$sent[ 'o:' . $hour ] = (int) ( $sent[ 'o:' . $hour ] ?? 0 ) - $count;
+			}
+			Store::save_sent( $target, $sent, $existed );
+		}
+
+		if ( $all_done && count( $entries ) > count( $batch ) ) {
+			self::schedule( self::TRIGGER_NEW );
+		}
+	}
+
+	/**
+	 * Send a target what it does not have yet of a batch and the overflow.
+	 * What it took is added to its sent markers.
+	 *
+	 * @param Target                              $target   The target.
+	 * @param array<string, array<string, mixed>> $batch    The entries by key.
+	 * @param array<string, int>                  $counts   The stored counts by key.
+	 * @param array<int, int>                     $overflow The stored overflow by hour.
+	 * @param array<string, int>                  $sent     The target's sent markers, updated.
+	 * @param int                                 $now      The time.
+	 *
+	 * @return bool Whether the target has everything now.
+	 */
+	private static function send_to( Target $target, array $batch, array $counts, array $overflow, array &$sent, int $now ): bool {
+		$errors = [];
+		foreach ( $batch as $key => $entry ) {
+			$left = $counts[ $key ] - (int) ( $sent[ $key ] ?? 0 );
+			if ( $left > 0 ) {
+				$entry['count'] = $left;
+				$errors[ $key ] = $entry;
+			}
+		}
+		$over = 0;
+		foreach ( $overflow as $hour => $count ) {
+			$over += max( 0, $count - (int) ( $sent[ 'o:' . $hour ] ?? 0 ) );
+		}
+		if ( [] === $errors && 0 === $over ) {
+			return true;
+		}
+
+		$status = ( new ErrorsRequest() )->to( $target )->send( self::payload( array_values( $errors ), $over ) );
 
 		// Sent, or refused as data the API will never take: either way done.
 		// Anything else (no answer, 401 while a token refreshes, 429, a server
@@ -131,16 +219,33 @@ final class Reporter {
 		// the next run.
 		$done = null !== $status && ( ( $status >= 200 && $status < 300 ) || 400 === $status || 413 === $status || 422 === $status );
 		if ( ! $done ) {
-			return;
+			return false;
 		}
+		foreach ( array_keys( $errors ) as $key ) {
+			$sent[ $key ] = $counts[ $key ];
+		}
+		foreach ( $overflow as $hour => $count ) {
+			$sent[ 'o:' . $hour ] = $count;
+		}
+		Store::mark_known( array_keys( $errors ), $now, $target );
 
-		Store::take( array_intersect_key( $counts, $batch ) );
-		Store::take_hours( $overflow, $current );
-		Store::delete_old_locks( Monitor::DIRECT_PERIOD, $now );
-		Store::mark_known( array_keys( $batch ), $now );
+		return true;
+	}
 
-		if ( count( $entries ) > count( $batch ) ) {
-			self::schedule( self::TRIGGER_NEW );
+	/**
+	 * Forget the sent markers of a kind of target the site no longer has
+	 * (a subsite no longer monitored, or no longer connected on its own).
+	 *
+	 * @param Target[] $targets The targets now.
+	 *
+	 * @return void
+	 */
+	private static function forget_former_targets( array $targets ): void {
+		$kinds = array_map( static fn( Target $target ): string => $target->kind(), $targets );
+		foreach ( [ Target::own( '' ), Target::child( '', 0 ) ] as $former ) {
+			if ( ! in_array( $former->kind(), $kinds, true ) && false !== get_option( $former->option( Store::SENT_OPTION ) ) ) {
+				Store::forget_target( $former );
+			}
 		}
 	}
 

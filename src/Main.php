@@ -142,6 +142,10 @@ class Main {
 		/** A new site data report when a site of a connected network changes. */
 		Health\Subsites::setup();
 
+		/** The subsites a connected network monitors: where their data goes, and their reports. */
+		Connect\Children::setup();
+		Health\SubsiteReport::setup();
+
 		/** Register PHP error monitoring (the handlers start in the main plugin file or the must-use plugin) */
 		Errors\Controller::setup();
 

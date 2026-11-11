@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * GET /v1/sites/{site_id}/email-health/deliverability/state.
@@ -38,7 +37,7 @@ class EmailDeliverabilityStateRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/email-health/deliverability/state',
-			rawurlencode( OptionsController::get_option( 'site_id' ) )
+			rawurlencode( $this->site_id() )
 		);
 	}
 

@@ -62,6 +62,8 @@ final class CollectorTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		Collector::reset();
 		$this->options  = [
 			'admin_email'                    => 'admin@scanfully.com',

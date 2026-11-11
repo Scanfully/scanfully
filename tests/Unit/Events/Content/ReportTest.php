@@ -68,6 +68,8 @@ final class ReportTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 
 		Functions\when( 'get_option' )->alias( fn() => $this->connected );
 		$this->table = FakeOptionsTable::install();

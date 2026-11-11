@@ -52,6 +52,8 @@ final class UserEventsTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->transients      = [];
 		$this->current_user_id = 1;
 

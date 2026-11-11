@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * Sends PHP errors to the Scanfully API.
@@ -35,7 +34,7 @@ class ErrorsRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/errors', rawurlencode( OptionsController::get_option( 'site_id' ) ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/errors', rawurlencode( $this->site_id() ) );
 	}
 
 	/**

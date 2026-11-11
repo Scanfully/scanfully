@@ -8,6 +8,10 @@
 namespace Scanfully\Errors;
 
 use Scanfully\API\ErrorsRequest;
+use Scanfully\Connect\Children;
+use Scanfully\Connect\Network;
+use Scanfully\Connect\Targets;
+use Scanfully\Options\Controller as OptionsController;
 
 /**
  * Class Monitor
@@ -125,6 +129,9 @@ final class Monitor {
 		}
 
 		try {
+			if ( 'mu' === $origin && '' !== $basename ) {
+				Network::use_basename( $basename );
+			}
 			if ( ! self::should_run( 'mu' === $origin ? $basename : '' ) ) {
 				return;
 			}
@@ -157,7 +164,7 @@ final class Monitor {
 	 * @return bool
 	 */
 	public static function should_run( string $basename = '' ): bool {
-		if ( ! function_exists( 'get_option' ) || 'yes' !== get_option( 'scanfully_connect_is_connected' ) ) {
+		if ( ! function_exists( 'get_option' ) || ! self::has_target() ) {
 			return false;
 		}
 		// Read from the autoloaded options: a site that never touched the
@@ -191,6 +198,29 @@ final class Monitor {
 
 		// In recovery mode, a paused Scanfully plugin stays off here too.
 		return ! function_exists( 'wp_paused_plugins' ) || ! wp_paused_plugins()->get( dirname( $basename ) );
+	}
+
+	/**
+	 * Whether the site has somewhere to send its errors, from what is cheap
+	 * to read on every request: its own connection, on the main site of a
+	 * network the network's connection, or on a subsite the marker of a
+	 * network that monitors it (see Connect\Children). The sender checks
+	 * each target again (Connect\Targets::now()).
+	 *
+	 * @return bool
+	 */
+	private static function has_target(): bool {
+		if ( 'yes' === get_option( 'scanfully_connect_is_connected' ) ) {
+			return true;
+		}
+		if ( ! function_exists( 'is_multisite' ) || ! is_multisite() ) {
+			return false;
+		}
+		if ( is_main_site() ) {
+			return 'yes' === get_site_option( Network::CONNECTED_OPTION );
+		}
+
+		return null !== Children::marker_here();
 	}
 
 	/**
@@ -371,10 +401,12 @@ final class Monitor {
 			return;
 		}
 
+		// The plugin may not have booted (a fatal error while plugins load).
+		OptionsController::ensure_scope();
 		$now     = time();
 		$hour    = Store::hour( $now );
 		$errors  = $built;
-		$known   = Store::known();
+		$known   = Store::known_by_all( Targets::here() );
 		$unknown = array_diff_key( $errors, array_filter( $known, static fn( int $sent ): bool => $sent > $now - Store::KNOWN_FOR ) );
 
 		// A new distinct error counts against the hour's cap; one already
@@ -395,7 +427,7 @@ final class Monitor {
 		}
 
 		foreach ( $errors as $key => $error ) {
-			if ( 'fatal' === $error['level'] && self::send_directly( $error, $now ) ) {
+			if ( 'fatal' === $error['level'] && self::send_directly( (string) $key, $error, $now ) ) {
 				unset( $errors[ $key ], $unknown[ $key ] );
 			}
 		}
@@ -445,15 +477,22 @@ final class Monitor {
 	 * Send a fatal error straight from the shutdown function, after the
 	 * response is finished, with a short timeout: a site that fails on every
 	 * request, cron included, can't send it any other way. At most once per
-	 * fingerprint per DIRECT_PERIOD.
+	 * fingerprint per DIRECT_PERIOD. Sent to every target of the site; when
+	 * only some took it, it is stored as usual, and those that took it don't
+	 * get this occurrence again (Store's sent markers).
 	 *
+	 * @param string               $key   The error's store key.
 	 * @param array<string, mixed> $error The built error, with its count and times.
 	 * @param int                  $now   The time.
 	 *
-	 * @return bool Whether the API took it.
+	 * @return bool Whether every target took it.
 	 */
-	private static function send_directly( array $error, int $now ): bool {
+	private static function send_directly( string $key, array $error, int $now ): bool {
 		if ( ! Store::lock( (string) $error['fingerprint'], self::DIRECT_PERIOD, $now ) ) {
+			return false;
+		}
+		$targets = Targets::now();
+		if ( [] === $targets ) {
 			return false;
 		}
 
@@ -464,9 +503,24 @@ final class Monitor {
 			litespeed_finish_request();
 		}
 
-		$status = ( new ErrorsRequest() )->send( Reporter::payload( [ Reporter::entry( $error, (int) $error['count'], (int) $error['first_seen'], (int) $error['last_seen'] ) ], 0 ), self::DIRECT_TIMEOUT );
+		$payload = Reporter::payload( [ Reporter::entry( $error, (int) $error['count'], (int) $error['first_seen'], (int) $error['last_seen'] ) ], 0 );
+		$took    = [];
+		foreach ( $targets as $target ) {
+			$status = ( new ErrorsRequest() )->to( $target )->send( $payload, self::DIRECT_TIMEOUT );
+			if ( null !== $status && $status >= 200 && $status < 300 ) {
+				$took[] = $target;
+			}
+		}
+		if ( count( $took ) === count( $targets ) ) {
+			return true;
+		}
+		foreach ( $took as $target ) {
+			$sent         = Store::sent( $target );
+			$sent[ $key ] = (int) ( $sent[ $key ] ?? 0 ) + (int) $error['count'];
+			Store::save_sent( $target, $sent );
+		}
 
-		return null !== $status && $status >= 200 && $status < 300;
+		return false;
 	}
 
 	/**

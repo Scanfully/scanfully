@@ -7,6 +7,8 @@
 
 namespace Scanfully\Errors;
 
+use Scanfully\Connect\Target;
+
 /**
  * Class Store
  *
@@ -38,8 +40,18 @@ final class Store {
 
 	/**
 	 * Option with the errors the API got recently: key to when it was sent.
+	 * Per target (Target::option()): the own connection's, and `_network`
+	 * for a monitored subsite's child site.
 	 */
 	public const KNOWN_OPTION = 'scanfully_php_errors_known';
+
+	/**
+	 * Option with what one target of a site with two already got of the
+	 * counts that are still stored, because the other did not take them
+	 * yet: key (or `o:<hour>` for an hour's overflow) to count. The store
+	 * gives up a count once every target has it. Per target.
+	 */
+	public const SENT_OPTION = 'scanfully_php_errors_sent';
 
 	/**
 	 * Option name prefix of the direct send locks: one per fingerprint.
@@ -111,24 +123,56 @@ final class Store {
 	/**
 	 * The errors the API got recently: key to when it was sent.
 	 *
+	 * @param Target|null $target The target; null for the own connection.
+	 *
 	 * @return array<string, int>
 	 */
-	public static function known(): array {
-		$known = get_option( self::KNOWN_OPTION, [] );
+	public static function known( ?Target $target = null ): array {
+		$known = get_option( null !== $target ? $target->option( self::KNOWN_OPTION ) : self::KNOWN_OPTION, [] );
 
 		return is_array( $known ) ? array_map( 'intval', $known ) : [];
 	}
 
 	/**
+	 * The errors every one of some targets got recently: key to the time
+	 * the last of them got it. An error one of them does not know yet is
+	 * new.
+	 *
+	 * @param Target[] $targets The targets.
+	 *
+	 * @return array<string, int>
+	 */
+	public static function known_by_all( array $targets ): array {
+		$all = null;
+		foreach ( $targets as $target ) {
+			$known = self::known( $target );
+			if ( null === $all ) {
+				$all = $known;
+				continue;
+			}
+			foreach ( $all as $key => $sent ) {
+				if ( ! isset( $known[ $key ] ) ) {
+					unset( $all[ $key ] );
+				} else {
+					$all[ $key ] = min( $sent, $known[ $key ] );
+				}
+			}
+		}
+
+		return $all ?? [];
+	}
+
+	/**
 	 * Remember that the API got errors.
 	 *
-	 * @param string[] $keys The keys sent.
-	 * @param int      $now  The time they were sent.
+	 * @param string[]    $keys   The keys sent.
+	 * @param int         $now    The time they were sent.
+	 * @param Target|null $target The target that got them; null for the own connection.
 	 *
 	 * @return void
 	 */
-	public static function mark_known( array $keys, int $now ): void {
-		$known = self::known();
+	public static function mark_known( array $keys, int $now, ?Target $target = null ): void {
+		$known = self::known( $target );
 		foreach ( $keys as $key ) {
 			$known[ $key ] = $now;
 		}
@@ -139,7 +183,41 @@ final class Store {
 			}
 		);
 		arsort( $known );
-		update_option( self::KNOWN_OPTION, array_slice( $known, 0, self::MAX_KNOWN, true ), false );
+		update_option( null !== $target ? $target->option( self::KNOWN_OPTION ) : self::KNOWN_OPTION, array_slice( $known, 0, self::MAX_KNOWN, true ), false );
+	}
+
+	/**
+	 * What a target already got of the stored counts (see SENT_OPTION).
+	 *
+	 * @param Target $target The target.
+	 *
+	 * @return array<string, int>
+	 */
+	public static function sent( Target $target ): array {
+		$sent = get_option( $target->option( self::SENT_OPTION ), [] );
+
+		return is_array( $sent ) ? array_filter( array_map( 'intval', $sent ), static fn( int $count ): bool => $count > 0 ) : [];
+	}
+
+	/**
+	 * Keep what a target already got of the stored counts; nothing kept is
+	 * removed.
+	 *
+	 * @param Target             $target  The target.
+	 * @param array<string, int> $sent    Count by key.
+	 * @param bool               $existed Whether the target had a stored value before (saves a query when it had none and has none).
+	 *
+	 * @return void
+	 */
+	public static function save_sent( Target $target, array $sent, bool $existed = true ): void {
+		$sent = array_filter( $sent, static fn( int $count ): bool => $count > 0 );
+		if ( [] === $sent ) {
+			if ( $existed ) {
+				delete_option( $target->option( self::SENT_OPTION ) );
+			}
+			return;
+		}
+		update_option( $target->option( self::SENT_OPTION ), $sent, false );
 	}
 
 	/**
@@ -473,6 +551,23 @@ final class Store {
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- The rows are removed by name prefix, which the options API can't do.
 		$wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( self::PREFIX ) . '%' ) );
-		delete_option( self::KNOWN_OPTION );
+		foreach ( [ self::KNOWN_OPTION, self::SENT_OPTION ] as $name ) {
+			delete_option( $name );
+			delete_option( $name . '_network' );
+		}
+	}
+
+	/**
+	 * Forget what one target got, when it is no target any more; the stored
+	 * errors stay for the other.
+	 *
+	 * @param Target $target The target (only its kind counts).
+	 *
+	 * @return void
+	 */
+	public static function forget_target( Target $target ): void {
+		foreach ( [ self::KNOWN_OPTION, self::SENT_OPTION ] as $name ) {
+			delete_option( $target->option( $name ) );
+		}
 	}
 }

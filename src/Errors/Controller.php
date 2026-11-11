@@ -58,11 +58,17 @@ final class Controller {
 	/**
 	 * The site disconnected: forget the errors and, on a single site, remove
 	 * the must-use plugin (on a network other sites may use it; it does
-	 * nothing for a site that isn't connected).
+	 * nothing for a site that isn't connected or monitored).
 	 *
 	 * @return void
 	 */
 	public static function disconnected(): void {
+		// A subsite that a network still monitors keeps its errors for the
+		// network's child site; only what the own connection got goes.
+		if ( \Scanfully\Connect\Targets::reachable() ) {
+			Store::forget_target( \Scanfully\Connect\Target::own( '' ) );
+			return;
+		}
 		Store::delete_all();
 		if ( ! is_multisite() ) {
 			MuPlugin::remove();

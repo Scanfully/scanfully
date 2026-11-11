@@ -26,6 +26,8 @@ final class PermalinksChangedTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->scheduled = [];
 		Functions\when( 'get_option' )->justReturn( 'yes' );
 		Functions\when( 'wp_get_current_user' )->justReturn(

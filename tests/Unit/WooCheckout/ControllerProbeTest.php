@@ -23,6 +23,8 @@ final class ControllerProbeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->reset_cache();
 		unset( $_SERVER['HTTP_X_SCANFULLY_PROBE'], $_SERVER['REDIRECT_HTTP_X_SCANFULLY_PROBE'] );
 

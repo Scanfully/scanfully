@@ -11,7 +11,7 @@ use Scanfully\Events\Content\Limiter;
 use Scanfully\Events\Content\MinuteStore;
 use Scanfully\Events\ContentEvent;
 use Scanfully\Events\Controller;
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Collector
@@ -543,7 +543,7 @@ final class Collector {
 		$fonts     = self::font_items();
 		self::reset();
 
-		if ( [] !== $fonts && Options\Controller::get_options()->is_connected ) {
+		if ( [] !== $fonts && Targets::reachable() ) {
 			$user = wp_get_current_user();
 			MinuteStore::add(
 				self::KIND_FONTS,

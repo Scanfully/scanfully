@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * The plugin's view of its own connection, with the site token:
@@ -42,7 +41,7 @@ class PluginConnectionRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/plugin-connection%s',
-			rawurlencode( OptionsController::get_option( 'site_id' ) ),
+			rawurlencode( $this->site_id() ),
 			$endpoint
 		);
 	}

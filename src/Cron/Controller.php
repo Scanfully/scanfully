@@ -147,14 +147,15 @@ class Controller {
 	 * Sync WooCommerce checkout probe config. Runs on the recurring daily
 	 * schedule, also when WooCommerce is inactive: the report then carries
 	 * the `wc_inactive` disabled reason so the API knows scanning is off.
+	 * Goes to each target of the site (see WooCheckout\Controller::report()).
 	 *
 	 * @return void
 	 */
 	public static function sync_woocheckout_config(): void {
 		self::refresh_access_token_if_needed();
 
-		$options = Options\Controller::get_options();
-		if ( ! $options->is_connected ) {
+		// The site's own connection, or a network that monitors it.
+		if ( ! Connect\Targets::reachable() ) {
 			return;
 		}
 		if ( ! class_exists( '\\Scanfully\\WooCheckout\\Controller' ) ) {

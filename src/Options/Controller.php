@@ -42,13 +42,34 @@ class Controller {
 	private static ?bool $forced = null;
 
 	/**
+	 * Whether the scope was detected in this request.
+	 *
+	 * @var bool
+	 */
+	private static bool $detected = false;
+
+	/**
 	 * Decide the scope for this request: the network's options on the main
 	 * site of a network connected as a whole, the site's own otherwise.
 	 *
 	 * @return void
 	 */
 	public static function detect_scope(): void {
-		self::$network = \Scanfully\Connect\Network::applies();
+		self::$network  = \Scanfully\Connect\Network::applies();
+		self::$detected = true;
+	}
+
+	/**
+	 * Decide the scope when the plugin never did in this request: the PHP
+	 * error monitor sends from a must-use plugin even when a fatal error
+	 * stopped the request before the plugin booted.
+	 *
+	 * @return void
+	 */
+	public static function ensure_scope(): void {
+		if ( ! self::$detected ) {
+			self::detect_scope();
+		}
 	}
 
 	/**
@@ -65,6 +86,7 @@ class Controller {
 			wp_cache_delete( $network . ':notoptions', 'site-options' );
 			wp_cache_delete( $network . ':' . self::$db_prefix . 'is_connected', 'site-options' );
 			wp_cache_delete( $network . ':active_sitewide_plugins', 'site-options' );
+			\Scanfully\Connect\Network::forget();
 		}
 		self::detect_scope();
 	}

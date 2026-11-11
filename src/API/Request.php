@@ -7,6 +7,7 @@
 
 namespace Scanfully\API;
 
+use Scanfully\Connect\Target;
 use Scanfully\Main;
 use Scanfully\Options\Controller as OptionController;
 
@@ -27,6 +28,66 @@ abstract class Request {
 	 * The longest error text kept.
 	 */
 	private const MAX_ERROR_LENGTH = 200;
+
+	/**
+	 * Where the request goes; null for the connection that applies here, as
+	 * read from the options scope of this request.
+	 *
+	 * @var Target|null
+	 */
+	protected ?Target $target = null;
+
+	/**
+	 * Whether the token is read from the database, past the options cache.
+	 *
+	 * @var bool
+	 */
+	private bool $fresh_token = false;
+
+	/**
+	 * Send the request to a target (see Connect\Target): its site id, its
+	 * token and, for a network child, the blog id header.
+	 *
+	 * @param Target|null $target The target; null for the connection that applies here.
+	 *
+	 * @return static
+	 */
+	public function to( ?Target $target ) {
+		$this->target = $target;
+
+		return $this;
+	}
+
+	/**
+	 * Read the token from the database for this request: a retry after a
+	 * refused token, which another process may have replaced meanwhile.
+	 *
+	 * @return static
+	 */
+	public function with_fresh_token() {
+		$this->fresh_token = true;
+
+		return $this;
+	}
+
+	/**
+	 * The Scanfully site id the request is about.
+	 *
+	 * @return string
+	 */
+	protected function site_id(): string {
+		return null !== $this->target ? $this->target->site_id() : OptionController::get_option( 'site_id' );
+	}
+
+	/**
+	 * Whether the request goes to a network child, whose state is kept apart
+	 * from the site's own connection.
+	 *
+	 * @return bool
+	 */
+	private function to_child(): bool {
+		return null !== $this->target && $this->target->is_child();
+	}
 
 	/**
 	 * Send the request to the API.
@@ -67,16 +128,16 @@ abstract class Request {
 
 		$response = wp_remote_post( $this->get_url( $endpoint ), $request_args );
 		if ( is_wp_error( $response ) ) {
-			self::record_failure( 0, self::error_message( $response ) );
+			$this->record_failure( 0, self::error_message( $response ) );
 			return null;
 		}
 
 		// Only update last_used when we can confirm a successful response.
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		if ( $status >= 200 && $status < 300 ) {
-			self::record_success();
+			$this->record_success();
 		} else {
-			self::record_failure( $status, '' );
+			$this->record_failure( $status, '' );
 		}
 
 		return $status;
@@ -87,11 +148,15 @@ abstract class Request {
 	 * works, so any stale refresh-failure state that would keep the
 	 * broken-connection notice showing goes, and last_used says when. The
 	 * sync route answers last_used to the API as the last success, next to
-	 * the last failure, so every kind of request records both.
+	 * the last failure, so every kind of request records both. A request to
+	 * a network child says nothing about the site's own connection.
 	 *
 	 * @return void
 	 */
-	private static function record_success(): void {
+	private function record_success(): void {
+		if ( $this->to_child() ) {
+			return;
+		}
 		\Scanfully\Cron\Controller::clear_refresh_failures();
 		try {
 			$now = new \DateTime();
@@ -191,7 +256,7 @@ abstract class Request {
 	 */
 	private function process_response( $response ): ?array {
 		if ( is_wp_error( $response ) ) {
-			self::record_failure( 0, self::error_message( $response ) );
+			$this->record_failure( 0, self::error_message( $response ) );
 			return null;
 		}
 		$status   = (int) wp_remote_retrieve_response_code( $response );
@@ -204,14 +269,14 @@ abstract class Request {
 			}
 		}
 		if ( ( $status < 200 || $status >= 300 ) && ! self::is_permission_answer( $status, $decoded ) ) {
-			self::record_failure( $status, '' );
+			$this->record_failure( $status, '' );
 		}
 
 		// A successful request proves the connection works, so clear any stale
 		// refresh-failure state that would otherwise keep the broken-connection
 		// notice showing while the plugin is communicating fine.
 		if ( $status >= 200 && $status < 300 ) {
-			self::record_success();
+			$this->record_success();
 		}
 
 		return [
@@ -246,19 +311,20 @@ abstract class Request {
 	 * transport's error, or an answer that says it did not get through.
 	 * Scanfully answering 400 or 429 about one request does not count: the
 	 * connection works, and the API would tell the site's owner it doesn't.
+	 * A request to a network child keeps its own last failure.
 	 *
 	 * @param int    $status  The HTTP status; 0 when no answer came.
 	 * @param string $message The error of a request that got no answer.
 	 *
 	 * @return void
 	 */
-	private static function record_failure( int $status, string $message ): void {
+	private function record_failure( int $status, string $message ): void {
 		if ( $status >= 400 && $status < 500 && ! in_array( $status, [ 401, 403, 407 ], true ) ) {
 			return;
 		}
 
 		update_option(
-			self::OPTION_LAST_ERROR,
+			null !== $this->target ? $this->target->option( self::OPTION_LAST_ERROR ) : self::OPTION_LAST_ERROR,
 			[
 				'at'      => time(),
 				'status'  => $status,
@@ -286,7 +352,18 @@ abstract class Request {
 	 * @return array{at: int, status: int, message: string}|null
 	 */
 	public static function last_error(): ?array {
-		$error = get_option( self::OPTION_LAST_ERROR );
+		return self::last_error_of( null );
+	}
+
+	/**
+	 * The last failed request to a target, or null when none failed.
+	 *
+	 * @param Target|null $target The target; null for the site's own connection.
+	 *
+	 * @return array{at: int, status: int, message: string}|null
+	 */
+	public static function last_error_of( ?Target $target ): ?array {
+		$error = get_option( null !== $target ? $target->option( self::OPTION_LAST_ERROR ) : self::OPTION_LAST_ERROR );
 		if ( ! is_array( $error ) || ! isset( $error['at'] ) ) {
 			return null;
 		}
@@ -304,8 +381,13 @@ abstract class Request {
 	 * @return array
 	 */
 	public function get_auth_headers(): array {
-		$headers                  = [];
-		$headers['Authorization'] = sprintf( 'Bearer %s', OptionController::get_option( 'access_token' ) );
+		$headers = [];
+		if ( null !== $this->target ) {
+			$headers['Authorization'] = sprintf( 'Bearer %s', $this->target->access_token( $this->fresh_token ) );
+			$headers                  = array_merge( $headers, $this->target->headers() );
+		} else {
+			$headers['Authorization'] = sprintf( 'Bearer %s', $this->fresh_token ? OptionController::get_fresh_options()->access_token : OptionController::get_option( 'access_token' ) );
+		}
 
 		return apply_filters( 'scanfully_auth_headers', $headers );
 	}

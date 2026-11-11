@@ -50,6 +50,8 @@ final class CollectorTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		Collector::reset();
 
 		Functions\when( 'wp_cache_get' )->alias( fn( $id, $group ) => 'post_meta' === $group ? ( $this->meta_cache[ $id ] ?? false ) : false );
