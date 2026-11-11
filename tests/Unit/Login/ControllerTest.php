@@ -14,6 +14,7 @@ use Scanfully\Login\Burns;
 use Scanfully\Login\Controller;
 use Scanfully\Login\Log;
 use Scanfully\Manage\JobToken;
+use Scanfully\Options\Controller as OptionsController;
 use Scanfully\Sync\SignedRequest;
 
 /**
@@ -415,6 +416,24 @@ final class ControllerTest extends LoginTestCase {
 		$super = $this->open( $this->signed( [ 'wp_user' => 2 ] ) );
 		$this->assertSame( Controller::REASON_MONITORING_ONLY, $super['reason'], 'a super admin' );
 		$this->assertNull( $super['user'] );
+	}
+
+	public function test_the_network_connection_signs_in_a_super_admin_only(): void {
+		$this->network      = true;
+		$this->super_admins = [ 'editor' ];
+		// the network's options hold the connection, read in the network scope.
+		Functions\when( 'get_site_option' )->alias( fn( string $name, $fallback = false ) => $this->options[ $name ] ?? $fallback );
+
+		OptionsController::with_scope(
+			true,
+			function (): void {
+				$this->assertTrue( Controller::available(), 'the login action on the network connection' );
+				$super = $this->open( $this->signed( [ 'wp_user' => 2 ] ) );
+				$this->assertSame( '', $super['reason'], 'a super admin' );
+				$this->assertSame( 2, $super['user']->ID );
+				$this->assertSame( Controller::REASON_USER, $this->open( $this->signed() )['reason'], 'a site administrator who is not a super admin' );
+			}
+		);
 	}
 
 	public function test_a_login_token_works_for_nothing_else(): void {

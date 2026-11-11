@@ -3,7 +3,8 @@
  * Uninstall cleanup.
  *
  * Runs when the plugin is deleted from the Plugins screen. Revokes the site's
- * API tokens, then removes everything the plugin stored: options and transients (including the API tokens and the
+ * API tokens (and on a multisite network the network connection's), then
+ * removes everything the plugin stored: options and transients (including the API tokens and the
  * WooCheckout probe secret), Scanfully's Action Scheduler jobs and the
  * WooCheckout probe user.
  *
@@ -37,8 +38,21 @@ function scanfully_uninstall_site(): void {
  * @return void
  */
 function scanfully_uninstall_revoke_tokens(): void {
-	$site_id      = (string) get_option( 'scanfully_connect_site_id', '' );
-	$access_token = (string) get_option( 'scanfully_connect_access_token', '' );
+	scanfully_uninstall_revoke(
+		(string) get_option( 'scanfully_connect_site_id', '' ),
+		(string) get_option( 'scanfully_connect_access_token', '' )
+	);
+}
+
+/**
+ * Ask the API to revoke a connection's tokens: a site's own, or a network's.
+ *
+ * @param string $site_id      The connection's Scanfully site id.
+ * @param string $access_token Its access token.
+ *
+ * @return void
+ */
+function scanfully_uninstall_revoke( string $site_id, string $access_token ): void {
 	if ( '' === $site_id || '' === $access_token ) {
 		return;
 	}
@@ -194,6 +208,20 @@ function scanfully_uninstall_options(): void {
 }
 
 if ( is_multisite() ) {
+	// the network connection (Network Admin › Settings › Scanfully), kept in
+	// the network's options: revoked, then removed with its options.
+	scanfully_uninstall_revoke(
+		(string) get_site_option( 'scanfully_connect_site_id', '' ),
+		(string) get_site_option( 'scanfully_connect_access_token', '' )
+	);
+	global $wpdb;
+	$scanfully_network_options = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Uninstall, once.
+		$wpdb->prepare( "SELECT meta_key FROM {$wpdb->sitemeta} WHERE site_id = %d AND meta_key LIKE %s", get_current_network_id(), $wpdb->esc_like( 'scanfully_connect_' ) . '%' )
+	);
+	foreach ( $scanfully_network_options as $scanfully_option ) {
+		delete_site_option( (string) $scanfully_option );
+	}
+
 	foreach ( get_sites(
 		[
 			'fields' => 'ids',

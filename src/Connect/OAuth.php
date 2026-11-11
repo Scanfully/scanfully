@@ -83,6 +83,8 @@ class OAuth {
 			'scope'                 => implode( ' ', self::SCOPES ),
 			// home_url() is the public-facing address (Bedrock keeps WordPress in a subdirectory).
 			'site'                  => home_url(),
+			// a site, a site of a multisite network, or the whole network.
+			'kind'                  => Network::request_kind(),
 		];
 
 		return Main::get_oauth_url() . '/oauth/authorize?' . http_build_query( $params, '', '&', PHP_QUERY_RFC3986 );

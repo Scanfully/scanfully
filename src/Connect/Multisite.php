@@ -7,19 +7,22 @@
 
 namespace Scanfully\Connect;
 
+use Scanfully\Options\Controller as OptionsController;
+
 /**
- * On a WordPress multisite network the plugin's connection lives on one
- * subsite (its options), and whoever may manage that subsite's options may
- * make it: the subsite's administrator, who need not be a super admin.
- * Such a connection is for monitoring only. It never signs anyone in (WP
- * admin access) and never runs a Manage job, because on a network those act
- * on every site of the network, which only a super admin may change. A
- * connection made at network level, by a super admin, is what will carry
- * Manage on a network; until it exists, every connection on a network is a
- * monitoring-only one.
+ * On a WordPress multisite network a site's own connection lives in that
+ * site's options, and whoever may manage that site's options may make it:
+ * the site's administrator, who need not be a super admin. Such a
+ * connection is for monitoring only. It never signs anyone in (WP admin
+ * access) and never runs a Manage job, because on a network those act on
+ * every site of the network, which only a super admin may change. Only the
+ * network connection, made from Network Admin by a super admin and kept in
+ * the network's options (see Network), carries Manage and WP admin access.
  *
- * The API refuses the same on its side (a site that reports multisite gets
- * no login link and no Manage job), so neither side relies on the other.
+ * The API refuses the same on its side: on a multisite only a connection
+ * approved and reported as the network's gets login links and Manage jobs.
+ * The kind a connection asks for is the plugin's to say, so the plugin's own
+ * refusals here are what holds; the API's add a second line.
  */
 class Multisite {
 
@@ -35,13 +38,14 @@ class Multisite {
 	public const CONFIRM_NEEDED = 'scanfully-monitoring-only-needed';
 
 	/**
-	 * Whether this site's connection is for monitoring only: the site is part
-	 * of a multisite network.
+	 * Whether the connection that applies here is for monitoring only: the
+	 * site is part of a multisite network and the connection is not the
+	 * network's.
 	 *
 	 * @return bool
 	 */
 	public static function monitoring_only(): bool {
-		return function_exists( 'is_multisite' ) && is_multisite();
+		return Network::multisite() && ! OptionsController::network_scope();
 	}
 
 	/**
@@ -66,7 +70,7 @@ class Multisite {
 	 * @return string
 	 */
 	public static function notice(): string {
-		return __( 'This site is part of a WordPress multisite network. You can connect it to Scanfully for monitoring. Updates, installs and WP admin access act on the whole network, so they need a connection at network level, made by a network administrator.', 'scanfully' );
+		return __( 'This site is part of a WordPress multisite network. You can connect it to Scanfully for monitoring. Updates, installs and WP admin access act on the whole network, so they need the network connection, which a network administrator makes in Network Admin › Settings › Scanfully.', 'scanfully' );
 	}
 
 	/**

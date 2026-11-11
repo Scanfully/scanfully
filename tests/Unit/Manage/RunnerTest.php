@@ -231,6 +231,41 @@ final class RunnerTest extends TestCase {
 		$this->assertSame( '2026-10-28T10:00:31+00:00', $result['finished_at'] );
 	}
 
+	public function test_the_network_connection_runs_the_network_actions_only(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		$ran      = [];
+		$registry = [
+			'activate_plugin' => [
+				'run'     => function () use ( &$ran ): array {
+					$ran[] = 'activate_plugin';
+					return [];
+				},
+				'long'    => false,
+				'network' => false,
+			],
+			'delete_plugin'   => [
+				'run'     => function () use ( &$ran ): array {
+					$ran[] = 'delete_plugin';
+					return [];
+				},
+				'long'    => false,
+				'network' => true,
+			],
+		];
+		$beat     = static fn(): bool => true;
+
+		\Scanfully\Options\Controller::with_scope(
+			true,
+			function () use ( $registry, $beat ): void {
+				$refused = Runner::run( [ 'action' => 'activate_plugin' ], $beat, fn(): int => $this->now, $registry );
+				$this->assertSame( 'multisite_refused', $refused['error']['class'], 'activating acts per site of the network' );
+				$this->assertSame( 'succeeded', Runner::run( [ 'action' => 'delete_plugin' ], $beat, fn(): int => $this->now, $registry )['state'] );
+				$this->assertSame( [ 'ping', 'update_plugin', 'update_theme', 'update_core', 'update_translations', 'install_plugin', 'install_theme', 'install_plugin_upload', 'install_theme_upload', 'delete_plugin', 'delete_theme' ], Runner::actions( true ) );
+			}
+		);
+		$this->assertSame( [ 'delete_plugin' ], $ran );
+	}
+
 	public function test_on_a_network_no_job_runs(): void {
 		Functions\when( 'is_multisite' )->justReturn( true );
 		$ran      = false;

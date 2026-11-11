@@ -37,7 +37,6 @@ final class Deletes extends Action {
 	 * @throws JobFailed When the plugin is still there afterwards, or may not be deleted.
 	 */
 	public static function plugin( array $params, callable $beat, JobRun $run ): array {
-		unset( $beat );
 		$started = microtime( true );
 		$slug    = self::param( $params, 'slug', self::SLUG, true );
 		self::prepare();
@@ -53,6 +52,16 @@ final class Deletes extends Action {
 		$version = self::plugin_version( $file );
 		if ( is_plugin_active( $file ) || ( is_multisite() && is_plugin_active_for_network( $file ) ) ) {
 			throw new JobFailed( 'plugin_active', 'The plugin is switched on, so Scanfully did not delete it. Switch it off first.', self::partial( $version, $version, [], $run, $started, $extra ) );
+		}
+		$elsewhere = self::network_site_using(
+			static function ( array $site ) use ( $file ): bool {
+				return in_array( $file, $site['active_plugins'], true );
+			},
+			$beat
+		);
+		if ( null !== $elsewhere ) {
+			/* translators: %s: the address of a site of the network. */
+			throw new JobFailed( 'plugin_active', sprintf( 'The plugin is switched on on %s, a site of the network, so Scanfully did not delete it. Switch it off there first.', $elsewhere ), self::partial( $version, $version, [], $run, $started, $extra ) );
 		}
 		self::connect_filesystem( 'delete' );
 
@@ -83,7 +92,6 @@ final class Deletes extends Action {
 	 * @throws JobFailed When the theme is still there afterwards, or may not be deleted.
 	 */
 	public static function theme( array $params, callable $beat, JobRun $run ): array {
-		unset( $beat );
 		$started    = microtime( true );
 		$stylesheet = self::param( $params, 'stylesheet', self::SLUG, true );
 		self::prepare();
@@ -100,6 +108,15 @@ final class Deletes extends Action {
 		if ( (string) get_option( 'template' ) === $stylesheet ) {
 			throw new JobFailed( 'theme_in_use', 'The theme is the parent of the theme the site uses, so Scanfully did not delete it.', self::partial( $version, $version, [], $run, $started, $extra ) );
 		}
+		$elsewhere = self::network_site_using(
+			static function ( array $site ) use ( $stylesheet ): bool {
+				return $site['stylesheet'] === $stylesheet || $site['template'] === $stylesheet;
+			},
+			$beat
+		);
+		if ( null !== $elsewhere ) {
+			throw new JobFailed( 'theme_in_use', sprintf( '%s, a site of the network, uses the theme or a child of it, so Scanfully did not delete it.', $elsewhere ), self::partial( $version, $version, [], $run, $started, $extra ) );
+		}
 		self::connect_filesystem( 'delete' );
 
 		try {
@@ -109,6 +126,71 @@ final class Deletes extends Action {
 		}
 
 		return self::deleted( $result, $folder, $version, 'theme', $run, $started, $extra );
+	}
+
+	/**
+	 * On a multisite network, the address of the first other site of the
+	 * network for which uses() is true, or null; on a single site always
+	 * null. Every site counts, archived, spam and deleted ones too: they can
+	 * come back.
+	 *
+	 * @param callable $uses Whether a site uses the software, given its options (site_options()).
+	 * @param callable $beat Sends a heartbeat when one is due.
+	 *
+	 * @return string|null
+	 */
+	private static function network_site_using( callable $uses, callable $beat ): ?string {
+		if ( ! \Scanfully\Connect\Network::multisite() ) {
+			return null;
+		}
+		$current = get_current_blog_id();
+		for ( $offset = 0; ; $offset += 500 ) {
+			$sites = get_sites(
+				[
+					'fields' => 'ids',
+					'number' => 500,
+					'offset' => $offset,
+				]
+			);
+			foreach ( $sites as $site ) {
+				if ( (int) $site !== $current && $uses( self::site_options( (int) $site ) ) ) {
+					return (string) get_home_url( (int) $site );
+				}
+			}
+			// A large network takes a while: the job keeps its lease.
+			$beat();
+			if ( count( $sites ) < 500 ) {
+				return null;
+			}
+		}
+	}
+
+	/**
+	 * What a delete checks of a site of the network, read straight from its
+	 * options table: switching to every site would load each one's options
+	 * into memory.
+	 *
+	 * @param int $site The site id.
+	 *
+	 * @return array{active_plugins: string[], stylesheet: string, template: string}
+	 */
+	private static function site_options( int $site ): array {
+		global $wpdb;
+		$rows = $wpdb->get_results( // phpcs:ignore WordPress.DB.DirectDatabaseQuery -- Three options of every site of a network, once per delete.
+			"SELECT option_name, option_value FROM {$wpdb->get_blog_prefix( $site )}options WHERE option_name IN ('active_plugins', 'stylesheet', 'template')", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- The table prefix of a site id.
+			ARRAY_A
+		);
+		$options = [];
+		foreach ( is_array( $rows ) ? $rows : [] as $row ) {
+			$options[ (string) $row['option_name'] ] = (string) $row['option_value'];
+		}
+		$active = isset( $options['active_plugins'] ) ? maybe_unserialize( $options['active_plugins'] ) : [];
+
+		return [
+			'active_plugins' => is_array( $active ) ? array_values( array_map( 'strval', $active ) ) : [],
+			'stylesheet'     => $options['stylesheet'] ?? '',
+			'template'       => $options['template'] ?? '',
+		];
 	}
 
 	/**

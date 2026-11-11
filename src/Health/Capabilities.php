@@ -58,7 +58,7 @@ final class Capabilities {
 	/**
 	 * The capabilities object of the site data.
 	 *
-	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null}|array{} Empty while skip() runs.
+	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, connection_kind: string|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null}|array{} Empty while skip() runs.
 	 */
 	public static function get(): array {
 		if ( self::$skipped ) {
@@ -72,10 +72,11 @@ final class Capabilities {
 			// The actions that write files (updates, installs, deletes) only
 			// where WordPress may change files and can write them without
 			// asking for credentials; switching a plugin on or off and a
-			// theme switch always. None on a multisite network, whose
-			// connection is for monitoring only. Then login, which is no job:
-			// the site signs a Scanfully user in from a sign-in link (never on
-			// a network either).
+			// theme switch always. On a multisite network none for a
+			// monitoring-only connection, and the network's actions for the
+			// network connection. Then login, which is no job: the site signs
+			// a Scanfully user in from a sign-in link (on a network only on
+			// the network connection, as a super admin).
 			'actions' => array_merge(
 				\Scanfully\Manage\Runner::actions( true === $file_mods_allowed && self::usable_fs_method( $fs_method ) ),
 				true === self::check( [ \Scanfully\Login\Controller::class, 'available' ] ) ? [ 'login' ] : []
@@ -84,14 +85,18 @@ final class Capabilities {
 			'auto_updater_enabled' => self::check( [ self::class, 'auto_updater_enabled' ] ),
 			'fs_method' => $fs_method,
 			'multisite' => self::check( 'is_multisite' ),
+			// single, subsite (monitoring only) or network: what the API also
+			// needs the connection to have been approved as.
+			'connection_kind' => self::check( [ \Scanfully\Connect\Network::class, 'kind' ] ),
 			'action_scheduler' => self::check( [ self::class, 'action_scheduler' ] ),
 			'mu_plugin_writable' => self::check(
 				static function (): bool {
 					return self::can_write_folder( defined( 'WPMU_PLUGIN_DIR' ) ? (string) WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins' );
 				}
 			),
-			// Who a sign-in link may sign in as: the administrators, at most
-			// 50 by id; none on a multisite network.
+			// Who a sign-in link may sign in as: the administrators, or the
+			// super admins of a network connected as a whole, at most 50 by
+			// id; none on a monitoring-only connection.
 			'administrators' => self::check( [ \Scanfully\Login\Administrators::class, 'list' ] ),
 		];
 	}

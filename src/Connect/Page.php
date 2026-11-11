@@ -16,11 +16,9 @@ use Scanfully\Util;
 class Page {
 
 	/**
-	 * The admin page slug.
-	 *
-	 * @var string
+	 * The admin page slug, the same in a site's Settings and in Network Admin.
 	 */
-	private static string $page = 'scanfully';
+	public const SLUG = 'scanfully';
 
 	/**
 	 * Register the page and its install redirect.
@@ -50,7 +48,13 @@ class Page {
 	 * @return string
 	 */
 	public static function get_page_url(): string {
-		return admin_url( 'options-general.php?page=' . self::$page );
+		// the network connection is changed in Network Admin only, also when
+		// a link to it shows on the main site.
+		if ( Network::in_network_admin() || OptionsController::network_scope() ) {
+			return Network::page_url();
+		}
+
+		return admin_url( 'options-general.php?page=' . self::SLUG );
 	}
 
 	/**
@@ -66,7 +70,7 @@ class Page {
 					__( 'Scanfully', 'scanfully' ),
 					__( 'Scanfully', 'scanfully' ),
 					'manage_options',
-					self::$page,
+					self::SLUG,
 					[ Page::class, 'render_page' ]
 				);
 
@@ -96,8 +100,38 @@ class Page {
 	 * @return void
 	 */
 	public static function render_page(): void {
-		// get options.
-		$options = OptionsController::get_options();
+		self::render( false );
+	}
+
+	/**
+	 * Render Network Admin › Settings › Scanfully: the network connection.
+	 *
+	 * @return void
+	 */
+	public static function render_network_page(): void {
+		if ( ! Network::user_may_manage() ) {
+			return;
+		}
+		OptionsController::with_scope(
+			true,
+			static function (): void {
+				self::render( true );
+			}
+		);
+	}
+
+	/**
+	 * Render the connection page: a site's own, or the network's (in Network
+	 * Admin). The main site's own page shows the network connection without
+	 * its buttons while that applies.
+	 *
+	 * @param bool $network_page Whether this is the Network Admin page.
+	 *
+	 * @return void
+	 */
+	private static function render( bool $network_page ): void {
+		$options      = OptionsController::get_options();
+		$through_main = ! $network_page && OptionsController::network_scope();
 		?>
 		<div class="scanfully-secure-setup-wrapper">
 			<div class="scanfully-setup-logo">
@@ -162,11 +196,28 @@ class Page {
 					<?php endif; ?>
 				</ul>
 				<div class="scanfully-connect-button-wrapper">
-					<?php if ( $options->is_connected ) : ?>
+					<?php if ( $through_main ) : ?>
+						<p class="scanfully-connect-network-note"><?php echo esc_html( Network::main_site_note() ); ?></p>
+						<?php if ( current_user_can( 'manage_network_options' ) ) : ?>
+							<p><a class="button" href="<?php echo esc_url( Network::page_url() ); ?>"><?php esc_html_e( 'Open the network connection', 'scanfully' ); ?></a></p>
+						<?php endif; ?>
+					<?php elseif ( $options->is_connected ) : ?>
+						<?php if ( $network_page ) : ?>
+							<p class="scanfully-connect-network-note"><?php esc_html_e( 'Network connection: Scanfully Manage and WP admin access act on every site of the network.', 'scanfully' ); ?></p>
+						<?php endif; ?>
 						<p style="display: flex; gap: 1em;">
 							<?php Buttons::dashboard(); ?>
-							<?php Buttons::change_access(); ?>
+							<?php if ( Multisite::monitoring_only() ) : ?>
+								<?php Buttons::change_access_monitoring_only(); ?>
+							<?php else : ?>
+								<?php Buttons::change_access(); ?>
+							<?php endif; ?>
 							<?php Buttons::disconnect(); ?>
+						</p>
+					<?php elseif ( $network_page ) : ?>
+						<p class="scanfully-connect-network-notice"><?php echo esc_html( Network::notice() ); ?></p>
+						<p style="display: inline-block">
+							<?php Buttons::connect(); ?>
 						</p>
 					<?php elseif ( Multisite::monitoring_only() ) : ?>
 						<p class="scanfully-connect-monitoring-only-notice"><?php echo esc_html( Multisite::notice() ); ?></p>

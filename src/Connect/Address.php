@@ -252,7 +252,7 @@ class Address {
 		if ( ! isset( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), self::KEEP_NONCE ) ) {
 			wp_die( 'Invalid Scanfully nonce' );
 		}
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( Network::manage_capability() ) ) {
 			wp_die( 'You do not have permission to do this.' );
 		}
 
@@ -353,7 +353,7 @@ class Address {
 	 * @return bool
 	 */
 	private static function shows(): bool {
-		return self::moved() && Scopes::applies() && current_user_can( 'manage_options' );
+		return self::moved() && Scopes::applies() && current_user_can( Network::manage_capability() );
 	}
 
 	/**

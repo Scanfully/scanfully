@@ -90,15 +90,17 @@ class Runner {
 			];
 		};
 
-		// The M2 actions are refused on a multisite network: WordPress's
-		// installs, activations, theme switches and deletes there are per
-		// site or network-wide, which a job cannot choose yet.
-		$change = static function ( callable $run, bool $files ): array {
+		// The M2 actions. On a multisite network's connection an install adds
+		// the files for the whole network and a delete removes them once no
+		// site of the network uses them (Deletes checks every site); switching
+		// on and off and a theme switch act per site, which a job cannot
+		// choose yet, so they are refused there.
+		$change = static function ( callable $run, bool $files, bool $network ): array {
 			return [
 				'run'     => $run,
 				'long'    => $files,
 				'files'   => $files,
-				'network' => false,
+				'network' => $network,
 			];
 		};
 
@@ -112,17 +114,17 @@ class Runner {
 			self::ACTION_UPDATE_THEME          => $update( [ Updates::class, 'theme' ] ),
 			self::ACTION_UPDATE_CORE           => $update( [ Updates::class, 'core' ] ),
 			self::ACTION_UPDATE_TRANSLATIONS   => $update( [ Updates::class, 'translations' ] ),
-			self::ACTION_INSTALL_PLUGIN        => $change( [ Installs::class, 'plugin' ], true ),
-			self::ACTION_INSTALL_THEME         => $change( [ Installs::class, 'theme' ], true ),
-			self::ACTION_INSTALL_PLUGIN_UPLOAD => $change( [ Installs::class, 'plugin_upload' ], true ),
-			self::ACTION_INSTALL_THEME_UPLOAD  => $change( [ Installs::class, 'theme_upload' ], true ),
+			self::ACTION_INSTALL_PLUGIN        => $change( [ Installs::class, 'plugin' ], true, true ),
+			self::ACTION_INSTALL_THEME         => $change( [ Installs::class, 'theme' ], true, true ),
+			self::ACTION_INSTALL_PLUGIN_UPLOAD => $change( [ Installs::class, 'plugin_upload' ], true, true ),
+			self::ACTION_INSTALL_THEME_UPLOAD  => $change( [ Installs::class, 'theme_upload' ], true, true ),
 			// Switching on and off and a theme switch write no files: they
-			// run wherever Manage does.
-			self::ACTION_ACTIVATE_PLUGIN       => $change( [ Toggles::class, 'activate_plugin' ], false ),
-			self::ACTION_DEACTIVATE_PLUGIN     => $change( [ Toggles::class, 'deactivate_plugin' ], false ),
-			self::ACTION_SWITCH_THEME          => $change( [ Toggles::class, 'switch_theme' ], false ),
-			self::ACTION_DELETE_PLUGIN         => $change( [ Deletes::class, 'plugin' ], true ),
-			self::ACTION_DELETE_THEME          => $change( [ Deletes::class, 'theme' ], true ),
+			// run wherever Manage does, but not on a multisite network.
+			self::ACTION_ACTIVATE_PLUGIN       => $change( [ Toggles::class, 'activate_plugin' ], false, false ),
+			self::ACTION_DEACTIVATE_PLUGIN     => $change( [ Toggles::class, 'deactivate_plugin' ], false, false ),
+			self::ACTION_SWITCH_THEME          => $change( [ Toggles::class, 'switch_theme' ], false, false ),
+			self::ACTION_DELETE_PLUGIN         => $change( [ Deletes::class, 'plugin' ], true, true ),
+			self::ACTION_DELETE_THEME          => $change( [ Deletes::class, 'theme' ], true, true ),
 		];
 	}
 
@@ -130,9 +132,8 @@ class Runner {
 	 * The names of the actions this plugin version runs on this site, for
 	 * the capabilities report: the ones that change files only when
 	 * WordPress may write them without asking for credentials. On a multisite
-	 * network none: a connection there is for monitoring only
-	 * (Connect\Multisite). The entries marked network are the ones a
-	 * connection at network level will run.
+	 * network none for a monitoring-only connection (Connect\Multisite), and
+	 * the entries marked network for the network connection.
 	 *
 	 * @param bool $can_change_files Whether WordPress may change files and has a usable way to write them.
 	 *
@@ -143,7 +144,7 @@ class Runner {
 			return [];
 		}
 		$names   = [];
-		$network = function_exists( 'is_multisite' ) && is_multisite();
+		$network = \Scanfully\Connect\Network::multisite();
 		foreach ( self::registry() as $name => $entry ) {
 			if ( $network && empty( $entry['network'] ) ) {
 				continue;
@@ -203,6 +204,9 @@ class Runner {
 		$entry = $registry[ $action ];
 		if ( \Scanfully\Connect\Multisite::monitoring_only() ) {
 			return self::failed( $started, (int) $now(), 'multisite_refused', sprintf( 'This site is part of a multisite network and connected for monitoring only, so Scanfully does not run the action "%s" here.', $action ) );
+		}
+		if ( \Scanfully\Connect\Network::multisite() && empty( $entry['network'] ) ) {
+			return self::failed( $started, (int) $now(), 'multisite_refused', sprintf( 'On a multisite network, Scanfully does not run the action "%s" yet: it acts per site of the network.', $action ) );
 		}
 
 		$failure = null;

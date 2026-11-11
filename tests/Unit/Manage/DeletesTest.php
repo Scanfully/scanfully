@@ -43,6 +43,88 @@ final class DeletesTest extends SiteTestCase {
 		$this->assertDirectoryExists( WP_PLUGIN_DIR . '/hello-fixture' );
 	}
 
+	public function test_on_a_network_a_plugin_or_theme_another_site_uses_is_not_deleted(): void {
+		Functions\when( 'is_multisite' )->justReturn( true );
+		Functions\when( 'is_plugin_active_for_network' )->justReturn( false );
+		Functions\when( 'get_current_blog_id' )->justReturn( 1 );
+		Functions\when( 'get_sites' )->justReturn( [ 1, 2, 3 ] );
+		Functions\when( 'get_home_url' )->alias( static fn( int $site ): string => 'https://scanfully.com/site-' . $site );
+		Functions\when( 'maybe_unserialize' )->alias( static fn( $value ) => is_string( $value ) && 0 === strpos( $value, 'a:' ) ? unserialize( $value ) : $value ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize -- Test double of maybe_unserialize().
+		$blog_options = [
+			2 => [
+			'active_plugins' => serialize( [] ),
+			'stylesheet' => 'twentytwentyfour',
+			'template' => 'twentytwentyfour',
+				], // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- As WordPress stores it.
+			3 => [
+			'active_plugins' => serialize( [ 'hello-fixture/hello-fixture.php' ] ),
+			'stylesheet' => 'blocksy-child',
+			'template' => 'blocksy',
+			], // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- As WordPress stores it.
+		];
+		$beats = 0;
+		$before = $GLOBALS['wpdb'] ?? null;
+		$GLOBALS['wpdb'] = new class( $blog_options ) {
+			/**
+			 * The options of each site, by id.
+			 *
+			 * @var array<int, array<string, string>>
+			 */
+			public array $sites;
+
+			/**
+			 * The site the last prefix was for.
+			 *
+			 * @var int
+			 */
+			private int $site = 0;
+
+			public function __construct( array &$sites ) {
+				$this->sites = &$sites;
+			}
+
+			public function get_blog_prefix( int $site ): string {
+				$this->site = $site;
+				return 'wp_' . $site . '_';
+			}
+
+			public function get_results( string $query ): array {
+				$rows = [];
+				foreach ( $this->sites[ $this->site ] ?? [] as $name => $value ) {
+					$rows[] = [
+						'option_name' => $name,
+						'option_value' => $value,
+					];
+				}
+				return $rows;
+			}
+		};
+		$beat = static function () use ( &$beats ): void {
+			++$beats;
+		};
+
+		try {
+			$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'hello-fixture' ], $beat, $this->run ) );
+			$this->assertSame( 'plugin_active', $e->error_class() );
+			$this->assertStringContainsString( 'https://scanfully.com/site-3', $e->getMessage() );
+			$this->assertDirectoryExists( WP_PLUGIN_DIR . '/hello-fixture' );
+
+			foreach ( [ 'blocksy', 'blocksy-child' ] as $theme ) {
+				$e = $this->failure( fn() => Deletes::theme( [ 'stylesheet' => $theme ], $beat, $this->run ) );
+				$this->assertSame( 'theme_in_use', $e->error_class(), $theme . ' is the theme or parent of site 3' );
+				$this->assertDirectoryExists( get_theme_root( $theme ) . '/' . $theme );
+			}
+
+			// No other site uses it: deleted, with a heartbeat on the way.
+			$blog_options[3]['active_plugins'] = serialize( [] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize -- As WordPress stores it.
+			Deletes::plugin( [ 'slug' => 'hello-fixture' ], $beat, $this->run );
+			$this->assertDirectoryDoesNotExist( WP_PLUGIN_DIR . '/hello-fixture' );
+			$this->assertGreaterThan( 0, $beats );
+		} finally {
+			$GLOBALS['wpdb'] = $before;
+		}
+	}
+
 	public function test_the_scanfully_plugin_is_never_deleted(): void {
 		$e = $this->failure( fn() => Deletes::plugin( [ 'slug' => 'scanfully' ], static function (): void {}, $this->run ) );
 

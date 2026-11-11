@@ -112,18 +112,17 @@ class AdminNotice {
 	 */
 	public static function print_stale_notice(): void {
 		// Only users who can manage the connection should see it (and its
-		// Reconnect button).
-		if ( ! current_user_can( 'manage_options' ) ) {
+		// Reconnect button): a super admin for the network connection.
+		if ( ! current_user_can( Network::manage_capability() ) ) {
 			return;
 		}
 
 		$reconnect_url = add_query_arg(
 			[
-				'page'                       => 'scanfully',
-				'scanfully-reconnect'        => 1,
-				'scanfully-reconnect-nonce'  => wp_create_nonce( 'scanfully-reconnect' ),
+				'scanfully-reconnect'       => 1,
+				'scanfully-reconnect-nonce' => wp_create_nonce( 'scanfully-reconnect' ),
 			],
-			admin_url( 'options-general.php' )
+			Page::get_page_url()
 		);
 		?>
 		<div class="notice notice-error scanfully-not-connected-notice">
