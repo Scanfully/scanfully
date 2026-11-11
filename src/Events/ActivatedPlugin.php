@@ -18,7 +18,8 @@ class ActivatedPlugin extends Event {
 	 * Constructor.
 	 */
 	public function __construct() {
-		parent::__construct( 'PluginActivate', 'activated_plugin' );
+		// The second argument says whether it was activated for the whole network.
+		parent::__construct( 'PluginActivate', 'activated_plugin', 10, 2 );
 	}
 
 	/**
@@ -38,6 +39,7 @@ class ActivatedPlugin extends Event {
 			'slug'         => $data[0],
 			'requires_wp'  => $plugin_data['RequiresWP'],
 			'requires_php' => $plugin_data['RequiresPHP'],
+			'network_wide' => ! empty( $data[1] ),
 		];
 	}
 
