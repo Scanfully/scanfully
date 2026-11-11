@@ -129,6 +129,7 @@ class Main {
 		 */
 		Options\Controller::detect_scope();
 		add_action( 'switch_blog', [ Options\Controller::class, 'detect_scope' ] );
+		add_action( 'shutdown', [ Options\Controller::class, 'end_forced_scope' ], PHP_INT_MIN );
 		// A queue runner may run long: every job sees the connection as it is now.
 		add_action( 'action_scheduler_before_execute', [ Options\Controller::class, 'refresh_scope' ], 0 );
 

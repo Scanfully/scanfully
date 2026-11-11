@@ -274,7 +274,7 @@ final class CapabilitiesTest extends TestCase {
 		$this->assertSame( [], $capabilities['administrators'], 'no one to sign in as' );
 	}
 
-	public function test_the_network_connection_runs_the_network_actions_and_signs_in_super_admins(): void {
+	public function test_the_network_connection_reports_the_network_actions_and_its_kind(): void {
 		Functions\when( 'is_multisite' )->justReturn( true );
 		Functions\when( 'get_super_admins' )->justReturn( [ 'admin' ] );
 		Functions\when( 'get_user_by' )->justReturn( false );

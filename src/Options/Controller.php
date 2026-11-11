@@ -79,6 +79,17 @@ class Controller {
 	}
 
 	/**
+	 * End a scope a caller forced: a request that exits inside with_scope()
+	 * (a redirect) skips its finally, so what runs at shutdown (the activity
+	 * log's flushes) would still use it.
+	 *
+	 * @return void
+	 */
+	public static function end_forced_scope(): void {
+		self::$forced = null;
+	}
+
+	/**
 	 * Run a callable with the connection options in the given scope: the
 	 * network's (true) or the site's own (false).
 	 *

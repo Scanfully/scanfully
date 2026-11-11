@@ -19,9 +19,10 @@ use Scanfully\Options\Controller as OptionsController;
  * network connection, made from Network Admin by a super admin and kept in
  * the network's options (see Network), carries Manage and WP admin access.
  *
- * The API refuses the same on its side (on a multisite only a connection
- * approved and reported as the network's gets login links and Manage jobs),
- * so neither side relies on the other.
+ * The API refuses the same on its side: on a multisite only a connection
+ * approved and reported as the network's gets login links and Manage jobs.
+ * The kind a connection asks for is the plugin's to say, so the plugin's own
+ * refusals here are what holds; the API's add a second line.
  */
 class Multisite {
 

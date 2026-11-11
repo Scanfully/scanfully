@@ -251,7 +251,7 @@ final class NetworkTest extends TestCase {
 				return true;
 			}
 		);
-		// connected by another request, after this one decided its scope
+		// Connected by another request, after this one decided its scope.
 		$this->site_options['scanfully_connect_is_connected'] = 'yes';
 
 		OptionsController::refresh_scope();

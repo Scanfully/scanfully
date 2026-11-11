@@ -902,6 +902,10 @@ class Controller {
 		if ( 'yes' !== OptionController::get_option( 'is_connected' ) ) {
 			return;
 		}
+		// The network connection's email checks are a super admin's to see and change.
+		if ( ! current_user_can( \Scanfully\Connect\Network::manage_capability() ) ) {
+			return;
+		}
 		$state = self::fetch_state();
 
 		$blob_class = 'scanfully-connect-blob';
@@ -1121,7 +1125,7 @@ class Controller {
 	 * @return void
 	 */
 	public static function handle_ajax_run_now(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( \Scanfully\Connect\Network::manage_capability() ) ) {
 			wp_send_json_error( [ 'message' => __( 'Unauthorized', 'scanfully' ) ], 403 );
 		}
 		check_ajax_referer( self::AJAX_RUN_NOW );
@@ -1162,7 +1166,7 @@ class Controller {
 	 * @return void
 	 */
 	public static function handle_toggle(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( \Scanfully\Connect\Network::manage_capability() ) ) {
 			wp_die( esc_html__( 'Unauthorized', 'scanfully' ), '', [ 'response' => 403 ] );
 		}
 		check_admin_referer( self::NONCE_TOGGLE );
@@ -1170,7 +1174,7 @@ class Controller {
 		$enable = isset( $_POST['scanfully_email_checks'] ) && 'on' === sanitize_key( wp_unslash( $_POST['scanfully_email_checks'] ) );
 		OptionController::set_option( 'email_deliverability_enabled', $enable ? 'yes' : 'no', false );
 
-		wp_safe_redirect( add_query_arg( [ 'page' => 'scanfully' ], admin_url( 'options-general.php' ) ) );
+		wp_safe_redirect( \Scanfully\Connect\Page::get_page_url() );
 		exit;
 	}
 
@@ -1181,7 +1185,7 @@ class Controller {
 	 * @return void
 	 */
 	public static function handle_save_from_address(): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( \Scanfully\Connect\Network::manage_capability() ) ) {
 			wp_die( esc_html__( 'Unauthorized', 'scanfully' ), '', [ 'response' => 403 ] );
 		}
 		check_admin_referer( self::NONCE_SAVE_FROM );
@@ -1201,13 +1205,7 @@ class Controller {
 			OptionController::set_option( 'email_deliverability_from_address', $value, false );
 		}
 
-		$redirect = add_query_arg(
-			[
-				'page' => 'scanfully',
-				'scanfully_from_saved' => $status,
-			],
-			admin_url( 'options-general.php' )
-		);
+		$redirect = add_query_arg( [ 'scanfully_from_saved' => $status ], \Scanfully\Connect\Page::get_page_url() );
 		wp_safe_redirect( $redirect );
 		exit;
 	}

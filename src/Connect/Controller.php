@@ -277,15 +277,16 @@ class Controller {
 			wp_die( 'Could not complete Scanfully connection: invalid response from the Scanfully API. Please try again or contact support.' );
 		}
 
-		// the network connection takes over the main site's own connection.
-		if ( Network::in_network_admin() ) {
-			self::end_main_site_connection();
-		}
-
 		$now = gmdate( self::DATE_FORMAT );
 		OptionsController::set_options(
 			new Options( true, $tokens['site_id'], $tokens['access_token'], $tokens['refresh_token'], gmdate( self::DATE_FORMAT, strtotime( $tokens['expires'] ) ), '', $now )
 		);
+		// The network connection takes over the main site's own connection,
+		// once its tokens are stored (so a failure here never loses both) and
+		// before what depends on a connection is set up again for it.
+		if ( Network::in_network_admin() ) {
+			self::end_main_site_connection();
+		}
 		Scopes::forget_change();
 		Address::remember();
 		self::store_grant( Scopes::of( $tokens['scopes'] ) ?? [ OAuth::SCOPE_READ ] );
