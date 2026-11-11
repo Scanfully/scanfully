@@ -139,6 +139,9 @@ class Main {
 		/** Register cron */
 		Cron\Controller::setup();
 
+		/** A new site data report when a site of a connected network changes. */
+		Health\Subsites::setup();
+
 		/** Register connect */
 		Connect\Controller::setup();
 		Connect\Page::register();

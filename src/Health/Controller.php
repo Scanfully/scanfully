@@ -517,6 +517,7 @@ class Controller {
 			// What the site can do for Scanfully, read before it queues a job.
 			'capabilities' => Capabilities::get(),
 		];
+		$data = self::with_subsites( $data );
 		$data = self::without_copied_capabilities( $data );
 
 		// filter data.
@@ -526,11 +527,32 @@ class Controller {
 	}
 
 	/**
+	 * The site data with the network's sites, on the network connection of
+	 * a multisite network (see Subsites), for the owner to choose which of
+	 * them Scanfully monitors. Not for a reader that skips the capabilities,
+	 * such as the inventory after a Manage job, which has no use for them.
+	 *
+	 * @param array<string, mixed> $data The site data.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function with_subsites( array $data ): array {
+		if ( Capabilities::skipped() ) {
+			return $data;
+		}
+		$subsites = Subsites::report();
+
+		return null === $subsites ? $data : array_merge( $data, $subsites );
+	}
+
+	/**
 	 * The site data without its capabilities on a copy of the site (its
 	 * address differs from the one it was connected from): the copy reports
 	 * under the original site's id, and its capabilities must not replace
 	 * the original's. It says it left them out, and the API keeps what it
-	 * has (an absent key would make the API forget them).
+	 * has (an absent key would make the API forget them). The network's
+	 * sites stay out too: the copy's sites are not the network's, and
+	 * without the key the API keeps the list it has.
 	 *
 	 * @param array<string, mixed> $data The site data.
 	 *
@@ -538,7 +560,7 @@ class Controller {
 	 */
 	public static function without_copied_capabilities( array $data ): array {
 		if ( \Scanfully\Connect\Address::moved() ) {
-			unset( $data['capabilities'] );
+			unset( $data['capabilities'], $data['subsites'], $data['subsites_truncated'] );
 			$data['capabilities_skipped'] = \Scanfully\Connect\Address::MOVED_CODE;
 		}
 

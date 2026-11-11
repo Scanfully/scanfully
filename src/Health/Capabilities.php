@@ -56,6 +56,16 @@ final class Capabilities {
 	}
 
 	/**
+	 * Whether skip() runs: the reader of the site data needs no more than
+	 * the inventory.
+	 *
+	 * @return bool
+	 */
+	public static function skipped(): bool {
+		return self::$skipped;
+	}
+
+	/**
 	 * The capabilities object of the site data.
 	 *
 	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, connection_kind: string|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null}|array{} Empty while skip() runs.
