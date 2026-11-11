@@ -117,6 +117,27 @@ class Network {
 	}
 
 	/**
+	 * Whether the network connection applies on the main site of a given
+	 * network, asked from any site of the install (applies() answers it for
+	 * this request): the plugin is network-activated in that network, and
+	 * that network is connected.
+	 *
+	 * @param int $network_id The network's id.
+	 *
+	 * @return bool
+	 */
+	public static function applies_on( int $network_id ): bool {
+		if ( $network_id <= 0 || ! self::multisite() || ! defined( 'SCANFULLY_PLUGIN_FILE' ) ) {
+			return false;
+		}
+		$active = get_network_option( $network_id, 'active_sitewide_plugins', [] );
+
+		return is_array( $active )
+			&& isset( $active[ plugin_basename( SCANFULLY_PLUGIN_FILE ) ] )
+			&& 'yes' === get_network_option( $network_id, self::CONNECTED_OPTION );
+	}
+
+	/**
 	 * Whether this request is a Network Admin screen.
 	 *
 	 * @return bool

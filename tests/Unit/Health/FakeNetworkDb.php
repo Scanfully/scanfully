@@ -57,6 +57,21 @@ final class FakeNetworkDb {
 	public bool $blogs_fail = false;
 
 	/**
+	 * Whether a query of several option tables fails (tables on other
+	 * database servers).
+	 *
+	 * @var bool
+	 */
+	public bool $union_fails = false;
+
+	/**
+	 * Whether every query of an option table fails.
+	 *
+	 * @var bool
+	 */
+	public bool $options_fail = false;
+
+	/**
 	 * The queries run.
 	 *
 	 * @var string[]
@@ -179,9 +194,14 @@ final class FakeNetworkDb {
 			return array_slice( array_values( $rows ), 0, (int) $match[3] );
 		}
 
-		$rows = [];
-		foreach ( explode( ' UNION ALL ', $sql ) as $part ) {
-			if ( 1 !== preg_match( "/^SELECT (\d+) AS blog_id, option_name, option_value FROM `(\w+)` WHERE option_name IN \('blogname', 'home'\)$/", $part, $match ) ) {
+		$rows  = [];
+		$parts = explode( ' UNION ALL ', $sql );
+		if ( $this->options_fail || ( $this->union_fails && count( $parts ) > 1 ) ) {
+			$this->last_error = 'Table is on another server';
+			return [];
+		}
+		foreach ( $parts as $part ) {
+			if ( 1 !== preg_match( "/^SELECT (\d+) AS blog_id, CONVERT\(option_name USING utf8mb4\) AS option_name, CONVERT\(option_value USING utf8mb4\) AS option_value FROM `(\w+)` WHERE option_name IN \('blogname', 'home'\)$/", $part, $match ) ) {
 				$this->last_error = 'Unexpected query: ' . $part;
 				return [];
 			}
@@ -204,6 +224,15 @@ final class FakeNetworkDb {
 		}
 
 		return $rows;
+	}
+
+	/**
+	 * The queries of the option tables run.
+	 *
+	 * @return string[]
+	 */
+	public function option_queries(): array {
+		return array_values( array_diff( $this->queries, $this->blog_queries() ) );
 	}
 
 	/**

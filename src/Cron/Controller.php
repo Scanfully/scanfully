@@ -322,6 +322,10 @@ class Controller {
 	 * Nothing is scheduled when the plugin being changed is Scanfully itself:
 	 * after Scanfully is deactivated or deleted, the job could never run.
 	 *
+	 * A change within every minute keeps moving the pending sync on: on a
+	 * busy network whose sites change that often (see Health\Subsites), only
+	 * the three-hourly sync runs until the changes stop.
+	 *
 	 * @param string $plugin Optional. Basename of the plugin that changed.
 	 *
 	 * @return void

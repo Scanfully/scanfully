@@ -21,16 +21,20 @@ use Scanfully\Options\Controller as OptionsController;
  * sites a query, so a network of 10,000 sites costs about 110 indexed
  * queries and no site's options end up in memory (switch_to_blog() with
  * get_option() would load every site's autoloaded options into the object
- * cache, and get_sites() would cache every site object).
+ * cache, and get_sites() would cache every site object). A query of a
+ * hundred option tables that fails (a missing table, or tables a database
+ * plugin such as HyperDB keeps on other servers) is split in halves until
+ * the parts work; when it is the joining itself that fails, the rest is
+ * read one site a query.
  *
  * The address is the site's home option as stored, as the plugin reports
  * its own address: what WordPress gives without the home_url filters and
  * the scheme of the request, which answer differently in wp-admin, REST and
  * cron. WordPress's own domain mapping stores the mapped address there.
  *
- * A change to a site of the network (created, changed or deleted, or its
- * name or address) sends a new site data report a minute later, from the
- * main site.
+ * A change to a site of a network (created, changed or deleted, or its name
+ * or address) sends a new site data report a minute later, from the main
+ * site of that network.
  */
 final class Subsites {
 
@@ -45,6 +49,11 @@ final class Subsites {
 	public const NAME_MAX = 200;
 
 	/**
+	 * The longest address sent, in bytes (the API takes 2,048).
+	 */
+	public const URL_MAX = 2048;
+
+	/**
 	 * Sites read from the sites table per query.
 	 */
 	private const PAGE = 1000;
@@ -55,9 +64,19 @@ final class Subsites {
 	private const CHUNK = 100;
 
 	/**
-	 * The columns of a site whose change changes the report.
+	 * The columns of a site whose change changes the report: site_id is its
+	 * network.
 	 */
-	private const WATCHED = [ 'domain', 'path', 'public', 'archived', 'spam', 'deleted' ];
+	private const WATCHED = [ 'domain', 'path', 'public', 'archived', 'spam', 'deleted', 'site_id' ];
+
+	/**
+	 * Whether a query of several option tables fails on this install
+	 * however few, while each table reads fine: the rest of the report is
+	 * read one site a query.
+	 *
+	 * @var bool
+	 */
+	private static bool $single = false;
 
 	/**
 	 * Watch the sites of a network for changes. Nothing on a single site.
@@ -69,12 +88,12 @@ final class Subsites {
 			return;
 		}
 		// After WordPress set up the new site's tables (priority 10).
-		add_action( 'wp_initialize_site', [ self::class, 'schedule_report' ], 100, 0 );
+		add_action( 'wp_initialize_site', [ self::class, 'site_changed' ], 100 );
 		add_action( 'wp_update_site', [ self::class, 'site_updated' ], 10, 2 );
-		add_action( 'wp_delete_site', [ self::class, 'schedule_report' ], 10, 0 );
+		add_action( 'wp_delete_site', [ self::class, 'site_changed' ] );
 		// A site's name and address live in its own options.
-		add_action( 'update_option_blogname', [ self::class, 'schedule_report' ], 10, 0 );
-		add_action( 'update_option_home', [ self::class, 'schedule_report' ], 10, 0 );
+		add_action( 'update_option_blogname', [ self::class, 'option_changed' ], 10, 0 );
+		add_action( 'update_option_home', [ self::class, 'option_changed' ], 10, 0 );
 	}
 
 	/**
@@ -89,9 +108,22 @@ final class Subsites {
 	}
 
 	/**
+	 * Schedule a site data report for the network of a site that was
+	 * created or deleted.
+	 *
+	 * @param mixed $site The site.
+	 *
+	 * @return void
+	 */
+	public static function site_changed( $site ): void {
+		self::schedule_report( self::network_of( $site ) );
+	}
+
+	/**
 	 * Schedule a site data report when a site's row changed in a way the
-	 * report shows. WordPress also updates the row on every post published
-	 * anywhere in the network (last_updated), which changes nothing here.
+	 * report shows: for its network, and for the network it left when it
+	 * moved. WordPress also updates the row on every post published anywhere
+	 * in the network (last_updated), which changes nothing here.
 	 *
 	 * @param mixed $new_site The site after the change.
 	 * @param mixed $old_site The site before the change.
@@ -104,40 +136,72 @@ final class Subsites {
 		}
 		foreach ( self::WATCHED as $field ) {
 			if ( (string) ( $new_site->$field ?? '' ) !== (string) ( $old_site->$field ?? '' ) ) {
-				self::schedule_report();
+				$networks = array_unique( [ self::network_of( $new_site ), self::network_of( $old_site ) ] );
+				foreach ( $networks as $network ) {
+					self::schedule_report( $network );
+				}
 				return;
 			}
 		}
 	}
 
 	/**
-	 * Schedule a site data report on the main site a minute from now, when
-	 * the network connection applies there. One report is pending at a time:
-	 * each change moves it on (the debounced site data sync).
+	 * Schedule a site data report for the network of the current site, whose
+	 * name or address changed.
 	 *
 	 * @return void
 	 */
-	public static function schedule_report(): void {
-		if ( ! Network::activated() || ! Network::connected() ) {
+	public static function option_changed(): void {
+		self::schedule_report( self::network_of( get_site() ) );
+	}
+
+	/**
+	 * Schedule a site data report on the main site of a network a minute
+	 * from now, when the network connection applies there: the plugin is
+	 * network-activated and that network connected. One report is pending
+	 * at a time: each change moves it on (the debounced site data sync).
+	 *
+	 * @param int $network The network's id; 0 for the network of this request.
+	 *
+	 * @return void
+	 */
+	public static function schedule_report( int $network = 0 ): void {
+		if ( ! Network::multisite() ) {
+			return;
+		}
+		$network = $network > 0 ? $network : (int) get_current_network_id();
+		if ( ! Network::applies_on( $network ) ) {
 			return;
 		}
 		if ( ! function_exists( 'as_schedule_single_action' ) || ! did_action( 'action_scheduler_init' ) ) {
 			return;
 		}
-		$main     = (int) get_main_site_id();
-		$switched = $main > 0 && get_current_blog_id() !== $main;
+		$main = (int) get_main_site_id( $network );
+		if ( $main <= 0 ) {
+			return;
+		}
+		$switched = get_current_blog_id() !== $main;
 		if ( $switched ) {
 			switch_to_blog( $main );
 		}
 		try {
-			if ( Network::applies() ) {
-				\Scanfully\Cron\Controller::schedule_health_sync();
-			}
+			\Scanfully\Cron\Controller::schedule_health_sync();
 		} finally {
 			if ( $switched ) {
 				restore_current_blog();
 			}
 		}
+	}
+
+	/**
+	 * The network a site belongs to; 0 (this request's) when unknown.
+	 *
+	 * @param mixed $site The site.
+	 *
+	 * @return int
+	 */
+	private static function network_of( $site ): int {
+		return is_object( $site ) && isset( $site->site_id ) ? (int) $site->site_id : 0;
 	}
 
 	/**
@@ -152,11 +216,13 @@ final class Subsites {
 			return null;
 		}
 
-		$main      = (int) get_main_site_id();
-		$scheme    = 'https' === wp_parse_url( Controller::site_address(), PHP_URL_SCHEME ) ? 'https' : 'http';
-		$sites     = [];
-		$truncated = false;
-		$after     = 0;
+		self::$single = false;
+		$main         = (int) get_main_site_id();
+		$scheme       = 'https' === wp_parse_url( Controller::site_address(), PHP_URL_SCHEME ) ? 'https' : 'http';
+		$sites        = [];
+		$read         = 0;
+		$truncated    = false;
+		$after        = 0;
 		do {
 			$room  = self::LIMIT - count( $sites );
 			$limit = min( self::PAGE, $room + 1 );
@@ -171,6 +237,13 @@ final class Subsites {
 			}
 			foreach ( array_chunk( $rows, self::CHUNK ) as $chunk ) {
 				$options = self::options( array_map( 'intval', array_column( $chunk, 'blog_id' ) ) );
+				if ( [] === $options && self::CHUNK === count( $chunk ) ) {
+					// Not one of a hundred sites read: the database fails,
+					// not a table, and every other hundred would cost as many
+					// queries for nothing.
+					return null;
+				}
+				$read += count( $options );
 				foreach ( $chunk as $row ) {
 					$sites[] = self::entry( $row, $options[ (int) $row['blog_id'] ] ?? [], $main, $scheme );
 				}
@@ -180,8 +253,10 @@ final class Subsites {
 			}
 		} while ( $full && ! $truncated );
 
-		// A network always has its main site: an empty list is a failed read.
-		if ( [] === $sites ) {
+		// A network always has its main site, and its options read: a list
+		// without names, the addresses all rebuilt, would replace a good one
+		// in Scanfully over a passing failure.
+		if ( [] === $sites || 0 === $read ) {
 			return null;
 		}
 
@@ -203,11 +278,11 @@ final class Subsites {
 	 */
 	private static function entry( array $row, array $options, int $main, string $scheme ): array {
 		$id   = (int) $row['blog_id'];
-		$home = trim( $options['home'] ?? '' );
-		if ( '' === $home ) {
-			// No home option (a site whose tables are missing): its address
-			// in the sites table.
-			$home = $scheme . '://' . $row['domain'] . untrailingslashit( (string) $row['path'] );
+		$home = untrailingslashit( trim( $options['home'] ?? '' ) );
+		if ( ! self::is_address( $home ) ) {
+			// No usable home option (a site whose tables are missing, or a
+			// value the API would refuse): its address in the sites table.
+			$home = untrailingslashit( $scheme . '://' . $row['domain'] . $row['path'] );
 		}
 
 		return [
@@ -221,6 +296,25 @@ final class Subsites {
 			'spam'     => '1' === (string) $row['spam'],
 			'deleted'  => '1' === (string) $row['deleted'],
 		];
+	}
+
+	/**
+	 * Whether a home option is an address the API takes: http or https,
+	 * with a host, at most URL_MAX bytes.
+	 *
+	 * @param string $home The home option.
+	 *
+	 * @return bool
+	 */
+	private static function is_address( string $home ): bool {
+		if ( '' === $home || strlen( $home ) > self::URL_MAX ) {
+			return false;
+		}
+		$parts = wp_parse_url( $home );
+
+		return is_array( $parts )
+			&& in_array( strtolower( $parts['scheme'] ?? '' ), [ 'http', 'https' ], true )
+			&& '' !== ( $parts['host'] ?? '' );
 	}
 
 	/**
@@ -271,9 +365,8 @@ final class Subsites {
 
 	/**
 	 * The blogname and home options of some sites, read from each site's
-	 * own options table in one query. When that fails (a site whose tables
-	 * are missing), each site is read on its own and a site that fails is
-	 * left without.
+	 * own options table, errors suppressed. Only the sites whose table could
+	 * be read are in the result.
 	 *
 	 * @param int[] $ids The blog ids.
 	 *
@@ -282,35 +375,69 @@ final class Subsites {
 	private static function options( array $ids ): array {
 		global $wpdb;
 
-		$queries = [];
-		foreach ( $ids as $id ) {
-			$queries[ $id ] = self::options_query( $id );
-		}
-
 		$suppressed = $wpdb->suppress_errors( true );
 		try {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Each part is prepared in options_query().
-			$rows = $wpdb->get_results( implode( ' UNION ALL ', $queries ), ARRAY_A );
-			if ( self::query_failed() ) {
-				$rows = [];
-				foreach ( $queries as $query ) {
-					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Prepared in options_query().
-					$site = $wpdb->get_results( $query, ARRAY_A );
-					if ( ! self::query_failed() && is_array( $site ) ) {
-						$rows = array_merge( $rows, $site );
-					}
-				}
-			}
+			$rows = self::read_options( $ids );
 		} finally {
 			$wpdb->suppress_errors( $suppressed );
 		}
 
 		$options = [];
-		foreach ( is_array( $rows ) ? $rows : [] as $row ) {
-			$options[ (int) $row['blog_id'] ][ (string) $row['option_name'] ] = (string) $row['option_value'];
+		foreach ( $rows as $id => $site ) {
+			$options[ $id ] = [];
+			foreach ( $site as $row ) {
+				$options[ $id ][ (string) $row['option_name'] ] = (string) $row['option_value'];
+			}
 		}
 
 		return $options;
+	}
+
+	/**
+	 * Read the options of some sites in one query. When it fails, each half
+	 * is read the same way, down to a single site; when two sites that each
+	 * read fine fail together, it is the joining that fails here, and the
+	 * rest of the report reads one site a query.
+	 *
+	 * @param int[] $ids The blog ids.
+	 *
+	 * @return array<int, array<int, array<string, mixed>>> The rows by blog id, for each site that could be read.
+	 */
+	private static function read_options( array $ids ): array {
+		global $wpdb;
+
+		if ( self::$single && count( $ids ) > 1 ) {
+			$out = [];
+			foreach ( $ids as $id ) {
+				$out += self::read_options( [ $id ] );
+			}
+
+			return $out;
+		}
+
+		$queries = array_map( [ self::class, 'options_query' ], $ids );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Each part is prepared in options_query().
+		$rows = $wpdb->get_results( implode( ' UNION ALL ', $queries ), ARRAY_A );
+		if ( ! self::query_failed() && is_array( $rows ) ) {
+			$out = array_fill_keys( $ids, [] );
+			foreach ( $rows as $row ) {
+				$out[ (int) $row['blog_id'] ][] = $row;
+			}
+
+			return $out;
+		}
+		if ( 1 === count( $ids ) ) {
+			return [];
+		}
+
+		$half  = (int) ceil( count( $ids ) / 2 );
+		$first = self::read_options( array_slice( $ids, 0, $half ) );
+		$rest  = self::read_options( array_slice( $ids, $half ) );
+		if ( 2 === count( $ids ) && 2 === count( $first ) + count( $rest ) ) {
+			self::$single = true;
+		}
+
+		return $first + $rest;
 	}
 
 	/**
@@ -327,7 +454,9 @@ final class Subsites {
 	}
 
 	/**
-	 * The query of one site's blogname and home options.
+	 * The query of one site's blogname and home options. The columns are
+	 * converted to one character set, so tables with different collations
+	 * join.
 	 *
 	 * @param int $id The blog id.
 	 *
@@ -340,6 +469,6 @@ final class Subsites {
 		$table = $wpdb->get_blog_prefix( $id ) . 'options';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- The table name cannot be a placeholder.
-		return $wpdb->prepare( "SELECT %d AS blog_id, option_name, option_value FROM `{$table}` WHERE option_name IN (%s, %s)", $id, 'blogname', 'home' );
+		return $wpdb->prepare( "SELECT %d AS blog_id, CONVERT(option_name USING utf8mb4) AS option_name, CONVERT(option_value USING utf8mb4) AS option_value FROM `{$table}` WHERE option_name IN (%s, %s)", $id, 'blogname', 'home' );
 	}
 }

@@ -58,6 +58,20 @@ final class SubsitesTest extends TestCase {
 	private array $site_options = [];
 
 	/**
+	 * The other networks of the install: their main site and options.
+	 *
+	 * @var array<int, array{main: int, options: array<string, mixed>}>
+	 */
+	private array $networks = [];
+
+	/**
+	 * The network of each site that is not in network 1.
+	 *
+	 * @var array<int, int>
+	 */
+	private array $site_networks = [];
+
+	/**
 	 * Whether Action Scheduler is initialized.
 	 *
 	 * @var int
@@ -88,7 +102,16 @@ final class SubsitesTest extends TestCase {
 
 		Functions\when( 'is_multisite' )->alias( fn(): bool => $this->multisite );
 		Functions\when( 'is_network_admin' )->justReturn( false );
-		Functions\when( 'get_main_site_id' )->justReturn( 1 );
+		Functions\when( 'get_main_site_id' )->alias( fn( $network = null ): int => null === $network || 1 === $network ? 1 : ( $this->networks[ $network ]['main'] ?? 0 ) );
+		Functions\when( 'get_network_option' )->alias(
+			fn( int $network, string $name, $fallback = false ) => 1 === $network ? ( $this->site_options[ $name ] ?? $fallback ) : ( $this->networks[ $network ]['options'][ $name ] ?? $fallback )
+		);
+		Functions\when( 'get_site' )->alias(
+			fn() => (object) [
+				'blog_id' => (string) $this->blog,
+				'site_id' => (string) ( $this->site_networks[ $this->blog ] ?? 1 ),
+			]
+		);
 		Functions\when( 'get_current_network_id' )->justReturn( 1 );
 		Functions\when( 'get_current_blog_id' )->alias( fn(): int => $this->blog );
 		Functions\when( 'is_main_site' )->alias( fn(): bool => 1 === $this->blog );
@@ -138,6 +161,15 @@ final class SubsitesTest extends TestCase {
 		OptionsController::detect_scope();
 		unset( $GLOBALS['wpdb'] );
 		parent::tearDown();
+	}
+
+	/**
+	 * The blog each Action Scheduler call ran on.
+	 *
+	 * @return int[]
+	 */
+	private function scheduled_on(): array {
+		return array_column( $this->as_calls, 1 );
 	}
 
 	/**
@@ -313,6 +345,10 @@ final class SubsitesTest extends TestCase {
 			OptionsController::with_scope( true, static fn() => Controller::without_copied_capabilities( $data ) ),
 			'without the key the API keeps the list it has'
 		);
+
+		$this->small_network();
+		$this->assertSame( [ 'data' => [] ], OptionsController::with_scope( true, static fn() => Controller::with_subsites( [ 'data' => [] ] ) ) );
+		$this->assertSame( [], $this->db->queries, 'a copy reads no sites' );
 	}
 
 	public function test_a_site_without_its_options_table_keeps_its_place(): void {
@@ -325,8 +361,70 @@ final class SubsitesTest extends TestCase {
 		$this->assertCount( 6, $report['subsites'] );
 		$this->assertSame( 'https://network.test/blog', $report['subsites'][2]['home_url'], 'the address from the sites table, with the main site\'s scheme' );
 		$this->assertSame( '', $report['subsites'][2]['name'] );
-		$this->assertSame( 'Shop', $report['subsites'][1]['name'], 'the other sites are read one by one' );
+		$this->assertSame( 'Shop', $report['subsites'][1]['name'], 'the other sites are still read' );
+		$this->assertSame( 'Site 6', $report['subsites'][5]['name'] );
+		$this->assertCount( 5, $this->db->option_queries(), 'all six, then halves: 1 to 3 (1 and 2, then 3 alone) and 4 to 6' );
 		$this->assertFalse( $this->db->suppressed, 'errors are shown again afterwards' );
+	}
+
+	public function test_a_network_whose_option_tables_never_join_is_read_one_site_a_query(): void {
+		for ( $id = 1; $id <= 250; $id++ ) {
+			$this->db->add_site( $id, 'network.test', '/s' . $id . '/' );
+		}
+		$this->db->union_fails = true;
+
+		$report = $this->network_report();
+
+		$this->assertCount( 250, $report['subsites'] ?? [] );
+		$this->assertSame( 'Site 250', $report['subsites'][249]['name'] );
+		$this->assertSame( 'https://network.test/s250', $report['subsites'][249]['home_url'] );
+		$this->assertCount(
+			7 + 250,
+			$this->db->option_queries(),
+			'the first hundred halved down to two sites (100, 50, 25, 13, 7, 4, 2), then one query a site'
+		);
+	}
+
+	public function test_a_network_whose_option_reads_all_fail_leaves_the_key_out(): void {
+		$this->small_network();
+		$this->db->options_fail = true;
+
+		$this->assertNull( $this->network_report(), 'no names and every address rebuilt would replace a good list' );
+		$this->assertCount( 11, $this->db->option_queries(), 'six sites halved down to each one' );
+	}
+
+	public function test_a_hundred_sites_that_all_fail_stop_the_report(): void {
+		for ( $id = 1; $id <= 300; $id++ ) {
+			$this->db->add_site( $id, 'network.test', '/s' . $id . '/' );
+		}
+		$this->db->options_fail = true;
+
+		$this->assertNull( $this->network_report() );
+		$this->assertCount( 199, $this->db->option_queries(), 'the first hundred only' );
+	}
+
+	public function test_home_addresses_are_normalised_and_checked(): void {
+		$this->db->add_site( 1, 'network.test', '/', [], [ 'home' => 'https://network.test/' ] );
+		$this->db->add_site( 2, 'network.test', '/shop/', [], [ 'home' => ' https://shop.example.com/ ' ] );
+		$this->db->add_site( 3, 'network.test', '/ftp/', [], [ 'home' => 'ftp://network.test/ftp' ] );
+		$this->db->add_site( 4, 'network.test', '/long/', [], [ 'home' => 'https://network.test/' . str_repeat( 'a', Subsites::URL_MAX ) ] );
+		$this->db->add_site( 5, 'network.test', '/nohost/', [], [ 'home' => 'https:///nohost' ] );
+		$this->db->add_site( 6, 'network.test', '/upper/', [], [ 'home' => 'HTTP://Network.test/upper' ] );
+
+		$homes = array_column( $this->network_report()['subsites'] ?? [], 'home_url' );
+
+		$this->assertSame(
+			[
+				'https://network.test',
+				'https://shop.example.com',
+				'https://network.test/ftp',
+				'https://network.test/long',
+				'https://network.test/nohost',
+				'HTTP://Network.test/upper',
+			],
+			$homes,
+			'without a trailing slash; an address the API would refuse comes from the sites table'
+		);
 	}
 
 	public function test_a_site_without_a_home_option_gets_its_address_from_the_sites_table(): void {
@@ -397,6 +495,53 @@ final class SubsitesTest extends TestCase {
 		$this->assertSame( [], $this->switched );
 	}
 
+	public function test_a_change_in_another_network_schedules_on_that_network_s_main_site(): void {
+		$this->networks[2]      = [
+			'main'    => 7,
+			'options' => [
+				'active_sitewide_plugins'        => [ 'scanfully/scanfully.php' => time() ],
+				'scanfully_connect_is_connected' => 'yes',
+			],
+		];
+		$this->site_networks[8] = 2;
+		$this->blog             = 8;
+
+		Subsites::option_changed();
+		$this->assertCount( 2, $this->as_calls );
+		$this->assertSame( 7, $this->as_calls[1][1], 'the main site of the site\'s own network' );
+		$this->assertSame( 8, $this->blog );
+
+		$this->as_calls = [];
+		Subsites::site_changed( (object) [ 'site_id' => '2' ] );
+		$this->assertSame( [ 7, 7 ], $this->scheduled_on(), 'a site created or deleted there' );
+
+		$this->as_calls = [];
+		unset( $this->networks[2]['options']['scanfully_connect_is_connected'] );
+		Subsites::site_changed( (object) [ 'site_id' => '2' ] );
+		$this->assertSame( [], $this->as_calls, 'that network is not connected, whatever this one is' );
+	}
+
+	public function test_a_site_moved_to_another_network_reports_for_both(): void {
+		$this->networks[2] = [
+			'main'    => 7,
+			'options' => [
+				'active_sitewide_plugins'        => [ 'scanfully/scanfully.php' => time() ],
+				'scanfully_connect_is_connected' => 'yes',
+			],
+		];
+		$old               = (object) [
+			'domain'  => 'network.test',
+			'path'    => '/blog/',
+			'site_id' => '1',
+		];
+		$new               = clone $old;
+		$new->site_id      = '2';
+
+		Subsites::site_updated( $new, $old );
+
+		$this->assertSame( [ 7, 7, 1, 1 ], $this->scheduled_on(), 'the network it joined and the one it left' );
+	}
+
 	public function test_a_change_on_the_main_site_needs_no_switch(): void {
 		Functions\expect( 'switch_to_blog' )->never();
 
@@ -439,6 +584,7 @@ final class SubsitesTest extends TestCase {
 			'archived'     => '0',
 			'spam'         => '0',
 			'deleted'      => '0',
+			'site_id'      => '1',
 			'last_updated' => '2026-11-11 10:00:00',
 		];
 
@@ -457,6 +603,8 @@ final class SubsitesTest extends TestCase {
 			'archived' => '1',
 			'spam'     => '1',
 			'deleted'  => '1',
+			// Moved to network 2, which is not connected: network 1 reports.
+			'site_id'  => '2',
 		];
 		foreach ( $changes as $field => $value ) {
 			$this->as_calls  = [];
@@ -470,15 +618,15 @@ final class SubsitesTest extends TestCase {
 	public function test_the_sites_are_watched_on_a_network_only(): void {
 		$this->multisite = false;
 		Subsites::setup();
-		$this->assertFalse( has_action( 'wp_initialize_site', [ Subsites::class, 'schedule_report' ] ) );
+		$this->assertFalse( has_action( 'wp_initialize_site', [ Subsites::class, 'site_changed' ] ) );
 		$this->assertFalse( has_action( 'wp_update_site', [ Subsites::class, 'site_updated' ] ) );
 
 		$this->multisite = true;
 		Subsites::setup();
-		$this->assertTrue( has_action( 'wp_initialize_site', [ Subsites::class, 'schedule_report' ], 100 ), 'after WordPress set the site up' );
+		$this->assertTrue( has_action( 'wp_initialize_site', [ Subsites::class, 'site_changed' ], 100 ), 'after WordPress set the site up' );
 		$this->assertTrue( has_action( 'wp_update_site', [ Subsites::class, 'site_updated' ], 10 ) );
-		$this->assertTrue( has_action( 'wp_delete_site', [ Subsites::class, 'schedule_report' ], 10 ) );
-		$this->assertTrue( has_action( 'update_option_blogname', [ Subsites::class, 'schedule_report' ], 10 ) );
-		$this->assertTrue( has_action( 'update_option_home', [ Subsites::class, 'schedule_report' ], 10 ) );
+		$this->assertTrue( has_action( 'wp_delete_site', [ Subsites::class, 'site_changed' ], 10 ) );
+		$this->assertTrue( has_action( 'update_option_blogname', [ Subsites::class, 'option_changed' ], 10 ) );
+		$this->assertTrue( has_action( 'update_option_home', [ Subsites::class, 'option_changed' ], 10 ) );
 	}
 }

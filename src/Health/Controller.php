@@ -530,14 +530,16 @@ class Controller {
 	 * The site data with the network's sites, on the network connection of
 	 * a multisite network (see Subsites), for the owner to choose which of
 	 * them Scanfully monitors. Not for a reader that skips the capabilities,
-	 * such as the inventory after a Manage job, which has no use for them.
+	 * such as the inventory after a Manage job, which has no use for them,
+	 * and not on a copy of the site, which leaves them out (see
+	 * without_copied_capabilities()) and so reads none.
 	 *
 	 * @param array<string, mixed> $data The site data.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public static function with_subsites( array $data ): array {
-		if ( Capabilities::skipped() ) {
+		if ( Capabilities::skipped() || ! Subsites::applies() || \Scanfully\Connect\Address::moved() ) {
 			return $data;
 		}
 		$subsites = Subsites::report();
