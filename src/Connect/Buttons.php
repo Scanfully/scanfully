@@ -38,6 +38,34 @@ class Buttons {
 	}
 
 	/**
+	 * The connect button on a multisite network: a form whose box the admin
+	 * ticks to confirm a monitoring-only connection (see Multisite) before it
+	 * starts the same connect request as connect().
+	 *
+	 * @return void
+	 */
+	public static function connect_monitoring_only(): void {
+		?>
+		<form method="get" action="<?php echo esc_url( admin_url( 'options-general.php' ) ); ?>" class="scanfully-connect-monitoring-only">
+			<input type="hidden" name="page" value="scanfully"/>
+			<input type="hidden" name="scanfully-connect" value="1"/>
+			<input type="hidden" name="scanfully-connect-nonce" value="<?php echo esc_attr( wp_create_nonce( 'scanfully-connect-redirect' ) ); ?>"/>
+			<p>
+				<label>
+					<input type="checkbox" name="<?php echo esc_attr( Multisite::CONFIRM_FIELD ); ?>" value="1" required/>
+					<?php echo esc_html( Multisite::confirmation() ); ?>
+				</label>
+			</p>
+			<p>
+				<button type="submit" class="scanfully-connect-button scanfully-connect-button-authorize">
+					<span><?php esc_html_e( 'Connect your Scanfully account', 'scanfully' ); ?></span>
+				</button>
+			</p>
+		</form>
+		<?php
+	}
+
+	/**
 	 * Change what Scanfully may do: a new connection request, on whose page
 	 * in Scanfully the admin chooses again. Approving it replaces the current
 	 * connection; cancelling keeps it.

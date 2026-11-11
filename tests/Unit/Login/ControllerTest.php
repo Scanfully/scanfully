@@ -406,12 +406,15 @@ final class ControllerTest extends LoginTestCase {
 		$this->assertSame( 'reason-24', Log::recent()[ Log::KEEP - 1 ]['reason'] );
 	}
 
-	public function test_a_network_signs_in_its_super_admins_only(): void {
+	public function test_a_network_signs_no_one_in(): void {
 		$this->network      = true;
 		$this->super_admins = [ 'editor' ];
 
-		$this->assertSame( Controller::REASON_USER, $this->open( $this->signed() )['reason'], 'a site administrator who is not a super admin' );
-		$this->assertSame( $this->users[2], $this->open( $this->signed( [ 'wp_user' => 2 ] ) )['user'] );
+		$this->assertFalse( Controller::available(), 'no login action on a network' );
+		$this->assertSame( Controller::REASON_MONITORING_ONLY, $this->open( $this->signed() )['reason'], 'a site administrator' );
+		$super = $this->open( $this->signed( [ 'wp_user' => 2 ] ) );
+		$this->assertSame( Controller::REASON_MONITORING_ONLY, $super['reason'], 'a super admin' );
+		$this->assertNull( $super['user'] );
 	}
 
 	public function test_a_login_token_works_for_nothing_else(): void {

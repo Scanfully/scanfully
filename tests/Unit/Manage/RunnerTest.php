@@ -231,7 +231,7 @@ final class RunnerTest extends TestCase {
 		$this->assertSame( '2026-10-28T10:00:31+00:00', $result['finished_at'] );
 	}
 
-	public function test_on_a_network_only_the_updates_and_ping_run(): void {
+	public function test_on_a_network_no_job_runs(): void {
 		Functions\when( 'is_multisite' )->justReturn( true );
 		$ran      = false;
 		$registry = [
@@ -254,8 +254,9 @@ final class RunnerTest extends TestCase {
 		$this->assertSame( 'multisite_refused', $refused['error']['class'] );
 		$this->assertFalse( $ran );
 
-		$this->assertSame( 'succeeded', Runner::run( [ 'action' => 'update_plugin' ], $beat, fn(): int => $this->now, $registry )['state'] );
-		$this->assertSame( 'succeeded', $this->run_job( [ 'action' => 'ping' ] )['state'] );
+		$this->assertSame( 'multisite_refused', Runner::run( [ 'action' => 'update_plugin' ], $beat, fn(): int => $this->now, $registry )['error']['class'], 'not even a network-wide update' );
+		$this->assertSame( 'multisite_refused', $this->run_job( [ 'action' => 'ping' ] )['error']['class'] );
+		$this->assertSame( [], Runner::actions( true ), 'none offered' );
 	}
 
 	public function test_a_maintenance_file_left_behind_fails_an_update_that_went_well(): void {

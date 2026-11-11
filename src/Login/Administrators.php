@@ -29,6 +29,12 @@ final class Administrators {
 	 * @return array<int, array{id: int, login: string, display_name: string}>
 	 */
 	public static function list(): array {
+		// No one can be signed in on a monitoring-only connection (a site of
+		// a multisite network), so there is no one to report.
+		if ( \Scanfully\Connect\Multisite::monitoring_only() ) {
+			return [];
+		}
+
 		$list = [];
 		foreach ( is_multisite() ? self::super_admins() : self::site_admins() as $user ) {
 			$list[] = [

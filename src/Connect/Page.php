@@ -154,6 +154,9 @@ class Page {
 								<?php if ( '' !== $changed ) : ?>
 									<p class="description scanfully-connect-scopes-changed"><?php echo esc_html( $changed ); ?></p>
 								<?php endif; ?>
+								<?php if ( Multisite::monitoring_only() ) : ?>
+									<p class="description scanfully-connect-monitoring-only-note"><?php echo esc_html( Multisite::connected_note() ); ?></p>
+								<?php endif; ?>
 							</div>
 						</li>
 					<?php endif; ?>
@@ -165,6 +168,9 @@ class Page {
 							<?php Buttons::change_access(); ?>
 							<?php Buttons::disconnect(); ?>
 						</p>
+					<?php elseif ( Multisite::monitoring_only() ) : ?>
+						<p class="scanfully-connect-monitoring-only-notice"><?php echo esc_html( Multisite::notice() ); ?></p>
+						<?php Buttons::connect_monitoring_only(); ?>
 					<?php else : ?>
 						<p style="display: inline-block">
 							<?php Buttons::connect(); ?>

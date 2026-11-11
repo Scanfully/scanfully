@@ -129,14 +129,19 @@ class Runner {
 	/**
 	 * The names of the actions this plugin version runs on this site, for
 	 * the capabilities report: the ones that change files only when
-	 * WordPress may write them without asking for credentials, and on a
-	 * multisite network only the ones that run there (ping and the updates).
+	 * WordPress may write them without asking for credentials. On a multisite
+	 * network none: a connection there is for monitoring only
+	 * (Connect\Multisite). The entries marked network are the ones a
+	 * connection at network level will run.
 	 *
 	 * @param bool $can_change_files Whether WordPress may change files and has a usable way to write them.
 	 *
 	 * @return string[]
 	 */
 	public static function actions( bool $can_change_files ): array {
+		if ( \Scanfully\Connect\Multisite::monitoring_only() ) {
+			return [];
+		}
 		$names   = [];
 		$network = function_exists( 'is_multisite' ) && is_multisite();
 		foreach ( self::registry() as $name => $entry ) {
@@ -196,8 +201,8 @@ class Runner {
 			return self::failed( $started, (int) $now(), 'not_supported', sprintf( 'This version of the Scanfully plugin does not run the action "%s".', $action ) );
 		}
 		$entry = $registry[ $action ];
-		if ( empty( $entry['network'] ) && function_exists( 'is_multisite' ) && is_multisite() ) {
-			return self::failed( $started, (int) $now(), 'multisite_refused', sprintf( 'This site is a multisite network. Scanfully runs only updates on a network, not the action "%s".', $action ) );
+		if ( \Scanfully\Connect\Multisite::monitoring_only() ) {
+			return self::failed( $started, (int) $now(), 'multisite_refused', sprintf( 'This site is part of a multisite network and connected for monitoring only, so Scanfully does not run the action "%s" here.', $action ) );
 		}
 
 		$failure = null;

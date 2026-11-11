@@ -147,6 +147,7 @@ class Controller {
 	 */
 	public static function allowed(): bool {
 		return Options\Controller::get_options()->is_connected
+			&& ! Connect\Multisite::monitoring_only()
 			&& in_array( Connect\OAuth::SCOPE_MANAGE, Connect\Controller::granted_scopes(), true );
 	}
 

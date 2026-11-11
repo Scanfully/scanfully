@@ -144,6 +144,8 @@ final class ControllerTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site; the monitoring-only network case has its own test.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->db         = new FakeWpdb();
 		$GLOBALS['wpdb']  = $this->db;
 		$this->options    = [
@@ -793,6 +795,33 @@ final class ControllerTest extends TestCase {
 		$this->run_pending();
 		$this->assertSame( Ledger::SCHEDULED, Ledger::get( self::JOB )['state'] ?? '', 'the grant went before the job ran' );
 		$this->assertSame( [], $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' ) );
+	}
+
+	public function test_on_a_network_nothing_is_pulled_run_or_scheduled_whatever_the_grant(): void {
+		$network = false;
+		Functions\when( 'is_multisite' )->alias(
+			static function () use ( &$network ): bool {
+				return $network;
+			}
+		);
+		Functions\when( 'is_admin' )->justReturn( true );
+		$this->jobs( [ self::ping() ] );
+
+		// A job pulled and a clock set while the site was a single site.
+		Controller::maybe_sync_clock();
+		$this->assertTrue( $this->pending( Controller::ACTION_PULL ), 'the clock of a single site' );
+		Controller::pull();
+		$this->assertSame( [ self::JOB ], $this->runs(), 'scheduled to run' );
+
+		$network        = true;
+		$this->requests = [];
+		$this->assertFalse( Controller::allowed(), 'a connection on a network is for monitoring only' );
+		Controller::pull();
+		$this->assertSame( [], $this->requests, 'nothing pulled' );
+		$this->run_pending();
+		$this->assertSame( [], $this->requests, 'the job pulled before does not run, and nothing is sent' );
+		Controller::sync_clock();
+		$this->assertFalse( $this->pending( Controller::ACTION_PULL ), 'the clock is gone' );
 	}
 
 	public function test_the_clock_follows_the_grant(): void {
