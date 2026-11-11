@@ -241,6 +241,25 @@ final class NetworkTest extends TestCase {
 		$this->assertFalse( Network::applies(), 'a plugin that is not network-activated' );
 	}
 
+	public function test_a_long_running_process_sees_a_network_connected_after_it_started(): void {
+		$this->assertFalse( OptionsController::network_scope() );
+		$deleted = [];
+		Functions\when( 'get_current_network_id' )->justReturn( 1 );
+		Functions\when( 'wp_cache_delete' )->alias(
+			static function ( string $key, string $group ) use ( &$deleted ) {
+				$deleted[] = $group . '/' . $key;
+				return true;
+			}
+		);
+		// connected by another request, after this one decided its scope
+		$this->site_options['scanfully_connect_is_connected'] = 'yes';
+
+		OptionsController::refresh_scope();
+
+		$this->assertTrue( OptionsController::network_scope() );
+		$this->assertContains( 'site-options/1:scanfully_connect_is_connected', $deleted, 'not what this process cached' );
+	}
+
 	public function test_the_main_site_admin_cannot_touch_the_network_connection_outside_network_admin(): void {
 		$this->connected( true, 'network-1' );
 		foreach ( [ 'scanfully-disconnect', 'scanfully-reconnect', 'scanfully-change-access', 'scanfully-connect' ] as $param ) {

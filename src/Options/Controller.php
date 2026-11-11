@@ -52,6 +52,24 @@ class Controller {
 	}
 
 	/**
+	 * Decide the scope again from the stored state, not from what this
+	 * process cached: a long-running process, such as an Action Scheduler
+	 * queue runner, may have started before the network was connected or
+	 * disconnected.
+	 *
+	 * @return void
+	 */
+	public static function refresh_scope(): void {
+		if ( function_exists( 'is_multisite' ) && is_multisite() ) {
+			$network = get_current_network_id();
+			wp_cache_delete( $network . ':notoptions', 'site-options' );
+			wp_cache_delete( $network . ':' . self::$db_prefix . 'is_connected', 'site-options' );
+			wp_cache_delete( $network . ':active_sitewide_plugins', 'site-options' );
+		}
+		self::detect_scope();
+	}
+
+	/**
 	 * Whether the connection options are the network's.
 	 *
 	 * @return bool
