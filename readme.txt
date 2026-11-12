@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -152,6 +152,13 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.11.0: November 12, 2026 =
+* Added: connecting a site goes through Scanfully's authorization server, where you pick the site and choose what Scanfully may do on it
+* Added: "Change what Scanfully may do" on the settings page changes those permissions later, and cancelling keeps the current connection
+* Changed: an existing connection moves to the new connection by itself, without reconnecting
+* Security: when Scanfully asks the site to sync, it signs the request, and the plugin checks the signature against Scanfully's public keys
+* Changed: the readme describes WooCommerce checkout monitoring as an add-on instead of a beta
 
 = 1.10.0: November 2, 2026 =
 * Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
