@@ -132,6 +132,8 @@ class Page {
 	private static function render( bool $network_page ): void {
 		$options      = OptionsController::get_options();
 		$through_main = ! $network_page && OptionsController::network_scope();
+		// A subsite the network's connection monitors.
+		$child = $network_page || $through_main ? null : Children::current();
 		?>
 		<div class="scanfully-secure-setup-wrapper">
 			<div class="scanfully-setup-logo">
@@ -152,12 +154,15 @@ class Page {
 						<div class="scanfully-connect-details-value">
 							<?php if ( $options->is_connected ) : ?>
 								<span class="scanfully-connect-blob scanfully-connect-blob-success"><?php esc_html_e( 'Connected', 'scanfully' ); ?></span>
+							<?php elseif ( null !== $child ) : ?>
+								<span class="scanfully-connect-blob scanfully-connect-blob-info"><?php esc_html_e( 'Not connected on its own', 'scanfully' ); ?></span>
 							<?php else : ?>
 								<span class="scanfully-connect-blob scanfully-connect-blob-error"><?php esc_html_e( 'Not connected', 'scanfully' ); ?></span>
 							<?php endif; ?>
 
 						</div>
 					</li>
+					<?php self::render_network_child( $child ); ?>
 					<?php if ( $options->is_connected ) : ?>
 						<?php
 						$last_used = '-';
@@ -220,6 +225,9 @@ class Page {
 							<?php Buttons::connect(); ?>
 						</p>
 					<?php elseif ( Multisite::monitoring_only() ) : ?>
+						<?php if ( null !== $child ) : ?>
+							<p class="scanfully-connect-network-child-optional"><?php echo esc_html( Multisite::connect_also_note() ); ?></p>
+						<?php endif; ?>
 						<p class="scanfully-connect-monitoring-only-notice"><?php echo esc_html( Multisite::notice() ); ?></p>
 						<?php Buttons::connect_monitoring_only(); ?>
 					<?php else : ?>
@@ -238,6 +246,29 @@ class Page {
 				<p><a href="https://docs.scanfully.com/"><?php esc_html_e( 'help center', 'scanfully' ); ?></a> - <a href="https://scanfully.com/contact/"><?php esc_html_e( 'contact us', 'scanfully' ); ?></a></p>
 			</div>
 		</div>
+		<?php
+	}
+
+	/**
+	 * The row of a subsite the network's connection monitors: monitored
+	 * through the network, and what goes there. Nothing for another site.
+	 *
+	 * @param Target|null $child The subsite's child target, or null.
+	 *
+	 * @return void
+	 */
+	public static function render_network_child( ?Target $child ): void {
+		if ( null === $child ) {
+			return;
+		}
+		?>
+		<li class="scanfully-connect-network-child">
+			<div class="scanfully-connect-details-label"><?php esc_html_e( 'Network', 'scanfully' ); ?></div>
+			<div class="scanfully-connect-details-value">
+				<span class="scanfully-connect-blob scanfully-connect-blob-success"><?php esc_html_e( 'Monitored through the network', 'scanfully' ); ?></span>
+				<p class="description scanfully-connect-network-child-note"><?php echo esc_html( Multisite::network_monitored_note() ); ?></p>
+			</div>
+		</li>
 		<?php
 	}
 
