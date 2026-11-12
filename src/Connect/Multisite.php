@@ -92,6 +92,26 @@ class Multisite {
 	}
 
 	/**
+	 * What the connect page of a subsite says while the network's
+	 * connection monitors it (see Children).
+	 *
+	 * @return string
+	 */
+	public static function network_monitored_note(): string {
+		return __( 'Monitored through the network\'s connection: its activity, plugins, health, PHP errors and WooCommerce go to the network owner\'s Scanfully account.', 'scanfully' );
+	}
+
+	/**
+	 * What the connect page of a subsite the network monitors says about
+	 * connecting it on its own.
+	 *
+	 * @return string
+	 */
+	public static function connect_also_note(): string {
+		return __( 'Optional: you can also connect this site on its own, for example to another Scanfully account. The network keeps monitoring it either way.', 'scanfully' );
+	}
+
+	/**
 	 * What the connect page says when the confirmation was missing.
 	 *
 	 * @return string

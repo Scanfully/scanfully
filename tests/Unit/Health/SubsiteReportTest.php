@@ -224,6 +224,18 @@ final class SubsiteReportTest extends TestCase {
 		$this->assertSame( [], $this->as_calls_of( 'scanfully_sync_woocheckout_config' ) );
 	}
 
+	public function test_a_report_ends_the_own_connection_of_an_attached_subsite(): void {
+		$this->monitor( [ 3 => 'site-3' ] );
+		$this->connect_own( 3, 'site-3' );
+
+		SubsiteReport::run( [ 3 ] );
+
+		$this->assertArrayNotHasKey( 'scanfully_connect_is_connected', $this->db->options[3] );
+		$this->assertArrayNotHasKey( 'scanfully_connect_access_token', $this->db->options[3] );
+		$this->assertSame( 'site-3', $this->db->options[3][ Children::ENDED_OPTION ] );
+		$this->assertCount( 1, $this->sent );
+	}
+
 	public function test_a_report_fixes_a_missing_marker(): void {
 		$this->site_options[ Children::MAPPING_OPTION ] = [ 2 => 'child-2' ];
 

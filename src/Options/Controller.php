@@ -279,12 +279,44 @@ class Controller {
 	}
 
 	/**
+	 * The connection's options, without the Scanfully prefix.
+	 */
+	private const CONNECTION_OPTIONS = [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected', 'scopes', 'flow', 'address', 'address_shown' ];
+
+	/**
+	 * The email deliverability sub-feature's per-connection secret and cached
+	 * state, without the Scanfully prefix and `email_deliverability_`.
+	 */
+	private const EMAIL_OPTIONS = [ 'enabled', 'secret', 'inbound_address', 'interval_seconds', 'last_failure_at', 'last_as_run_at', 'from_address', 'last_api_error', 'last_api_error_at' ];
+
+	/**
+	 * The full names of the options clear() removes from a site's own
+	 * options, for a site whose connection is ended from another site of
+	 * its network (see Connect\Children).
+	 *
+	 * @return string[]
+	 */
+	public static function own_connection_options(): array {
+		$names = [];
+		foreach ( self::CONNECTION_OPTIONS as $name ) {
+			$names[] = self::$db_prefix . $name;
+		}
+		foreach ( self::EMAIL_OPTIONS as $name ) {
+			$names[] = self::$db_prefix . 'email_deliverability_' . $name;
+		}
+		$names[] = self::$db_prefix . 'last_request_error';
+		$names[] = 'scanfully_woocheckout_probe_secret';
+
+		return $names;
+	}
+
+	/**
 	 * Clear all options
 	 *
 	 * @return void
 	 */
 	public static function clear() {
-		foreach ( [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected', 'scopes', 'flow', 'address', 'address_shown' ] as $name ) {
+		foreach ( self::CONNECTION_OPTIONS as $name ) {
 			self::delete_option( $name );
 		}
 		// written by the API requests on the site that runs them, by its raw name.
@@ -292,7 +324,7 @@ class Controller {
 		delete_transient( 'scanfully_oauth_unavailable' );
 
 		// Email deliverability sub-feature: per-connection secret + cached state.
-		foreach ( [ 'enabled', 'secret', 'inbound_address', 'interval_seconds', 'last_failure_at', 'last_as_run_at', 'from_address', 'last_api_error', 'last_api_error_at' ] as $name ) {
+		foreach ( self::EMAIL_OPTIONS as $name ) {
 			self::delete_option( 'email_deliverability_' . $name );
 		}
 
