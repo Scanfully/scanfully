@@ -42,6 +42,8 @@ final class PostSavedScheduleTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->scheduled  = [];
 		$this->transients = [];
 		$this->can_store  = true;

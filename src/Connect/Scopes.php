@@ -26,6 +26,8 @@ use Scanfully\Sync;
  *   on;
  * - once an hour, for a site whose host blocks the poke;
  * - with every token refresh, whose answer reports the scopes too.
+ * On the network connection the same answer lists the subsites the network's
+ * owner monitors (see Children).
  *
  * A copy of the site (see Address) answers the poke 409 site_moved and reads
  * nothing until its admin decides.
@@ -255,6 +257,11 @@ class Scopes {
 		$scopes = self::of( $answer['body']['scopes'] ?? null );
 		if ( null !== $scopes ) {
 			self::learn( $scopes );
+		}
+		// The network connection also learns which subsites its owner
+		// monitors; a new one reports its subsite data right away.
+		if ( OptionsController::network_scope() && Network::multisite() ) {
+			\Scanfully\Health\SubsiteReport::schedule( Children::learn( $answer['body']['subsites'] ?? null ) );
 		}
 	}
 

@@ -68,7 +68,7 @@ class ProbePing {
 		$nonce   = isset( $_GET['scanfully_nonce'] ) ? sanitize_text_field( wp_unslash( $_GET['scanfully_nonce'] ) ) : '';
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		$secret = (string) get_option( Controller::OPTION_PROBE_SECRET, '' );
+		$secret = Controller::verified_probe_secret();
 		if ( '' === $scan_id || '' === $nonce || '' === $secret ) {
 			return null;
 		}

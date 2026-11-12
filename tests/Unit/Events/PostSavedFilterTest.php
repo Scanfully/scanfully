@@ -34,6 +34,8 @@ final class PostSavedFilterTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->transients = [];
 
 		Functions\when( 'wp_doing_ajax' )->justReturn( false );

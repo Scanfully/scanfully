@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * Sends the hourly counts of failed logins to the Scanfully API.
@@ -34,7 +33,7 @@ class FailedLoginsRequest extends Request {
 	 * @return string
 	 */
 	public function get_url( string $endpoint ): string {
-		return sprintf( Main::get_api_url() . '/sites/%s/logins/failed', rawurlencode( OptionsController::get_option( 'site_id' ) ) );
+		return sprintf( Main::get_api_url() . '/sites/%s/logins/failed', rawurlencode( $this->site_id() ) );
 	}
 
 	/**

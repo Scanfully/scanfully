@@ -73,7 +73,7 @@ class ProductSearch {
 		$term    = isset( $_GET['scanfully_search'] ) ? sanitize_text_field( wp_unslash( $_GET['scanfully_search'] ) ) : '';
 		// phpcs:enable WordPress.Security.NonceVerification.Recommended
 
-		$secret = (string) get_option( Controller::OPTION_PROBE_SECRET, '' );
+		$secret = Controller::verified_probe_secret();
 		if ( '' === $scan_id || '' === $nonce || '' === $secret ) {
 			return null;
 		}

@@ -277,17 +277,11 @@ final class Subsites {
 	 * @return array{blog_id: int, home_url: string, name: string, main: bool, public: bool, archived: bool, spam: bool, deleted: bool}
 	 */
 	private static function entry( array $row, array $options, int $main, string $scheme ): array {
-		$id   = (int) $row['blog_id'];
-		$home = untrailingslashit( trim( $options['home'] ?? '' ) );
-		if ( ! self::is_address( $home ) ) {
-			// No usable home option (a site whose tables are missing, or a
-			// value the API would refuse): its address in the sites table.
-			$home = untrailingslashit( $scheme . '://' . $row['domain'] . $row['path'] );
-		}
+		$id = (int) $row['blog_id'];
 
 		return [
 			'blog_id'  => $id,
-			'home_url' => $home,
+			'home_url' => self::address( $options['home'] ?? '', $scheme, (string) $row['domain'], (string) $row['path'] ),
 			'name'     => self::name( $options['blogname'] ?? '' ),
 			'main'     => $id === $main,
 			// Below 0 is a privacy plugin's "members only" and the like.
@@ -296,6 +290,25 @@ final class Subsites {
 			'spam'     => '1' === (string) $row['spam'],
 			'deleted'  => '1' === (string) $row['deleted'],
 		];
+	}
+
+	/**
+	 * A site's address as reported: its home option as stored, without a
+	 * trailing slash, or, without a usable one (a site whose tables are
+	 * missing, or a value the API would refuse), its address in the sites
+	 * table.
+	 *
+	 * @param string $home   The home option.
+	 * @param string $scheme The scheme of an address made from the domain and path.
+	 * @param string $domain The site's domain.
+	 * @param string $path   The site's path.
+	 *
+	 * @return string
+	 */
+	public static function address( string $home, string $scheme, string $domain, string $path ): string {
+		$home = untrailingslashit( trim( $home ) );
+
+		return self::is_address( $home ) ? $home : untrailingslashit( $scheme . '://' . $domain . $path );
 	}
 
 	/**
@@ -373,11 +386,33 @@ final class Subsites {
 	 * @return array<int, array<string, string>> The options by blog id, then name.
 	 */
 	private static function options( array $ids ): array {
+		return self::read( $ids, [ 'blogname', 'home' ] );
+	}
+
+	/**
+	 * Some options of some sites of the network, read from each site's own
+	 * options table without switching to it, a hundred sites a query, errors
+	 * suppressed, values as stored (serialized ones are not unserialized).
+	 * Only the sites whose table could be read are in the result. Used by
+	 * the report here, the network's child markers and the subsite reports.
+	 *
+	 * @param int[]    $ids   The blog ids.
+	 * @param string[] $names The option names.
+	 *
+	 * @return array<int, array<string, string>> The options by blog id, then name.
+	 */
+	public static function read( array $ids, array $names ): array {
 		global $wpdb;
 
+		if ( [] === $ids || [] === $names ) {
+			return [];
+		}
 		$suppressed = $wpdb->suppress_errors( true );
 		try {
-			$rows = self::read_options( $ids );
+			$rows = [];
+			foreach ( array_chunk( array_values( array_unique( array_map( 'intval', $ids ) ) ), self::CHUNK ) as $chunk ) {
+				$rows += self::read_options( $chunk, array_values( $names ) );
+			}
 		} finally {
 			$wpdb->suppress_errors( $suppressed );
 		}
@@ -399,23 +434,29 @@ final class Subsites {
 	 * read fine fail together, it is the joining that fails here, and the
 	 * rest of the report reads one site a query.
 	 *
-	 * @param int[] $ids The blog ids.
+	 * @param int[]    $ids   The blog ids.
+	 * @param string[] $names The option names.
 	 *
 	 * @return array<int, array<int, array<string, mixed>>> The rows by blog id, for each site that could be read.
 	 */
-	private static function read_options( array $ids ): array {
+	private static function read_options( array $ids, array $names ): array {
 		global $wpdb;
 
 		if ( self::$single && count( $ids ) > 1 ) {
 			$out = [];
 			foreach ( $ids as $id ) {
-				$out += self::read_options( [ $id ] );
+				$out += self::read_options( [ $id ], $names );
 			}
 
 			return $out;
 		}
 
-		$queries = array_map( [ self::class, 'options_query' ], $ids );
+		$queries = array_map(
+			static function ( int $id ) use ( $names ): string {
+				return self::options_query( $id, $names );
+			},
+			$ids
+		);
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared -- Each part is prepared in options_query().
 		$rows = $wpdb->get_results( implode( ' UNION ALL ', $queries ), ARRAY_A );
 		if ( ! self::query_failed() && is_array( $rows ) ) {
@@ -431,8 +472,8 @@ final class Subsites {
 		}
 
 		$half  = (int) ceil( count( $ids ) / 2 );
-		$first = self::read_options( array_slice( $ids, 0, $half ) );
-		$rest  = self::read_options( array_slice( $ids, $half ) );
+		$first = self::read_options( array_slice( $ids, 0, $half ), $names );
+		$rest  = self::read_options( array_slice( $ids, $half ), $names );
 		if ( 2 === count( $ids ) && 2 === count( $first ) + count( $rest ) ) {
 			self::$single = true;
 		}
@@ -458,17 +499,18 @@ final class Subsites {
 	 * converted to one character set, so tables with different collations
 	 * join.
 	 *
-	 * @param int $id The blog id.
+	 * @param int      $id    The blog id.
+	 * @param string[] $names The option names.
 	 *
 	 * @return string
 	 */
-	private static function options_query( int $id ): string {
+	private static function options_query( int $id, array $names ): string {
 		global $wpdb;
 
 		// The table name comes from WordPress's prefix and an integer.
 		$table = $wpdb->get_blog_prefix( $id ) . 'options';
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- The table name cannot be a placeholder.
-		return $wpdb->prepare( "SELECT %d AS blog_id, CONVERT(option_name USING utf8mb4) AS option_name, CONVERT(option_value USING utf8mb4) AS option_value FROM `{$table}` WHERE option_name IN (%s, %s)", $id, 'blogname', 'home' );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- The table name cannot be a placeholder; the name placeholders are built from the count of names.
+		return $wpdb->prepare( "SELECT %d AS blog_id, CONVERT(option_name USING utf8mb4) AS option_name, CONVERT(option_value USING utf8mb4) AS option_value FROM `{$table}` WHERE option_name IN (" . implode( ', ', array_fill( 0, count( $names ), '%s' ) ) . ')', $id, ...$names );
 	}
 }

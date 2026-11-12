@@ -57,6 +57,8 @@ final class UserLoginTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->counters = FakeCounterTable::install();
 		$this->server   = $_SERVER;
 		foreach ( self::SERVER_KEYS as $key ) {

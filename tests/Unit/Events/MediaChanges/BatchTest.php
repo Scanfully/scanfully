@@ -59,6 +59,9 @@ final class BatchTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A connected single site: the job queues for its own connection.
+		Functions\when( 'is_multisite' )->justReturn( false );
+		Functions\when( 'get_option' )->alias( static fn( string $name, $fallback = false ) => 'scanfully_connect_is_connected' === $name ? 'yes' : $fallback );
 
 		$this->table = FakeOptionsTable::install();
 		Functions\when( 'wp_generate_uuid4' )->alias( fn() => sprintf( '%08x-0000-4000-8000-000000000000', ++$this->uuids ) );

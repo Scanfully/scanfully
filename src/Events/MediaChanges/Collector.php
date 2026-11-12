@@ -10,7 +10,7 @@ namespace Scanfully\Events\MediaChanges;
 use Scanfully\Events\ContentEvent;
 use Scanfully\Events\Content\MinuteStore;
 use Scanfully\Events\Controller;
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Collector
@@ -169,12 +169,14 @@ final class Collector {
 
 	/**
 	 * Whether media changes are noted now: not during an import, which adds
-	 * many files nobody uploaded by hand.
+	 * many files nobody uploaded by hand, and not while the request works on
+	 * another site of a multisite network (they are reported on the site the
+	 * request is for).
 	 *
 	 * @return bool
 	 */
 	private static function is_noting(): bool {
-		return ! ( defined( 'WP_IMPORTING' ) && WP_IMPORTING );
+		return ! ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) && ! ( function_exists( 'ms_is_switched' ) && ms_is_switched() );
 	}
 
 	/**
@@ -765,7 +767,7 @@ final class Collector {
 		}
 
 		// A site that isn't connected has nowhere to send events.
-		if ( [] === $items || ! Options\Controller::get_options()->is_connected ) {
+		if ( [] === $items || ! Targets::reachable() ) {
 			return;
 		}
 

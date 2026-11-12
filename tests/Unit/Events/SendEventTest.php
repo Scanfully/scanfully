@@ -34,6 +34,8 @@ final class SendEventTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A single site unless a test says otherwise.
+		Functions\when( 'is_multisite' )->justReturn( false );
 		$this->retries = [];
 		Functions\when( 'get_option' )->justReturn( 'yes' );
 		Functions\when( 'esc_html' )->returnArg();
@@ -83,7 +85,7 @@ final class SendEventTest extends TestCase {
 		$message = $this->send();
 
 		$this->assertStringContainsString( 'did not accept the PostSaved event', $message );
-		$this->assertSame( [ [ 'PostSaved', [ 'id' => 1 ], [ 'id' => 2 ], 1 ] ], $this->retries );
+		$this->assertSame( [ [ 'PostSaved', [ 'id' => 1 ], [ 'id' => 2 ], 1, 'own' ] ], $this->retries );
 	}
 
 	/**

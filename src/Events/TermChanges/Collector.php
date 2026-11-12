@@ -121,7 +121,9 @@ final class Collector {
 
 	/**
 	 * Whether changes to the terms of a taxonomy are reported: taxonomies
-	 * with an admin screen, not during an import. Post formats have no
+	 * with an admin screen, not during an import, and not while the request
+	 * works on another site of a multisite network (they are reported at the
+	 * end of the request, on the site it is for). Post formats have no
 	 * screen; WordPress makes their terms when a format is first used.
 	 *
 	 * @param string $taxonomy The taxonomy.
@@ -129,7 +131,7 @@ final class Collector {
 	 * @return bool
 	 */
 	private static function is_counted( string $taxonomy ): bool {
-		if ( 'post_format' === $taxonomy || ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) ) {
+		if ( 'post_format' === $taxonomy || ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) || ( function_exists( 'ms_is_switched' ) && ms_is_switched() ) ) {
 			return false;
 		}
 

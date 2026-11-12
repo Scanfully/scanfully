@@ -8,7 +8,7 @@
 namespace Scanfully\Events\Content;
 
 use Scanfully\Events\ContentEvent;
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Report
@@ -56,7 +56,7 @@ final class Report {
 	 */
 	public static function send( string $kind, array $items ): void {
 		// A site that isn't connected has nowhere to send events.
-		if ( [] === $items || ! Options\Controller::get_options()->is_connected ) {
+		if ( [] === $items || ! Targets::reachable() ) {
 			return;
 		}
 

@@ -59,6 +59,16 @@ class Controller {
 	private static ?bool $probe_request_cache = null;
 
 	/**
+	 * The probe secret that verified this request's probe header; '' when
+	 * none did. A subsite that a network monitors has two (see
+	 * probe_secrets()), and answers a ping or a product search with the one
+	 * its probe was signed with.
+	 *
+	 * @var string
+	 */
+	private static string $verified_secret = '';
+
+	/**
 	 * Boot hooks.
 	 *
 	 * @return void
@@ -233,6 +243,7 @@ class Controller {
 		if ( null !== self::$probe_request_cache ) {
 			return self::$probe_request_cache;
 		}
+		self::$verified_secret = '';
 
 		$header = self::read_probe_header();
 		if ( '' === $header ) {
@@ -251,17 +262,63 @@ class Controller {
 			return false;
 		}
 
-		$secret = (string) get_option( self::OPTION_PROBE_SECRET, '' );
-		if ( '' === $secret ) {
-			self::$probe_request_cache = false;
-			return false;
+		$ok = false;
+		if ( self::is_fresh_scan_id( $scan_id ) ) {
+			// The own secret first: the child's needs the network's state checked.
+			foreach ( [ false, true ] as $child ) {
+				$secret = self::probe_secret( $child );
+				if ( '' !== $secret && hash_equals( hash_hmac( 'sha256', $scan_id, $secret ), $signature ) ) {
+					self::$verified_secret = $secret;
+					$ok                    = true;
+					break;
+				}
+			}
 		}
-
-		$expected = hash_hmac( 'sha256', $scan_id, $secret );
-		$ok       = hash_equals( $expected, $signature ) && self::is_fresh_scan_id( $scan_id );
 
 		self::$probe_request_cache = $ok;
 		return $ok;
+	}
+
+	/**
+	 * The probe secrets a probe header may be signed with, one per target
+	 * of the site (Connect\Target::option()): the own connection's, and on a
+	 * subsite that a network monitors, its child site's, only while the
+	 * network monitors it (so the secret stops working when the subsite is
+	 * no longer monitored, as the own one does on a disconnect; the main
+	 * site removes it with the subsite's marker).
+	 *
+	 * @return string[]
+	 */
+	public static function probe_secrets(): array {
+		return array_values( array_filter( [ self::probe_secret( false ), self::probe_secret( true ) ] ) );
+	}
+
+	/**
+	 * The own connection's probe secret, or the child site's while the
+	 * network still monitors this subsite (Children::current(): the network
+	 * connected, the mapping names this blog, not a copy); '' without one.
+	 *
+	 * @param bool $child Whether to read the child's.
+	 *
+	 * @return string
+	 */
+	private static function probe_secret( bool $child ): string {
+		if ( ! $child ) {
+			return (string) get_option( self::OPTION_PROBE_SECRET, '' );
+		}
+		$target = \Scanfully\Connect\Children::current();
+
+		return null === $target ? '' : (string) get_option( $target->option( self::OPTION_PROBE_SECRET ), '' );
+	}
+
+	/**
+	 * The probe secret that verified this request's probe header, to sign
+	 * the answers with; '' when it is no probe request.
+	 *
+	 * @return string
+	 */
+	public static function verified_probe_secret(): string {
+		return self::is_probe_request() ? self::$verified_secret : '';
 	}
 
 	/**
@@ -1001,20 +1058,27 @@ class Controller {
 	 * @return void
 	 */
 	public static function report(): void {
-		// Without a connection there is no site ID or token to report with.
-		if ( ! \Scanfully\Options\Controller::get_options()->is_connected ) {
+		// Without a target there is no site ID or token to report with: the
+		// site's own connection, and on a subsite that a network monitors,
+		// its child site, reported to in the subsite's own context with the
+		// network's token.
+		$targets = \Scanfully\Connect\Targets::now();
+		if ( [] === $targets ) {
 			return;
 		}
 
 		$payload = self::build_payload();
 		update_option( self::OPTION_LAST_CONFIG, $payload, false );
-		$response = ( new WooCheckoutConfigRequest() )->send( $payload );
-
-		if ( is_array( $response ) && 200 === (int) ( $response['status'] ?? 0 ) && is_array( $response['body'] ?? null ) ) {
+		foreach ( $targets as $target ) {
+			$response = ( new WooCheckoutConfigRequest() )->to( $target )->send( $payload );
+			if ( ! is_array( $response ) || 200 !== (int) ( $response['status'] ?? 0 ) || ! is_array( $response['body'] ?? null ) ) {
+				continue;
+			}
+			// Each target has its own secret: the API keeps one per site.
 			$secret = (string) ( $response['body']['probe_secret'] ?? '' );
-			// Only reached while connected (see the check at the top).
-			if ( self::is_valid_probe_secret( $secret ) && get_option( self::OPTION_PROBE_SECRET, '' ) !== $secret ) {
-				update_option( self::OPTION_PROBE_SECRET, $secret, false );
+			$option = $target->option( self::OPTION_PROBE_SECRET );
+			if ( self::is_valid_probe_secret( $secret ) && get_option( $option, '' ) !== $secret ) {
+				update_option( $option, $secret, false );
 			}
 		}
 	}
@@ -1048,7 +1112,7 @@ class Controller {
 	 * @return void
 	 */
 	private static function queue_report(): void {
-		if ( ! \Scanfully\Options\Controller::get_options()->is_connected ) {
+		if ( ! \Scanfully\Connect\Targets::reachable() ) {
 			return;
 		}
 

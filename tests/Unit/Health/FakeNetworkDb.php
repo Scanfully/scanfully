@@ -9,8 +9,11 @@ namespace Scanfully\Tests\Unit\Health;
 
 /**
  * Stands in for `$wpdb` with the queries Health\Subsites runs: a page of
- * the sites table by blog id, and the blogname and home options of some
- * sites from their own options tables, joined with UNION ALL.
+ * the sites table by blog id, and some options of some sites from their
+ * own options tables, joined with UNION ALL; and those of the network's
+ * child markers and subsite reports (Connect\Children, Health\SubsiteReport):
+ * rows of the sites table by blog id, and one option of a site written,
+ * removed or read.
  */
 final class FakeNetworkDb {
 
@@ -200,11 +203,30 @@ final class FakeNetworkDb {
 			$this->last_error = 'Table is on another server';
 			return [];
 		}
+		if ( 1 === preg_match( '/^SELECT blog_id, domain, path, public FROM wp_blogs WHERE site_id = (\d+) AND blog_id IN \(([\d, ]+)\)$/', $sql, $match ) ) {
+			$ids = array_map( 'intval', explode( ', ', $match[2] ) );
+			$out = [];
+			foreach ( $ids as $id ) {
+				if ( isset( $this->sites[ $id ] ) && $this->sites[ $id ]['site_id'] === $match[1] ) {
+					$out[] = [
+						'blog_id' => (string) $id,
+						'domain'  => $this->sites[ $id ]['domain'],
+						'path'    => $this->sites[ $id ]['path'],
+						'public'  => $this->sites[ $id ]['public'],
+					];
+				}
+			}
+
+			return $out;
+		}
+
 		foreach ( $parts as $part ) {
-			if ( 1 !== preg_match( "/^SELECT (\d+) AS blog_id, CONVERT\(option_name USING utf8mb4\) AS option_name, CONVERT\(option_value USING utf8mb4\) AS option_value FROM `(\w+)` WHERE option_name IN \('blogname', 'home'\)$/", $part, $match ) ) {
+			if ( 1 !== preg_match( "/^SELECT (\d+) AS blog_id, CONVERT\(option_name USING utf8mb4\) AS option_name, CONVERT\(option_value USING utf8mb4\) AS option_value FROM `(\w+)` WHERE option_name IN \(((?:'[^']*'(?:, )?)+)\)$/", $part, $match ) ) {
 				$this->last_error = 'Unexpected query: ' . $part;
 				return [];
 			}
+			preg_match_all( "/'([^']*)'/", $match[3], $quoted );
+			$names = $quoted[1];
 			if ( in_array( $match[2], $this->missing, true ) ) {
 				$this->last_error = "Table '" . $match[2] . "' doesn't exist";
 				return [];
@@ -215,6 +237,9 @@ final class FakeNetworkDb {
 				return [];
 			}
 			foreach ( $this->options[ $id ] ?? [] as $name => $value ) {
+				if ( ! in_array( $name, $names, true ) ) {
+					continue;
+				}
 				$rows[] = [
 					'blog_id'      => (string) $id,
 					'option_name'  => $name,
@@ -224,6 +249,107 @@ final class FakeNetworkDb {
 		}
 
 		return $rows;
+	}
+
+	/**
+	 * `$wpdb->get_col()`: the blog ids of a network among some.
+	 *
+	 * @param string $sql The query.
+	 *
+	 * @return string[]
+	 */
+	public function get_col( string $sql ): array {
+		$this->queries[]  = $sql;
+		$this->last_error = '';
+		if ( 1 !== preg_match( '/^SELECT blog_id FROM wp_blogs WHERE site_id = (\d+) AND blog_id IN \(([\d, ]+)\)$/', $sql, $match ) ) {
+			$this->last_error = 'Unexpected query: ' . $sql;
+			return [];
+		}
+		$out = [];
+		foreach ( array_map( 'intval', explode( ', ', $match[2] ) ) as $id ) {
+			if ( isset( $this->sites[ $id ] ) && $this->sites[ $id ]['site_id'] === $match[1] ) {
+				$out[] = (string) $id;
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * `$wpdb->get_var()`: one option of a site.
+	 *
+	 * @param string $sql The query.
+	 *
+	 * @return string|null
+	 */
+	public function get_var( string $sql ): ?string {
+		$this->queries[] = $sql;
+		if ( 1 !== preg_match( "/^SELECT option_value FROM `(\w+)` WHERE option_name = '([^']*)'$/", $sql, $match ) ) {
+			return null;
+		}
+		$id = $this->blog_of_table( $match[1] );
+
+		return null === $id ? null : ( $this->options[ $id ][ $match[2] ] ?? null );
+	}
+
+	/**
+	 * `$wpdb->query()`: a write of one option of a site.
+	 *
+	 * @param string $sql The query.
+	 *
+	 * @return int The rows changed.
+	 */
+	public function query( string $sql ): int {
+		$this->queries[]  = $sql;
+		$this->last_error = '';
+		if ( 1 === preg_match( "/^INSERT INTO `(\w+)` \(option_name, option_value, autoload\) VALUES \('((?:[^'\\\\]|\\\\.)*)', '((?:[^'\\\\]|\\\\.)*)', 'yes'\) ON DUPLICATE KEY UPDATE/", $sql, $match ) ) {
+			$id = $this->blog_of_table( $match[1] );
+			if ( null === $id || in_array( $match[1], $this->missing, true ) ) {
+				$this->last_error = "Table '" . $match[1] . "' doesn't exist";
+				return 0;
+			}
+			$this->options[ $id ][ stripslashes( $match[2] ) ] = stripslashes( $match[3] );
+			$this->writes[] = [ 'set', $id, stripslashes( $match[2] ) ];
+			return 1;
+		}
+		if ( 1 === preg_match( "/^DELETE FROM `(\w+)` WHERE option_name IN \(((?:'[^']*'(?:, )?)+)\)$/", $sql, $match ) ) {
+			$id = $this->blog_of_table( $match[1] );
+			preg_match_all( "/'([^']*)'/", $match[2], $quoted );
+			$deleted = 0;
+			foreach ( $quoted[1] as $name ) {
+				if ( null !== $id && isset( $this->options[ $id ][ $name ] ) ) {
+					unset( $this->options[ $id ][ $name ] );
+					$this->writes[] = [ 'delete', $id, $name ];
+					++$deleted;
+				}
+			}
+			return $deleted;
+		}
+		$this->last_error = 'Unexpected query: ' . $sql;
+
+		return 0;
+	}
+
+	/**
+	 * The writes run: set or delete, the blog id and the option name.
+	 *
+	 * @var array<int, array{string, int, string}>
+	 */
+	public array $writes = [];
+
+	/**
+	 * The blog id of an options table.
+	 *
+	 * @param string $table The table.
+	 *
+	 * @return int|null
+	 */
+	private function blog_of_table( string $table ): ?int {
+		if ( 'wp_options' === $table ) {
+			return 1;
+		}
+
+		return 1 === preg_match( '/^wp_(\d+)_options$/', $table, $match ) ? (int) $match[1] : null;
 	}
 
 	/**

@@ -56,6 +56,12 @@ class Controller {
 	public const ACTION_CHECK_MU_PLUGINS = 'scanfully_check_mu_plugins';
 
 	/**
+	 * Hook: send the PHP errors that are waiting (recurring hourly, and
+	 * single runs a minute after a new error and right after an update).
+	 */
+	public const ACTION_SEND_PHP_ERRORS = \Scanfully\Errors\Reporter::ACTION;
+
+	/**
 	 * Args marker for debounced (single) site health runs, to distinguish them
 	 * from the recurring schedule so each can be managed independently.
 	 */
@@ -90,6 +96,7 @@ class Controller {
 		add_action( self::ACTION_CLEANUP_PROBE_ORDERS, [ self::class, 'cleanup_woocheckout_probe_orders' ] );
 		add_action( self::ACTION_SEND_FAILED_LOGINS, [ self::class, 'send_failed_logins' ] );
 		add_action( self::ACTION_CHECK_MU_PLUGINS, [ self::class, 'check_mu_plugins' ] );
+		add_action( self::ACTION_SEND_PHP_ERRORS, [ self::class, 'send_php_errors' ] );
 
 		// Register hooks that trigger a debounced site health sync.
 		self::register_health_sync_hooks();
@@ -140,14 +147,15 @@ class Controller {
 	 * Sync WooCommerce checkout probe config. Runs on the recurring daily
 	 * schedule, also when WooCommerce is inactive: the report then carries
 	 * the `wc_inactive` disabled reason so the API knows scanning is off.
+	 * Goes to each target of the site (see WooCheckout\Controller::report()).
 	 *
 	 * @return void
 	 */
 	public static function sync_woocheckout_config(): void {
 		self::refresh_access_token_if_needed();
 
-		$options = Options\Controller::get_options();
-		if ( ! $options->is_connected ) {
+		// The site's own connection, or a network that monitors it.
+		if ( ! Connect\Targets::reachable() ) {
 			return;
 		}
 		if ( ! class_exists( '\\Scanfully\\WooCheckout\\Controller' ) ) {
@@ -221,6 +229,11 @@ class Controller {
 		if ( ! as_has_scheduled_action( self::ACTION_CHECK_MU_PLUGINS, [], self::AS_GROUP ) ) {
 			as_schedule_recurring_action( time() + HOUR_IN_SECONDS, HOUR_IN_SECONDS, self::ACTION_CHECK_MU_PLUGINS, [], self::AS_GROUP, true );
 		}
+
+		// A few minutes past every hour, apart from the failed logins.
+		if ( ! as_has_scheduled_action( self::ACTION_SEND_PHP_ERRORS, [], self::AS_GROUP ) ) {
+			as_schedule_recurring_action( ( intdiv( time(), HOUR_IN_SECONDS ) + 1 ) * HOUR_IN_SECONDS + 8 * MINUTE_IN_SECONDS, HOUR_IN_SECONDS, self::ACTION_SEND_PHP_ERRORS, [], self::AS_GROUP, true );
+		}
 	}
 
 	/**
@@ -248,6 +261,17 @@ class Controller {
 	public static function send_failed_logins(): void {
 		self::refresh_access_token_if_needed();
 		\Scanfully\Events\FailedLogins\Reporter::send();
+	}
+
+	/**
+	 * Send the PHP errors that are waiting. Runs on the recurring hourly
+	 * schedule and as single runs. Refreshes the access token if needed.
+	 *
+	 * @return void
+	 */
+	public static function send_php_errors(): void {
+		self::refresh_access_token_if_needed();
+		\Scanfully\Errors\Reporter::send();
 	}
 
 	/**

@@ -30,11 +30,14 @@ final class Builder {
 	 * @param array  $data    The event data, with the changes as the Collector noted them.
 	 * @param string $stash   The key of what the job needs beyond its arguments, or ''.
 	 * @param int    $attempt Retry number; 0 for the first attempt.
+	 * @param mixed  $targets The keys of the targets a retry is for; null (the first run) for every target of the site.
 	 *
 	 * @return void
 	 * @throws \RuntimeException When the API did not accept the event.
 	 */
-	public static function build( string $type, array $user, array $data, string $stash = '', int $attempt = 0 ): void {
+	public static function build( string $type, array $user, array $data, string $stash = '', int $attempt = 0, $targets = null ): void {
+		$keys = is_array( $targets ) ? array_values( array_filter( $targets, 'is_string' ) ) : null;
+
 		$noted = is_array( $data['changes'] ?? null ) ? $data['changes'] : [];
 		if ( ! empty( $noted['stashed'] ) ) {
 			$stored = '' !== $stash ? Stash::get( $stash ) : null;
@@ -50,14 +53,17 @@ final class Builder {
 
 		$retrying = false;
 		try {
-			Controller::deliver(
+			// Every target from what was resolved once; one retry job for the
+			// targets left keeps the stash until they are done.
+			Controller::deliver_all(
 				$type,
 				$user,
 				$event,
 				$attempt,
-				static function () use ( &$retrying, $type, $user, $data, $stash, $attempt ): void {
+				$keys,
+				static function ( array $left ) use ( &$retrying, $type, $user, $data, $stash, $attempt ): void {
 					$retrying = true;
-					as_schedule_single_action( time() + Controller::SEND_RETRY_DELAY, Controller::ACTION_BUILD_POST_EVENT, [ $type, $user, $data, $stash, $attempt + 1 ], 'scanfully' );
+					as_schedule_single_action( time() + Controller::SEND_RETRY_DELAY, Controller::ACTION_BUILD_POST_EVENT, [ $type, $user, $data, $stash, $attempt + 1, $left ], 'scanfully' );
 				}
 			);
 		} finally {

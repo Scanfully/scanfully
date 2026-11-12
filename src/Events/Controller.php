@@ -8,6 +8,8 @@
 namespace Scanfully\Events;
 
 use Scanfully\API\EventRequest;
+use Scanfully\Connect\Target;
+use Scanfully\Connect\Targets;
 use Scanfully\Options;
 
 /**
@@ -85,9 +87,9 @@ class Controller {
 	 * @return void
 	 */
 	public static function register_send_callback(): void {
-		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 4 );
-		add_action( self::ACTION_BUILD_POST_EVENT, [ PostChanges\Builder::class, 'build' ], 10, 5 );
-		add_action( self::ACTION_BUILD_CONTENT_EVENT, [ Content\Builder::class, 'build' ], 10, 5 );
+		add_action( self::ACTION_SEND_EVENT, [ self::class, 'send_event' ], 10, 5 );
+		add_action( self::ACTION_BUILD_POST_EVENT, [ PostChanges\Builder::class, 'build' ], 10, 6 );
+		add_action( self::ACTION_BUILD_CONTENT_EVENT, [ Content\Builder::class, 'build' ], 10, 6 );
 		add_action( self::ACTION_SEND_OVERFLOW, [ Content\Overflow::class, 'send' ], 10, 2 );
 		add_action( self::ACTION_SEND_MEDIA, [ MediaChanges\Batch::class, 'send' ], 10, 1 );
 		add_action( self::ACTION_SEND_FONTS, [ SiteEditor\Fonts::class, 'send' ], 10, 1 );
@@ -111,47 +113,109 @@ class Controller {
 	 * Action Scheduler records the job as failed with the reason instead of
 	 * the event disappearing silently.
 	 *
+	 * The job names its target (Connect\Target::key()); a job queued before
+	 * targets existed has none and goes to the site's own connection. A
+	 * target that is no longer one of the site's (a subsite no longer
+	 * monitored, or monitored as another child site) gets nothing.
+	 *
 	 * @param  string $type    The event type.
 	 * @param  array  $user    The user data.
 	 * @param  array  $data    The event data.
 	 * @param  int    $attempt Retry number; 0 for the first attempt.
+	 * @param  string $target  The target's key; '' for the own connection.
 	 *
 	 * @return void
 	 * @throws \RuntimeException When the API did not accept the event.
 	 */
-	public static function send_event( string $type, array $user, array $data, int $attempt = 0 ): void {
+	public static function send_event( string $type, array $user, array $data, int $attempt = 0, string $target = '' ): void {
+		$to = Targets::find( $target );
+		if ( null === $to ) {
+			return;
+		}
 		self::deliver(
 			$type,
 			$user,
 			$data,
 			$attempt,
-			static function () use ( $type, $user, $data, $attempt ): void {
-				as_schedule_single_action( time() + self::SEND_RETRY_DELAY, self::ACTION_SEND_EVENT, [ $type, $user, $data, $attempt + 1 ], 'scanfully' );
-			}
+			static function () use ( $type, $user, $data, $attempt, $to ): void {
+				as_schedule_single_action( time() + self::SEND_RETRY_DELAY, self::ACTION_SEND_EVENT, [ $type, $user, $data, $attempt + 1, $to->key() ], 'scanfully' );
+			},
+			$to
 		);
+	}
+
+	/**
+	 * Send an event to the targets of the site that a build job names (all
+	 * of them for null), each on its own: a target the API took is done; a
+	 * temporary failure of another leaves it for one retry job, which
+	 * `$retry` schedules with the keys of the targets left. Every failure
+	 * then throws, after every target was tried.
+	 *
+	 * @param  string        $type    The event type.
+	 * @param  array         $user    The user data.
+	 * @param  array         $data    The event data.
+	 * @param  int           $attempt Retry number; 0 for the first attempt.
+	 * @param  string[]|null $keys    The targets' keys; null for every target of the site.
+	 * @param  callable      $retry   Schedules the next attempt, given the keys left.
+	 *
+	 * @return void
+	 * @throws \RuntimeException When the API did not accept the event for a target.
+	 */
+	public static function deliver_all( string $type, array $user, array $data, int $attempt, ?array $keys, callable $retry ): void {
+		$left   = [];
+		$failed = null;
+		foreach ( Targets::only( $keys ) as $target ) {
+			try {
+				self::deliver(
+					$type,
+					$user,
+					$data,
+					$attempt,
+					static function () use ( &$left, $target ): void {
+						$left[] = $target->key();
+					},
+					$target
+				);
+			} catch ( \RuntimeException $e ) {
+				$failed = $failed ?? $e;
+			}
+		}
+		if ( [] !== $left ) {
+			$retry( $left );
+		}
+		if ( null !== $failed ) {
+			throw $failed;
+		}
 	}
 
 	/**
 	 * Send an event to the API. On a temporary failure with retries left,
 	 * `$retry` schedules the next attempt; every failure then throws.
 	 *
-	 * @param  string   $type    The event type.
-	 * @param  array    $user    The user data.
-	 * @param  array    $data    The event data.
-	 * @param  int      $attempt Retry number; 0 for the first attempt.
-	 * @param  callable $retry   Schedules the next attempt.
+	 * A network child's token is only refreshed on the main site, so a 401
+	 * there waits for the retry, which reads the token again.
+	 *
+	 * @param  string      $type    The event type.
+	 * @param  array       $user    The user data.
+	 * @param  array       $data    The event data.
+	 * @param  int         $attempt Retry number; 0 for the first attempt.
+	 * @param  callable    $retry   Schedules the next attempt.
+	 * @param  Target|null $target  Where to send it; null for the connection that applies here.
 	 *
 	 * @return void
 	 * @throws \RuntimeException When the API did not accept the event.
 	 */
-	public static function deliver( string $type, array $user, array $data, int $attempt, callable $retry ): void {
-		$options = Options\Controller::get_options();
-		if ( ! $options->is_connected ) {
+	public static function deliver( string $type, array $user, array $data, int $attempt, callable $retry, ?Target $target = null ): void {
+		if ( null === $target && ! Options\Controller::get_options()->is_connected ) {
 			return;
 		}
 
-		$request = new EventRequest();
-		$status  = $request->send(
+		$request = ( new EventRequest() )->to( $target );
+		if ( $attempt > 0 && null !== $target && $target->is_child() ) {
+			// The main site may have refreshed the network's token meanwhile.
+			$request->with_fresh_token();
+		}
+		$status = $request->send(
 			[
 				'type' => $type,
 				'user' => $user,

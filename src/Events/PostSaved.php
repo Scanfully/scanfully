@@ -75,18 +75,27 @@ class PostSaved extends Event {
 	 * @return void
 	 */
 	protected function schedule( string $type, array $user, array $data ): void {
+		// The targets of the site now: the job sends to these, not to one
+		// the site gains before it runs.
+		$keys = self::target_keys();
+		if ( [] === $keys ) {
+			return;
+		}
+		$room  = strlen( (string) wp_json_encode( $keys ) ) + 30;
 		$stash = '';
-		if ( isset( $data['changes'] ) && ( isset( $data['changes']['content']['stash'] ) || self::args_length( $type, $user, $data ) > self::MAX_ARGS_LENGTH ) ) {
+		if ( isset( $data['changes'] ) && ( isset( $data['changes']['content']['stash'] ) || self::args_length( $type, $user, $data ) + $room > self::MAX_ARGS_LENGTH ) ) {
 			$stash           = Stash::put( [ 'changes' => $data['changes'] ] );
 			$data['changes'] = '' !== $stash ? [ 'stashed' => true ] : self::without_stashed_content( $data['changes'] );
 		}
 
 		$args = self::fit_args(
 			[
-				'type'  => $type,
-				'user'  => $user,
-				'data'  => $data,
-				'stash' => $stash,
+				'type'    => $type,
+				'user'    => $user,
+				'data'    => $data,
+				'stash'   => $stash,
+				'attempt' => 0,
+				'targets' => $keys,
 			]
 		);
 

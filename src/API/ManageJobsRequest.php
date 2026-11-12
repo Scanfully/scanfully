@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * The plugin's side of Scanfully Manage's command channel, with the site
@@ -69,7 +68,7 @@ class ManageJobsRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/manage/jobs%s',
-			rawurlencode( OptionsController::get_option( 'site_id' ) ),
+			rawurlencode( $this->site_id() ),
 			$endpoint
 		);
 	}

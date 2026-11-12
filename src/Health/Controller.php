@@ -516,6 +516,8 @@ class Controller {
 			'translations' => Inventory::translations(),
 			// What the site can do for Scanfully, read before it queues a job.
 			'capabilities' => Capabilities::get(),
+			// Whether PHP errors are caught, and from before plugins load.
+			'php_errors' => \Scanfully\Errors\Controller::status(),
 		];
 		$data = self::with_subsites( $data );
 		$data = self::without_copied_capabilities( $data );

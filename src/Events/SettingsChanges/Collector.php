@@ -9,7 +9,7 @@ namespace Scanfully\Events\SettingsChanges;
 
 use Scanfully\Events\Content\Limiter;
 use Scanfully\Events\ContentEvent;
-use Scanfully\Options;
+use Scanfully\Connect\Targets;
 
 /**
  * Class Collector
@@ -336,7 +336,7 @@ final class Collector {
 	 * @return void
 	 */
 	private static function report( array $rows ): void {
-		if ( [] === $rows || ! Options\Controller::get_options()->is_connected ) {
+		if ( [] === $rows || ! Targets::reachable() ) {
 			return;
 		}
 

@@ -8,7 +8,6 @@
 namespace Scanfully\API;
 
 use Scanfully\Main;
-use Scanfully\Options\Controller as OptionsController;
 
 /**
  * Sends WooCommerce checkout configuration to the Scanfully API so the
@@ -37,7 +36,7 @@ class WooCheckoutConfigRequest extends Request {
 	public function get_url( string $endpoint ): string {
 		return sprintf(
 			Main::get_api_url() . '/sites/%s/woocheckout/config',
-			rawurlencode( OptionsController::get_option( 'site_id' ) )
+			rawurlencode( $this->site_id() )
 		);
 	}
 
