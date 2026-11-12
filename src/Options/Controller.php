@@ -86,6 +86,10 @@ class Controller {
 			wp_cache_delete( $network . ':notoptions', 'site-options' );
 			wp_cache_delete( $network . ':' . self::$db_prefix . 'is_connected', 'site-options' );
 			wp_cache_delete( $network . ':active_sitewide_plugins', 'site-options' );
+			// A subsite's jobs read the network's token and children: the main
+			// site may have replaced them since the runner started.
+			wp_cache_delete( $network . ':' . self::$db_prefix . 'access_token', 'site-options' );
+			wp_cache_delete( $network . ':' . \Scanfully\Connect\Children::MAPPING_OPTION, 'site-options' );
 			\Scanfully\Connect\Network::forget();
 		}
 		self::detect_scope();

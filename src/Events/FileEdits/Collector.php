@@ -108,6 +108,11 @@ final class Collector {
 	 * @return void
 	 */
 	public static function note( $args ): void {
+		// Another site of a network: reported at the end of the request, on
+		// the site it is for.
+		if ( ( function_exists( 'ms_is_switched' ) && ms_is_switched() ) ) {
+			return;
+		}
 		$target = self::target( is_array( $args ) ? $args : [] );
 		if ( null === $target ) {
 			return;

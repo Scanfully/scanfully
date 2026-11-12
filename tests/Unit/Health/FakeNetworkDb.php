@@ -312,14 +312,18 @@ final class FakeNetworkDb {
 			$this->writes[] = [ 'set', $id, stripslashes( $match[2] ) ];
 			return 1;
 		}
-		if ( 1 === preg_match( "/^DELETE FROM `(\w+)` WHERE option_name = '([^']*)'$/", $sql, $match ) ) {
+		if ( 1 === preg_match( "/^DELETE FROM `(\w+)` WHERE option_name IN \(((?:'[^']*'(?:, )?)+)\)$/", $sql, $match ) ) {
 			$id = $this->blog_of_table( $match[1] );
-			if ( null === $id || ! isset( $this->options[ $id ][ $match[2] ] ) ) {
-				return 0;
+			preg_match_all( "/'([^']*)'/", $match[2], $quoted );
+			$deleted = 0;
+			foreach ( $quoted[1] as $name ) {
+				if ( null !== $id && isset( $this->options[ $id ][ $name ] ) ) {
+					unset( $this->options[ $id ][ $name ] );
+					$this->writes[] = [ 'delete', $id, $name ];
+					++$deleted;
+				}
 			}
-			unset( $this->options[ $id ][ $match[2] ] );
-			$this->writes[] = [ 'delete', $id, $match[2] ];
-			return 1;
+			return $deleted;
 		}
 		$this->last_error = 'Unexpected query: ' . $sql;
 

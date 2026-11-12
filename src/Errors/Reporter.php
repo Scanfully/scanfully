@@ -82,12 +82,14 @@ final class Reporter {
 	 * @return void
 	 */
 	public static function send(): void {
-		$targets = Targets::now();
-		if ( [] === $targets ) {
-			return;
-		}
+		// Capture off, or no target left at all (a subsite no longer
+		// monitored): what is stored goes.
 		if ( ! Monitor::should_run() ) {
 			Store::delete_all();
+			return;
+		}
+		$targets = array_values( array_filter( Targets::now(), [ Monitor::class, 'sends_to' ] ) );
+		if ( [] === $targets ) {
 			return;
 		}
 
@@ -161,10 +163,13 @@ final class Reporter {
 			Store::take( $take );
 		}
 		// Hours that are over lose their counters here, so only once every
-		// target has taken what it could.
+		// target has taken what it could; until then the overflow stays
+		// counted, and so do the targets' markers of it.
 		if ( $all_done ) {
 			Store::take_hours( $take_hours, $current );
 			Store::delete_old_locks( Monitor::DIRECT_PERIOD, $now );
+		} else {
+			$take_hours = [];
 		}
 		foreach ( $got as [ $target, $sent, $existed ] ) {
 			foreach ( $take as $key => $count ) {

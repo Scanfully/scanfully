@@ -166,7 +166,45 @@ final class TargetFanOutTest extends TestCase {
 		self::event()->listener_callback( 'shop/shop.php', false );
 
 		restore_current_blog();
-		$this->assertSame( [ 'own', 'network:child-2' ], array_column( array_column( $this->as_calls_of( Controller::ACTION_SEND_EVENT ), 3 ), 'target' ) );
+		$jobs = $this->as_calls_of( Controller::ACTION_SEND_EVENT );
+		$this->assertSame( [ 'own', 'network:child-2' ], array_column( array_column( $jobs, 3 ), 'target' ) );
+		$this->assertSame( [ 2, 2 ], array_column( $jobs, 1 ) );
+
+		// The jobs run in blog 2's queue: its own site and its child, never the network's site.
+		$this->on_blog( 2 );
+		foreach ( array_column( $jobs, 3 ) as $args ) {
+			Controller::send_event( ...array_values( $args ) );
+		}
+		$this->assertSame(
+			[ 'https://api.scanfully.com/v1/sites/own-2/timeline', 'https://api.scanfully.com/v1/sites/child-2/timeline' ],
+			array_column( $this->sent, 'url' )
+		);
+	}
+
+	public function test_the_main_sites_events_go_to_the_networks_site_only(): void {
+		$this->on_blog( 1 );
+
+		self::event()->listener_callback( 'shop/shop.php', true );
+		foreach ( array_column( $this->as_calls_of( Controller::ACTION_SEND_EVENT ), 3 ) as $args ) {
+			Controller::send_event( ...array_values( $args ) );
+		}
+
+		$this->assertSame( [ 'https://api.scanfully.com/v1/sites/net-site/timeline' ], array_column( $this->sent, 'url' ) );
+		$this->assertTrue( $this->request( 0 )['body']['data']['network_wide'] );
+	}
+
+	public function test_a_build_job_sends_to_the_targets_the_site_had_when_it_was_queued(): void {
+		\Scanfully\Events\ContentEvent::queue( 'Test', [ 'id' => 5 ], [ 'value' => 'x' ] );
+
+		$jobs = $this->as_calls_of( Controller::ACTION_BUILD_CONTENT_EVENT );
+		$this->assertCount( 1, $jobs );
+		$this->assertSame( [ 'own', 'network:child-2' ], $jobs[0][3]['targets'] );
+		$this->assertSame( 0, $jobs[0][3]['attempt'] );
+
+		// Without a target, nothing is queued.
+		$this->on_blog( 3 );
+		\Scanfully\Events\ContentEvent::queue( 'Test', [ 'id' => 5 ], [ 'value' => 'x' ] );
+		$this->assertCount( 1, $this->as_calls_of( Controller::ACTION_BUILD_CONTENT_EVENT ) );
 	}
 
 	public function test_the_child_gets_the_event_with_the_networks_token_and_the_blog_id(): void {

@@ -92,7 +92,8 @@ final class Controller {
 	 * @return array{enabled: bool, coverage: string, mu_plugin: bool}
 	 */
 	public static function status(): array {
-		$enabled = Monitor::should_run();
+		// For the connection the site data goes to: the site's own.
+		$enabled = Monitor::should_run() && Monitor::sends_to( \Scanfully\Connect\Target::own( '' ) );
 
 		return [
 			'enabled'   => $enabled,
@@ -116,6 +117,10 @@ final class Controller {
 		update_option( Monitor::ENABLED_OPTION, $enable ? 'yes' : 'no', true );
 		if ( $enable ) {
 			MuPlugin::install();
+		} elseif ( null !== \Scanfully\Connect\Children::marker_here() ) {
+			// The network that monitors this subsite keeps its errors coming:
+			// only what the own connection got goes.
+			Store::forget_target( \Scanfully\Connect\Target::own( '' ) );
 		} else {
 			Store::delete_all();
 			if ( ! is_multisite() ) {
@@ -137,11 +142,14 @@ final class Controller {
 			return;
 		}
 		$switched_on = self::is_switched_on();
-		$runs        = Monitor::should_run();
+		$runs        = Monitor::should_run() && Monitor::sends_to( \Scanfully\Connect\Target::own( '' ) );
 		?>
 		<hr />
 		<h2><?php esc_html_e( 'PHP error monitoring', 'scanfully' ); ?></h2>
 		<p><?php esc_html_e( 'Sends PHP fatal errors and warnings to Scanfully, so you see when a plugin, theme or update breaks part of the site.', 'scanfully' ); ?></p>
+		<?php if ( null !== \Scanfully\Connect\Children::marker_here() ) : ?>
+			<p><em><?php esc_html_e( 'The network this site belongs to also monitors it in Scanfully and keeps receiving its PHP errors. This switch only changes what goes to this site\'s own connection.', 'scanfully' ); ?></em></p>
+		<?php endif; ?>
 		<?php if ( $switched_on && ! $runs ) : ?>
 			<p><em><?php esc_html_e( 'PHP error monitoring is turned off by code on this site (the scanfully_php_errors_enabled filter).', 'scanfully' ); ?></em></p>
 		<?php else : ?>

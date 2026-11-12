@@ -211,14 +211,90 @@ final class ReporterTargetsTest extends TestCase {
 		$this->assertArrayNotHasKey( 'scanfully_php_errors_sent', $this->db->options[1] );
 	}
 
-	public function test_without_a_target_nothing_is_sent_or_dropped(): void {
+	public function test_a_subsite_no_longer_monitored_sends_nothing_and_its_stored_errors_go(): void {
 		$this->on_blog( 3 );
 		$key = $this->store_error( str_repeat( 'd', 40 ), 1 );
 
 		Reporter::send();
 
 		$this->assertSame( [], $this->sent );
-		$this->assertArrayHasKey( Store::PREFIX . $key . '_n', $this->store->rows );
+		$this->assertArrayNotHasKey( Store::PREFIX . $key . '_n', $this->store->rows );
+	}
+
+	public function test_overflow_is_not_sent_twice_when_the_targets_take_it_in_different_runs(): void {
+		$this->monitor( [ 2 => 'child-2' ] );
+		$this->connect_own( 2, 'own-2' );
+		$this->on_blog( 2 );
+		$name = Store::PREFIX . 'o_' . Store::hour( time() - HOUR_IN_SECONDS ) . '_n';
+
+		// Run 1: the own connection takes 4, the child is down.
+		$this->store->rows[ $name ] = '4';
+		$this->answers['child-2']   = 503;
+		Reporter::send();
+
+		// Run 2: 2 more; the child takes all 6, the own connection is down.
+		$this->store->rows[ $name ] = '6';
+		$this->answers['child-2']   = 202;
+		$this->answers['own-2']     = 503;
+		Reporter::send();
+
+		// Run 3: both answer; each gets only what it never got.
+		$this->sent             = [];
+		$this->answers['own-2'] = 202;
+		Reporter::send();
+
+		$this->assertSame( [ 'own-2' ], array_column( $this->sent, 'site' ) );
+		$this->assertSame( [ 2 ], array_column( array_column( $this->sent, 'body' ), 'overflow' ) );
+		$this->assertArrayNotHasKey( $name, $this->store->rows );
+		$this->assertArrayNotHasKey( 'scanfully_php_errors_sent', $this->db->options[2] );
+		$this->assertArrayNotHasKey( 'scanfully_php_errors_sent_network', $this->db->options[2] );
+	}
+
+	public function test_the_subsites_own_switch_only_stops_what_goes_to_its_own_connection(): void {
+		$this->monitor( [ 2 => 'child-2' ] );
+		$this->connect_own( 2, 'own-2' );
+		$this->db->options[2][ Monitor::ENABLED_OPTION ] = 'no';
+		$this->on_blog( 2 );
+		$this->store_error( str_repeat( 'e', 40 ), 2 );
+
+		$this->assertTrue( Monitor::should_run() );
+		Reporter::send();
+
+		$this->assertSame( [ 'child-2' => [ 2 ] ], $this->counts_sent() );
+
+		// Without the network, the switch turns capture off.
+		unset( $this->db->options[2]['scanfully_network_child'] );
+		$this->assertFalse( Monitor::should_run() );
+	}
+
+	public function test_a_fatal_error_sent_directly_to_one_of_two_targets_is_kept_for_the_other(): void {
+		$this->monitor( [ 2 => 'child-2' ] );
+		$this->connect_own( 2, 'own-2' );
+		$this->on_blog( 2 );
+		$this->answers['child-2'] = 503;
+		$fingerprint              = str_repeat( 'f', 40 );
+		$error                    = [
+			'fingerprint' => $fingerprint,
+			'level'       => 'fatal',
+			'source'      => [ 'version' => '1.0' ],
+			'count'       => 2,
+			'first_seen'  => time() - 5,
+			'last_seen'   => time(),
+		];
+		$direct                   = new \ReflectionMethod( Monitor::class, 'send_directly' );
+		$direct->setAccessible( true );
+		$key = Store::key( $error );
+
+		$this->assertFalse( $direct->invoke( null, $key, $error, time() ) );
+		$this->assertSame( [ 'own-2', 'child-2' ], array_column( $this->sent, 'site' ) );
+		$this->assertSame( [ $key => 2 ], maybe_unserialize( $this->db->options[2]['scanfully_php_errors_sent'] ) );
+		$this->assertArrayNotHasKey( 'scanfully_php_errors_sent_network', $this->db->options[2] );
+
+		// Both take the next one (after the lock's period).
+		$this->sent               = [];
+		$this->answers['child-2'] = 202;
+		$this->assertTrue( $direct->invoke( null, $key, $error, time() + Monitor::DIRECT_PERIOD + 1 ) );
+		$this->assertCount( 2, $this->sent );
 	}
 
 	public function test_an_error_is_known_only_once_every_target_knows_it(): void {

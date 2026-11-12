@@ -132,6 +132,24 @@ final class TargetsTest extends TestCase {
 		$this->assertSame( [], Targets::here() );
 	}
 
+	public function test_a_home_option_changed_by_a_filter_keeps_the_child(): void {
+		$this->monitor( [ 2 => 'child-2' ] );
+		$this->on_blog( 2 );
+		// Domain mapping answers another home through pre_option_home.
+		\Brain\Monkey\Functions\when( 'get_option' )->alias(
+			function ( string $name, $fallback = false ) {
+				if ( 'home' === $name ) {
+					return 'https://shop.example.com';
+				}
+				$raw = $this->db->options[ $this->blog ][ $name ] ?? null;
+
+				return null === $raw ? $fallback : maybe_unserialize( $raw );
+			}
+		);
+
+		$this->assertSame( [ 'network:child-2' ], self::keys( Targets::now() ) );
+	}
+
 	public function test_the_main_site_never_takes_a_marker(): void {
 		$this->mark( 1, 'child-1' );
 		$this->site_options['scanfully_connect_children'] = [ 1 => 'child-1' ];

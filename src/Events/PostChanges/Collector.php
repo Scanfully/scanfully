@@ -198,12 +198,15 @@ final class Collector {
 	}
 
 	/**
-	 * Whether an import runs; imports save many posts and aren't edits.
+	 * Whether an import runs (imports save many posts and aren't edits), or
+	 * the request works on another site of a multisite network: what it
+	 * notes is reported at the end of the request, on the site the request
+	 * is for, so it would land on the wrong site.
 	 *
 	 * @return bool
 	 */
 	private static function importing(): bool {
-		return defined( 'WP_IMPORTING' ) && WP_IMPORTING;
+		return ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) || ( function_exists( 'ms_is_switched' ) && ms_is_switched() );
 	}
 
 	/**

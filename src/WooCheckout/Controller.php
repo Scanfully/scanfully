@@ -264,8 +264,10 @@ class Controller {
 
 		$ok = false;
 		if ( self::is_fresh_scan_id( $scan_id ) ) {
-			foreach ( self::probe_secrets() as $secret ) {
-				if ( hash_equals( hash_hmac( 'sha256', $scan_id, $secret ), $signature ) ) {
+			// The own secret first: the child's needs the network's state checked.
+			foreach ( [ false, true ] as $child ) {
+				$secret = self::probe_secret( $child );
+				if ( '' !== $secret && hash_equals( hash_hmac( 'sha256', $scan_id, $secret ), $signature ) ) {
 					self::$verified_secret = $secret;
 					$ok                    = true;
 					break;
@@ -280,26 +282,33 @@ class Controller {
 	/**
 	 * The probe secrets a probe header may be signed with, one per target
 	 * of the site (Connect\Target::option()): the own connection's, and on a
-	 * subsite that a network monitors, its child site's, only while its
-	 * marker holds (so the secret stops working when the subsite is no
-	 * longer monitored, as the own one does on a disconnect).
+	 * subsite that a network monitors, its child site's, only while the
+	 * network monitors it (so the secret stops working when the subsite is
+	 * no longer monitored, as the own one does on a disconnect; the main
+	 * site removes it with the subsite's marker).
 	 *
 	 * @return string[]
 	 */
 	public static function probe_secrets(): array {
-		$secrets = [];
-		$own     = (string) get_option( self::OPTION_PROBE_SECRET, '' );
-		if ( '' !== $own ) {
-			$secrets[] = $own;
-		}
-		if ( null !== \Scanfully\Connect\Children::marker_here() ) {
-			$child = (string) get_option( \Scanfully\Connect\Target::child( '', 0 )->option( self::OPTION_PROBE_SECRET ), '' );
-			if ( '' !== $child ) {
-				$secrets[] = $child;
-			}
-		}
+		return array_values( array_filter( [ self::probe_secret( false ), self::probe_secret( true ) ] ) );
+	}
 
-		return $secrets;
+	/**
+	 * The own connection's probe secret, or the child site's while the
+	 * network still monitors this subsite (Children::current(): the network
+	 * connected, the mapping names this blog, not a copy); '' without one.
+	 *
+	 * @param bool $child Whether to read the child's.
+	 *
+	 * @return string
+	 */
+	private static function probe_secret( bool $child ): string {
+		if ( ! $child ) {
+			return (string) get_option( self::OPTION_PROBE_SECRET, '' );
+		}
+		$target = \Scanfully\Connect\Children::current();
+
+		return null === $target ? '' : (string) get_option( $target->option( self::OPTION_PROBE_SECRET ), '' );
 	}
 
 	/**

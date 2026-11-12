@@ -180,13 +180,17 @@ final class Children {
 	/**
 	 * The monitored subsites of a network: blog id to child site id.
 	 *
-	 * @param int $network The network's id; 0 for this request's.
+	 * @param int  $network The network's id; 0 for this request's.
+	 * @param bool $fresh   Whether to read it from the database.
 	 *
 	 * @return array<int, string>
 	 */
-	public static function mapping( int $network = 0 ): array {
+	public static function mapping( int $network = 0, bool $fresh = false ): array {
 		if ( ! Network::multisite() ) {
 			return [];
+		}
+		if ( $fresh ) {
+			self::forget_cached_option( self::MAPPING_OPTION );
 		}
 		$raw = get_network_option( $network > 0 ? $network : (int) get_current_network_id(), self::MAPPING_OPTION, [] );
 		if ( ! is_array( $raw ) ) {
@@ -206,7 +210,7 @@ final class Children {
 	 * The marker of this site, on a subsite (never the main site), read from
 	 * the autoloaded options, so it costs no query; null without one, or
 	 * when it is not this site's: another blog id, or (with `$check_home`)
-	 * another address.
+	 * another address (the stored home option, never a filtered one).
 	 *
 	 * @param bool $check_home Whether the address must match.
 	 *
@@ -224,7 +228,9 @@ final class Children {
 		if ( null === $marker || (int) get_current_blog_id() !== $marker['blog_id'] ) {
 			return null;
 		}
-		if ( $check_home && ! hash_equals( $marker['home'], Address::hash( Address::current() ) ) ) {
+		// The home option as stored, as the main site hashed it: a filter on
+		// the option (domain mapping on pre_option_home) changes nothing here.
+		if ( $check_home && ! hash_equals( $marker['home'], Address::hash( Address::normalize( is_string( $all['home'] ?? null ) ? $all['home'] : '' ) ) ) ) {
 			return null;
 		}
 
@@ -313,54 +319,105 @@ final class Children {
 		if ( [] === $blogs ) {
 			return;
 		}
-		$pending = array_values( array_unique( array_merge( self::pending(), array_map( 'intval', $blogs ) ) ) );
+		$pending = array_values( array_unique( array_merge( self::pending( true ), array_map( 'intval', $blogs ) ) ) );
 		update_site_option( self::PENDING_OPTION, $pending );
-		if ( function_exists( 'as_enqueue_async_action' ) && did_action( 'action_scheduler_init' ) && is_main_site() ) {
-			as_enqueue_async_action( self::ACTION_SYNC_MARKERS, [], 'scanfully', true );
+		if ( is_main_site() ) {
+			self::schedule_sync();
 		}
+	}
+
+	/**
+	 * Schedule a marker sync on the main site, unless one is waiting to
+	 * start. Never as a unique job: Action Scheduler refuses one while the
+	 * same job runs, and a sync that is running may already have read the
+	 * list (it keeps what was added meanwhile, see sync_markers()).
+	 *
+	 * @return void
+	 */
+	private static function schedule_sync(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! did_action( 'action_scheduler_init' ) ) {
+			return;
+		}
+		// A timestamp: one is waiting; true: one runs; false: none.
+		if ( function_exists( 'as_next_scheduled_action' ) && is_int( as_next_scheduled_action( self::ACTION_SYNC_MARKERS, [], 'scanfully' ) ) ) {
+			return;
+		}
+		as_schedule_single_action( time(), self::ACTION_SYNC_MARKERS, [], 'scanfully' );
 	}
 
 	/**
 	 * The blog ids whose marker is to be written or removed.
 	 *
+	 * @param bool $fresh Whether to read it from the database (another process may have added to it).
+	 *
 	 * @return int[]
 	 */
-	public static function pending(): array {
+	public static function pending( bool $fresh = false ): array {
+		if ( $fresh ) {
+			self::forget_cached_option( self::PENDING_OPTION );
+		}
 		$raw = get_site_option( self::PENDING_OPTION, [] );
 
 		return is_array( $raw ) ? array_values( array_filter( array_map( 'intval', $raw ), static fn( int $blog ): bool => $blog > 0 ) ) : [];
 	}
 
 	/**
-	 * Write and remove the markers that are pending, on the main site, a
-	 * hundred subsites at a time, for at most a few seconds; the rest goes
-	 * on in a new job.
+	 * Drop a network option of this request's network from the options
+	 * cache.
+	 *
+	 * @param string $name The option's name.
 	 *
 	 * @return void
 	 */
-	public static function sync_markers(): void {
+	private static function forget_cached_option( string $name ): void {
+		$network = (int) get_current_network_id();
+		wp_cache_delete( $network . ':notoptions', 'site-options' );
+		wp_cache_delete( $network . ':' . $name, 'site-options' );
+	}
+
+	/**
+	 * Write and remove the markers that are pending, on the main site, a
+	 * hundred subsites at a time, for at most a few seconds; the rest goes
+	 * on in a new job. Only what this run did leaves the list: blogs another
+	 * process added meanwhile stay, and so do blogs whose child changed
+	 * again while this run wrote their marker.
+	 *
+	 * @param float $budget Seconds to run before the rest goes on in a new job.
+	 *
+	 * @return void
+	 */
+	public static function sync_markers( float $budget = self::BUDGET ): void {
 		if ( ! Network::multisite() || ! is_main_site() ) {
 			return;
 		}
-		$pending = self::pending();
-		$mapping = self::mapping();
-		$started = microtime( true );
-		while ( [] !== $pending ) {
-			$chunk = array_slice( $pending, 0, self::CHUNK );
-			self::write_markers( $chunk, $mapping );
-			$pending = array_slice( $pending, self::CHUNK );
-			if ( [] === $pending ) {
+		$pending   = self::pending( true );
+		$mapping   = self::mapping( 0, true );
+		$started   = microtime( true );
+		$processed = [];
+		foreach ( array_chunk( $pending, self::CHUNK ) as $chunk ) {
+			if ( [] !== $processed && microtime( true ) - $started > $budget ) {
 				break;
 			}
-			update_site_option( self::PENDING_OPTION, $pending );
-			if ( microtime( true ) - $started > self::BUDGET ) {
-				if ( function_exists( 'as_enqueue_async_action' ) ) {
-					as_enqueue_async_action( self::ACTION_SYNC_MARKERS, [], 'scanfully', true );
-				}
-				return;
-			}
+			self::write_markers( $chunk, $mapping );
+			array_push( $processed, ...$chunk );
 		}
-		delete_site_option( self::PENDING_OPTION );
+
+		$now  = self::mapping( 0, true );
+		$redo = array_filter(
+			$processed,
+			static function ( int $blog ) use ( $mapping, $now ): bool {
+				return ( $mapping[ $blog ] ?? '' ) !== ( $now[ $blog ] ?? '' );
+			}
+		);
+		$left = array_values( array_unique( array_merge( array_diff( self::pending( true ), $processed ), $redo ) ) );
+		if ( [] === $left ) {
+			delete_site_option( self::PENDING_OPTION );
+			return;
+		}
+		update_site_option( self::PENDING_OPTION, $left );
+		if ( function_exists( 'as_schedule_single_action' ) ) {
+			as_schedule_single_action( time(), self::ACTION_SYNC_MARKERS, [], 'scanfully' );
+		}
 	}
 
 	/**
@@ -376,7 +433,8 @@ final class Children {
 		$main    = (int) get_main_site_id();
 		$blogs   = array_values( array_filter( $blogs, static fn( int $blog ): bool => $blog !== $main ) );
 		$ours    = self::in_network( $blogs );
-		$options = Subsites::read( $blogs, [ 'home', self::MARKER_OPTION ] );
+		$state   = self::child_state_options();
+		$options = Subsites::read( $blogs, array_merge( [ 'home' ], $state ) );
 		foreach ( $blogs as $blog ) {
 			if ( ! isset( $options[ $blog ] ) ) {
 				// No options table: the subsite is gone.
@@ -384,7 +442,7 @@ final class Children {
 			}
 			if ( isset( $mapping[ $blog ], $ours[ $blog ] ) ) {
 				self::keep_marker( $blog, $mapping[ $blog ], $options[ $blog ] );
-			} elseif ( isset( $options[ $blog ][ self::MARKER_OPTION ] ) ) {
+			} elseif ( [] !== array_intersect_key( $options[ $blog ], array_flip( $state ) ) ) {
 				self::remove_marker( $blog );
 			}
 		}
@@ -455,7 +513,10 @@ final class Children {
 	}
 
 	/**
-	 * Remove a subsite's marker from its own options table.
+	 * Remove a subsite's marker from its own options table, with what the
+	 * subsite kept for its child (see Target::option()): the checkout probe
+	 * secret, the last failed request and the PHP errors it sent, so none of
+	 * it outlives the child.
 	 *
 	 * @param int $blog The blog id.
 	 *
@@ -464,12 +525,30 @@ final class Children {
 	public static function remove_marker( int $blog ): void {
 		global $wpdb;
 
+		$names      = self::child_state_options();
 		$table      = $wpdb->get_blog_prefix( $blog ) . 'options';
 		$suppressed = $wpdb->suppress_errors( true );
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- A write to another site's options without switching to it; the table name comes from WordPress's prefix and an integer.
-		$wpdb->query( $wpdb->prepare( "DELETE FROM `{$table}` WHERE option_name = %s", self::MARKER_OPTION ) );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- A write to another site's options without switching to it; the table name comes from WordPress's prefix and an integer, the placeholders from the count of names.
+		$wpdb->query( $wpdb->prepare( "DELETE FROM `{$table}` WHERE option_name IN (" . implode( ', ', array_fill( 0, count( $names ), '%s' ) ) . ')', ...$names ) );
 		$wpdb->suppress_errors( $suppressed );
-		self::forget_cached_options( $blog );
+		self::forget_cached_options( $blog, $names );
+	}
+
+	/**
+	 * The marker and the options a subsite keeps for its child.
+	 *
+	 * @return string[]
+	 */
+	public static function child_state_options(): array {
+		$child = Target::child( '', 0 );
+
+		return [
+			self::MARKER_OPTION,
+			$child->option( \Scanfully\WooCheckout\Controller::OPTION_PROBE_SECRET ),
+			$child->option( \Scanfully\API\Request::OPTION_LAST_ERROR ),
+			$child->option( \Scanfully\Errors\Store::KNOWN_OPTION ),
+			$child->option( \Scanfully\Errors\Store::SENT_OPTION ),
+		];
 	}
 
 	/**
@@ -477,19 +556,23 @@ final class Children {
 	 * reads the marker as it is now. Only a persistent object cache keeps
 	 * another site's options past this request.
 	 *
-	 * @param int $blog The blog id.
+	 * @param int      $blog  The blog id.
+	 * @param string[] $names The options written, besides the marker.
 	 *
 	 * @return void
 	 */
-	private static function forget_cached_options( int $blog ): void {
+	private static function forget_cached_options( int $blog, array $names = [] ): void {
 		$current = (int) get_current_blog_id();
 		if ( $blog !== $current && ! wp_using_ext_object_cache() ) {
 			return;
 		}
-		$forget = static function (): void {
+		$names  = array_unique( array_merge( [ self::MARKER_OPTION ], $names ) );
+		$forget = static function () use ( $names ): void {
 			wp_cache_delete( 'alloptions', 'options' );
 			wp_cache_delete( 'notoptions', 'options' );
-			wp_cache_delete( self::MARKER_OPTION, 'options' );
+			foreach ( $names as $name ) {
+				wp_cache_delete( $name, 'options' );
+			}
 		};
 		if ( $blog === $current ) {
 			$forget();

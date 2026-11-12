@@ -64,6 +64,14 @@ trait NetworkFixture {
 	protected array $as_calls = [];
 
 	/**
+	 * What as_next_scheduled_action() answers: a time (one waits), true (one
+	 * runs) or false (none).
+	 *
+	 * @var int|bool
+	 */
+	protected $next_scheduled = false;
+
+	/**
 	 * The database.
 	 *
 	 * @var FakeNetworkDb
@@ -156,17 +164,20 @@ trait NetworkFixture {
 				return true;
 			}
 		);
+		// As WordPress does, with the plugin's switch_blog hook (Main::setup()).
 		Functions\when( 'switch_to_blog' )->alias(
 			function ( int $id ): bool {
 				$this->switched[] = $this->blog;
 				$this->switches[] = $id;
 				$this->blog       = $id;
+				OptionsController::detect_scope();
 				return true;
 			}
 		);
 		Functions\when( 'restore_current_blog' )->alias(
 			function (): bool {
 				$this->blog = (int) array_pop( $this->switched );
+				OptionsController::detect_scope();
 				return true;
 			}
 		);
@@ -186,6 +197,7 @@ trait NetworkFixture {
 			);
 		}
 		Functions\when( 'as_has_scheduled_action' )->justReturn( false );
+		Functions\when( 'as_next_scheduled_action' )->alias( fn() => $this->next_scheduled );
 
 		Network::forget();
 		OptionsController::end_forced_scope();

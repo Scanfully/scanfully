@@ -10,6 +10,7 @@ namespace Scanfully\Errors;
 use Scanfully\API\ErrorsRequest;
 use Scanfully\Connect\Children;
 use Scanfully\Connect\Network;
+use Scanfully\Connect\Target;
 use Scanfully\Connect\Targets;
 use Scanfully\Options\Controller as OptionsController;
 
@@ -167,13 +168,6 @@ final class Monitor {
 		if ( ! function_exists( 'get_option' ) || ! self::has_target() ) {
 			return false;
 		}
-		// Read from the autoloaded options: a site that never touched the
-		// setting has no row, and get_option() would look for it on every
-		// request.
-		$options = function_exists( 'wp_load_alloptions' ) ? wp_load_alloptions() : [];
-		if ( 'no' === ( $options[ self::ENABLED_OPTION ] ?? '' ) ) {
-			return false;
-		}
 		/**
 		 * Filters whether PHP errors are caught and sent to Scanfully. The
 		 * must-use plugin reads it before regular plugins load, so add the
@@ -210,17 +204,46 @@ final class Monitor {
 	 * @return bool
 	 */
 	private static function has_target(): bool {
-		if ( 'yes' === get_option( 'scanfully_connect_is_connected' ) ) {
+		$off = self::switched_off();
+		if ( ! $off && 'yes' === get_option( 'scanfully_connect_is_connected' ) ) {
 			return true;
 		}
 		if ( ! function_exists( 'is_multisite' ) || ! is_multisite() ) {
 			return false;
 		}
 		if ( is_main_site() ) {
-			return 'yes' === get_site_option( Network::CONNECTED_OPTION );
+			return ! $off && 'yes' === get_site_option( Network::CONNECTED_OPTION );
 		}
 
+		// The switch on a subsite's own settings page is about its own
+		// connection: the network that monitors it keeps catching its errors.
 		return null !== Children::marker_here();
+	}
+
+	/**
+	 * Whether the site's own switch (Settings > Scanfully) turned PHP error
+	 * monitoring off for its own connection. Read from the autoloaded
+	 * options: a site that never touched the setting has no row, and
+	 * get_option() would look for it on every request.
+	 *
+	 * @return bool
+	 */
+	private static function switched_off(): bool {
+		$options = function_exists( 'wp_load_alloptions' ) ? wp_load_alloptions() : [];
+
+		return 'no' === ( $options[ self::ENABLED_OPTION ] ?? '' );
+	}
+
+	/**
+	 * Whether a target gets this site's PHP errors: a network's child always
+	 * (while capture runs), the own connection unless its switch is off.
+	 *
+	 * @param Target $target The target.
+	 *
+	 * @return bool
+	 */
+	public static function sends_to( Target $target ): bool {
+		return $target->is_child() || ! self::switched_off();
 	}
 
 	/**
@@ -406,7 +429,7 @@ final class Monitor {
 		$now     = time();
 		$hour    = Store::hour( $now );
 		$errors  = $built;
-		$known   = Store::known_by_all( Targets::here() );
+		$known   = Store::known_by_all( array_filter( Targets::here(), [ self::class, 'sends_to' ] ) );
 		$unknown = array_diff_key( $errors, array_filter( $known, static fn( int $sent ): bool => $sent > $now - Store::KNOWN_FOR ) );
 
 		// A new distinct error counts against the hour's cap; one already
@@ -491,7 +514,7 @@ final class Monitor {
 		if ( ! Store::lock( (string) $error['fingerprint'], self::DIRECT_PERIOD, $now ) ) {
 			return false;
 		}
-		$targets = Targets::now();
+		$targets = array_values( array_filter( Targets::now(), [ self::class, 'sends_to' ] ) );
 		if ( [] === $targets ) {
 			return false;
 		}

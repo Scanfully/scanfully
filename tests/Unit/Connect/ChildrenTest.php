@@ -240,7 +240,7 @@ final class ChildrenTest extends TestCase {
 		$this->assertSame( [], $this->db->writes );
 	}
 
-	public function test_a_long_sync_goes_on_in_a_new_job(): void {
+	public function test_a_long_sync_goes_on_in_a_new_job_that_action_scheduler_takes(): void {
 		$mapping = [];
 		for ( $blog = 10; $blog < 260; $blog++ ) {
 			$this->db->add_site( $blog, 'network.test', '/s' . $blog . '/' );
@@ -248,13 +248,110 @@ final class ChildrenTest extends TestCase {
 		}
 		$this->site_options[ Children::MAPPING_OPTION ] = $mapping;
 		$this->site_options[ Children::PENDING_OPTION ] = array_keys( $mapping );
+		$scheduled                                      = [];
+		\Brain\Monkey\Functions\when( 'as_schedule_single_action' )->alias(
+			static function ( ...$args ) use ( &$scheduled ): int {
+				$scheduled[] = $args;
+				return 1;
+			}
+		);
+
+		// Over its budget after the first hundred.
+		Children::sync_markers( 0 );
+
+		$this->assertCount( 150, $this->site_options[ Children::PENDING_OPTION ] );
+		$this->assertSame( 'child-109', $this->marker( 109 )['site_id'] );
+		$this->assertNull( $this->marker( 110 ) );
+		// Not unique: Action Scheduler would refuse that while this job runs.
+		$this->assertCount( 1, $scheduled );
+		$this->assertSame( Children::ACTION_SYNC_MARKERS, $scheduled[0][1] );
+		$this->assertFalse( $scheduled[0][4] ?? false );
 
 		Children::sync_markers();
 
 		$this->assertArrayNotHasKey( Children::PENDING_OPTION, $this->site_options );
 		$this->assertSame( 'child-259', $this->marker( 259 )['site_id'] );
-		// Three chunks of option tables read, a hundred subsites a query each.
+		// Three chunks of option tables read in all, a hundred subsites a query each.
 		$this->assertCount( 3, array_filter( $this->db->queries, static fn( string $sql ): bool => false !== strpos( $sql, 'CONVERT(option_name' ) ) );
+	}
+
+	public function test_blogs_queued_while_a_sync_runs_stay_for_the_next(): void {
+		$this->site_options[ Children::MAPPING_OPTION ] = [ 2 => 'child-2' ];
+		$reads                                          = 0;
+		\Brain\Monkey\Functions\when( 'get_site_option' )->alias(
+			function ( string $name, $fallback = false ) use ( &$reads ) {
+				if ( Children::PENDING_OPTION === $name ) {
+					// Another process adds blog 3 after this sync read the list.
+					return 1 === ++$reads ? [ 2 ] : [ 2, 3 ];
+				}
+				return $this->site_options[ $name ] ?? $fallback;
+			}
+		);
+
+		Children::sync_markers();
+
+		$this->assertSame( [ 3 ], $this->site_options[ Children::PENDING_OPTION ] );
+		$this->assertCount( 1, $this->as_calls_of( Children::ACTION_SYNC_MARKERS ) );
+		$this->assertNotNull( $this->marker( 2 ) );
+	}
+
+	public function test_a_blog_whose_child_changed_while_a_sync_wrote_its_marker_is_done_again(): void {
+		$this->site_options[ Children::PENDING_OPTION ] = [ 2 ];
+		$reads                                          = 0;
+		\Brain\Monkey\Functions\when( 'get_network_option' )->alias(
+			function ( $network, string $name, $fallback = false ) use ( &$reads ) {
+				if ( Children::MAPPING_OPTION === $name ) {
+					// The network stops monitoring blog 2 during the sync.
+					return 1 === ++$reads ? [ 2 => 'child-2' ] : [];
+				}
+				return $this->site_options[ $name ] ?? $fallback;
+			}
+		);
+
+		Children::sync_markers();
+
+		$this->assertSame( [ 2 ], $this->site_options[ Children::PENDING_OPTION ] );
+		$this->assertCount( 1, $this->as_calls_of( Children::ACTION_SYNC_MARKERS ) );
+	}
+
+	public function test_a_sync_is_scheduled_unless_one_is_waiting(): void {
+		$this->monitor(
+			[
+				2 => 'child-2',
+				3 => 'child-3',
+			]
+		);
+		$this->next_scheduled = time() + 5;
+		Children::forget( 2 );
+		$this->assertSame( [ 2 ], $this->site_options[ Children::PENDING_OPTION ] );
+		$this->assertSame( [], $this->as_calls_of( Children::ACTION_SYNC_MARKERS ) );
+
+		// One runs: it may have read the list already, so another follows.
+		$this->next_scheduled = true;
+		Children::forget( 3 );
+		$this->assertSame( [ 2, 3 ], $this->site_options[ Children::PENDING_OPTION ] );
+		$this->assertCount( 1, $this->as_calls_of( Children::ACTION_SYNC_MARKERS ) );
+	}
+
+	public function test_a_removed_marker_takes_the_childs_state_with_it(): void {
+		$this->monitor( [ 2 => 'child-2' ] );
+		foreach ( [ 'scanfully_woocheckout_probe_secret_network', 'scanfully_connect_last_request_error_network', 'scanfully_php_errors_known_network', 'scanfully_php_errors_sent_network' ] as $name ) {
+			$this->db->options[2][ $name ] = 'x';
+		}
+		$this->db->options[2]['scanfully_woocheckout_probe_secret'] = 'own';
+
+		Children::learn( [] );
+		Children::sync_markers();
+
+		$this->assertSame( [ 'blogname', 'home', 'scanfully_woocheckout_probe_secret' ], array_keys( $this->db->options[2] ) );
+	}
+
+	public function test_leftover_child_state_without_a_marker_goes_too(): void {
+		$this->db->options[3]['scanfully_woocheckout_probe_secret_network'] = 'x';
+
+		Children::write_markers( [ 3 ], [] );
+
+		$this->assertArrayNotHasKey( 'scanfully_woocheckout_probe_secret_network', $this->db->options[3] );
 	}
 
 	public function test_a_network_disconnect_ends_every_child(): void {

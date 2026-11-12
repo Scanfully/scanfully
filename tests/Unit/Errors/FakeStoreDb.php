@@ -181,6 +181,28 @@ final class FakeStoreDb {
 			unset( $this->rows[ $match[1] ] );
 			return 1;
 		}
+		if ( 1 === preg_match( "/^UPDATE wp_options SET option_value = '([^']*)' WHERE option_name = '([^']*)' AND option_value = '([^']*)'$/", $sql, $match ) ) {
+			if ( ( $this->rows[ $match[2] ] ?? null ) !== $match[3] ) {
+				return 0;
+			}
+			$this->rows[ $match[2] ] = $match[1];
+			return 1;
+		}
+		if ( 1 === preg_match( "/^INSERT IGNORE INTO wp_options \\(option_name, option_value, autoload\\) VALUES \\('([^']*)', '([^']*)', 'no'\\)$/", $sql, $match ) ) {
+			if ( isset( $this->rows[ $match[1] ] ) ) {
+				return 0;
+			}
+			$this->rows[ $match[1] ] = $match[2];
+			return 1;
+		}
+		if ( 1 === preg_match( "/^DELETE FROM wp_options WHERE option_name LIKE '([^']*)'$/", $sql, $match ) ) {
+			foreach ( array_keys( $this->rows ) as $name ) {
+				if ( self::like( $name, stripslashes( $match[1] ) ) ) {
+					unset( $this->rows[ $name ] );
+				}
+			}
+			return 1;
+		}
 		if ( 1 === preg_match( "/^DELETE FROM wp_options WHERE option_name LIKE '(.*)' AND CAST\\(option_value AS (SIGNED|UNSIGNED)\\) (<=|<) (-?\\d+)$/", $sql, $match ) ) {
 			foreach ( $this->rows as $name => $value ) {
 				$below = '<=' === $match[3] ? (int) $value <= (int) $match[4] : (int) $value < (int) $match[4];

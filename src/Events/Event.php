@@ -215,6 +215,21 @@ abstract class Event {
 	}
 
 	/**
+	 * The keys of the site's targets now (see Connect\Target::key()), which a
+	 * build job sends to.
+	 *
+	 * @return string[]
+	 */
+	public static function target_keys(): array {
+		return array_map(
+			static function ( \Scanfully\Connect\Target $target ): string {
+				return $target->key();
+			},
+			Targets::here()
+		);
+	}
+
+	/**
 	 * Action Scheduler rejects jobs whose arguments are longer than this, when
 	 * encoded as JSON; the event would be lost.
 	 */

@@ -49,7 +49,9 @@ final class SubsiteReport {
 
 	/**
 	 * Network option: the monitored subsites that changed since the last
-	 * report of changes.
+	 * report of changes. Read and written without a lock: when two subsites
+	 * change at the same moment one of them can be left out, and its report
+	 * then goes with the three-hourly run.
 	 */
 	public const CHANGED_OPTION = 'scanfully_connect_children_changed';
 

@@ -96,11 +96,24 @@ final class ProbeTargetsTest extends TestCase {
 	}
 
 	public function test_the_childs_secret_stops_working_when_the_subsite_is_no_longer_monitored(): void {
-		unset( $this->db->options[2]['scanfully_network_child'] );
 		$_SERVER['HTTP_X_SCANFULLY_PROBE'] = self::header( self::CHILD_SECRET );
 
+		// The network stopped monitoring it; the marker is still there.
+		$this->site_options['scanfully_connect_children'] = [];
 		$this->assertFalse( Controller::is_probe_request() );
 		$this->assertSame( [ self::OWN_SECRET ], Controller::probe_secrets() );
+
+		// The network disconnected.
+		$this->reset_cache();
+		$this->site_options['scanfully_connect_children']     = [ 2 => 'child-2' ];
+		$this->site_options['scanfully_connect_is_connected'] = 'no';
+		$this->assertFalse( Controller::is_probe_request() );
+
+		// The marker is gone.
+		$this->reset_cache();
+		$this->site_options['scanfully_connect_is_connected'] = 'yes';
+		unset( $this->db->options[2]['scanfully_network_child'] );
+		$this->assertFalse( Controller::is_probe_request() );
 	}
 
 	public function test_the_config_goes_to_each_target_and_each_keeps_its_own_secret(): void {

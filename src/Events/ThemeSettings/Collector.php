@@ -179,12 +179,14 @@ final class Collector {
 	}
 
 	/**
-	 * Whether installs, upgrades or imports run.
+	 * Whether installs, upgrades or imports run, or the request works on
+	 * another site of a multisite network (its changes would be reported on
+	 * the site the request is for).
 	 *
 	 * @return bool
 	 */
 	private static function is_setup_work(): bool {
-		return ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) || wp_installing();
+		return ( defined( 'WP_IMPORTING' ) && WP_IMPORTING ) || wp_installing() || ( function_exists( 'ms_is_switched' ) && ms_is_switched() );
 	}
 
 	/**

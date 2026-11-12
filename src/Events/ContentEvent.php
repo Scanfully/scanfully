@@ -100,11 +100,19 @@ abstract class ContentEvent extends Event {
 	 * @return void
 	 */
 	public static function queue( string $type, array $user, array $data ): void {
+		// The targets of the site now: the job sends to these, not to one
+		// the site gains before it runs.
+		$keys = Event::target_keys();
+		if ( [] === $keys ) {
+			return;
+		}
 		$args = [
-			'type'  => $type,
-			'user'  => $user,
-			'data'  => $data,
-			'stash' => '',
+			'type'    => $type,
+			'user'    => $user,
+			'data'    => $data,
+			'stash'   => '',
+			'attempt' => 0,
+			'targets' => $keys,
 		];
 
 		if ( strlen( (string) wp_json_encode( $args ) ) > self::MAX_ARGS_LENGTH ) {
