@@ -10,6 +10,7 @@ namespace Scanfully\Tests\Unit\Events;
 use Brain\Monkey\Functions;
 use RuntimeException;
 use Scanfully\Events\ActivatedPlugin;
+use Scanfully\Events\DeactivatedPlugin;
 use Scanfully\Events\Content\Builder as ContentBuilder;
 use Scanfully\Events\Controller;
 use Scanfully\Tests\Unit\Connect\NetworkFixture;
@@ -296,6 +297,15 @@ final class TargetFanOutTest extends TestCase {
 
 	public function test_a_network_wide_activation_says_so(): void {
 		$event = self::event();
+
+		$this->assertTrue( $event->get_post_body( [ 'shop/shop.php', true ] )['network_wide'] );
+		$this->assertFalse( $event->get_post_body( [ 'shop/shop.php', false ] )['network_wide'] );
+		$this->assertFalse( $event->get_post_body( [ 'shop/shop.php' ] )['network_wide'] );
+	}
+
+	public function test_a_network_wide_deactivation_says_so(): void {
+		self::event();
+		$event = new DeactivatedPlugin();
 
 		$this->assertTrue( $event->get_post_body( [ 'shop/shop.php', true ] )['network_wide'] );
 		$this->assertFalse( $event->get_post_body( [ 'shop/shop.php', false ] )['network_wide'] );
