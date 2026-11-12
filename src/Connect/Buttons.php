@@ -38,6 +38,29 @@ class Buttons {
 	}
 
 	/**
+	 * Change what Scanfully may do: a new connection request, on whose page
+	 * in Scanfully the admin chooses again. Approving it replaces the current
+	 * connection; cancelling keeps it.
+	 *
+	 * @return void
+	 */
+	public static function change_access(): void {
+		$url = add_query_arg(
+			[
+				'page'                         => 'scanfully',
+				'scanfully-change-access'      => 1,
+				'scanfully-change-access-nonce' => wp_create_nonce( 'scanfully-change-access' ),
+			],
+			admin_url( 'options-general.php' )
+		);
+		?>
+		<a href="<?php echo esc_url( $url ); ?>" class="scanfully-connect-button scanfully-connect-button-dashboard">
+			<span><?php esc_html_e( 'Change what Scanfully may do', 'scanfully' ); ?></span>
+		</a>
+		<?php
+	}
+
+	/**
 	 * Disconnect button
 	 *
 	 * @return void

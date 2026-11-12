@@ -89,6 +89,28 @@ class Main {
 	}
 
 	/**
+	 * Get the address of Scanfully's OAuth server: the origin of the API URL,
+	 * such as https://api.scanfully.com.
+	 *
+	 * @return string
+	 */
+	public static function get_oauth_url(): string {
+		$parts  = wp_parse_url( self::get_api_url() );
+		$origin = ( $parts['scheme'] ?? 'https' ) . '://' . ( $parts['host'] ?? '' ) . ( isset( $parts['port'] ) ? ':' . $parts['port'] : '' );
+
+		return apply_filters( 'scanfully_oauth_url', $origin );
+	}
+
+	/**
+	 * Get the resource the plugin's tokens are for on the OAuth server.
+	 *
+	 * @return string
+	 */
+	public static function get_site_resource(): string {
+		return self::get_oauth_url() . '/v1/sites';
+	}
+
+	/**
 	 * Set up the plugin.
 	 *
 	 * @return void

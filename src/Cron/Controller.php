@@ -421,6 +421,30 @@ class Controller {
 	}
 
 	/**
+	 * Whether the access token expires within two days, or the connection is
+	 * still a legacy one. An expiry date that cannot be parsed also needs a
+	 * refresh, which stores a fresh one.
+	 *
+	 * @param Options\Options $options The current options.
+	 *
+	 * @return bool
+	 */
+	private static function token_needs_refresh( Options\Options $options ): bool {
+		return self::moves_to_oauth() || self::token_expires_soon( $options );
+	}
+
+	/**
+	 * Whether a connection from before 1.11 moves to the OAuth server now:
+	 * one refresh there, whatever its expiry. After a failure there, the next
+	 * try is a day later.
+	 *
+	 * @return bool
+	 */
+	private static function moves_to_oauth(): bool {
+		return 'oauth' !== Options\Controller::get_option( 'flow' ) && false === get_transient( Connect\Controller::OAUTH_UNAVAILABLE_TRANSIENT );
+	}
+
+	/**
 	 * Whether the access token expires within two days. An expiry date that
 	 * cannot be parsed also needs a refresh, which stores a fresh one.
 	 *
@@ -428,7 +452,7 @@ class Controller {
 	 *
 	 * @return bool
 	 */
-	private static function token_needs_refresh( Options\Options $options ): bool {
+	private static function token_expires_soon( Options\Options $options ): bool {
 		try {
 			$refresh_after = new \DateTime( $options->expires, new \DateTimeZone( 'UTC' ) );
 		} catch ( \Exception $e ) {
@@ -447,8 +471,15 @@ class Controller {
 	 * @return void
 	 */
 	private static function refresh_access_token( Options\Options $options ): void {
-		$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id );
+		// a move to the OAuth server of tokens that still work: a failure is
+		// no broken connection, the move is tried again tomorrow.
+		$moving = ! self::token_expires_soon( $options );
+		$tokens = Connect\Controller::refresh_access_token( $options->refresh_token, $options->site_id, ! $moving );
 
+		if ( $moving && ! self::is_valid_token_response( $tokens ) ) {
+			set_transient( Connect\Controller::OAUTH_UNAVAILABLE_TRANSIENT, 1, DAY_IN_SECONDS );
+			return;
+		}
 		if ( ! self::is_valid_token_response( $tokens ) ) {
 			self::record_refresh_failure( 'Token refresh request failed. The Scanfully API may be unreachable or the refresh token may be invalid.' );
 			return;

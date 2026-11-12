@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -67,13 +67,13 @@ Connect supported AI apps through [MCP](https://docs.scanfully.com/account/mcp/)
 
 Protect your Scanfully account with authenticator-based two-factor sign-in, including when you use a social sign-in provider.
 
-= WooCommerce checkout monitoring: beta =
+= WooCommerce checkout monitoring =
 
 A working homepage does not tell you whether a shopper can reach checkout.
 
-For accounts with beta access, Scanfully can test a configured purchase flow through the product, cart, and checkout steps. Tests stop at the payment step without completing a payment. Review the failed step and available screenshots when a test fails.
+With the WooCommerce add-on on a site, Scanfully can test a configured purchase flow through the product, cart, and checkout steps. Tests stop at the payment step without completing a payment. Review the failed step and available screenshots when a test fails.
 
-See the [WooCommerce monitoring documentation](https://docs.scanfully.com/woocommerce/) for requirements and beta access.
+See the [WooCommerce monitoring documentation](https://docs.scanfully.com/woocommerce/) for requirements and pricing.
 
 = How the plugin and service work together =
 
@@ -109,7 +109,7 @@ Yes. This plugin connects your site to Scanfully's external monitoring service. 
 
 = Where do I connect my site? =
 
-Open Settings > Scanfully in WordPress and click "Connect your Scanfully account". Authorize the connection in Scanfully. You will then return to WordPress with your site connected.
+Open Settings > Scanfully in WordPress and click "Connect your Scanfully account". In Scanfully, pick the site, choose what Scanfully may do on it, and approve the connection. You will then return to WordPress with your site connected. To change what Scanfully may do later, click "Change what Scanfully may do" and approve again.
 
 = Can I monitor several WordPress sites? =
 
@@ -129,7 +129,9 @@ Use the [Scanfully documentation](https://docs.scanfully.com/) or email [support
 
 == External services ==
 
-This plugin connects to the Scanfully service at [scanfully.com](https://scanfully.com/) and its API at `api.scanfully.com`. It does not send monitoring data until you connect your site. Starting the connection passes your site URL and return URL to Scanfully.
+This plugin connects to the Scanfully service at [scanfully.com](https://scanfully.com/) and its API at `api.scanfully.com`. It does not send monitoring data until you connect your site. Starting the connection passes your site URL and return URL to Scanfully's authorization server, where you choose what Scanfully may do on the site; reading site data is always included. The plugin then holds tokens that work for this site only.
+
+When Scanfully asks the plugin to sync, it signs the request, and the plugin checks the signature against Scanfully's public keys, which it fetches from `api.scanfully.com` and keeps for a day. This uses PHP's OpenSSL extension.
 
 Once connected, the plugin sends the following data to provide monitoring, diagnostics, and WordPress activity context:
 
@@ -150,6 +152,13 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.11.0: November 12, 2026 =
+* Added: connecting a site goes through Scanfully's authorization server, where you pick the site and choose what Scanfully may do on it
+* Added: "Change what Scanfully may do" on the settings page changes those permissions later, and cancelling keeps the current connection
+* Changed: an existing connection moves to the new connection by itself, without reconnecting
+* Security: when Scanfully asks the site to sync, it signs the request, and the plugin checks the signature against Scanfully's public keys
+* Changed: the readme describes WooCommerce checkout monitoring as an add-on instead of a beta
 
 = 1.10.0: November 2, 2026 =
 * Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
