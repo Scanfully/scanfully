@@ -309,7 +309,7 @@ final class SubsiteReport {
 		}
 
 		$rows    = self::blogs( $blogs );
-		$options = Subsites::read( $blogs, array_merge( array_diff( self::WATCHED, [ 'blog_public' ] ), [ Children::MARKER_OPTION, Target::child( '', 0 )->option( \Scanfully\WooCheckout\Controller::OPTION_PROBE_SECRET ) ] ) );
+		$options = Subsites::read( $blogs, array_values( array_unique( array_merge( array_diff( self::WATCHED, [ 'blog_public' ] ), Children::marker_reads(), [ Target::child( '', 0 )->option( \Scanfully\WooCheckout\Controller::OPTION_PROBE_SECRET ) ] ) ) ) );
 		$context = [
 			'network_plugins' => self::network_plugins(),
 			'locale'          => self::network_locale(),

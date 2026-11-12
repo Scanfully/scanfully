@@ -354,6 +354,74 @@ final class ChildrenTest extends TestCase {
 		$this->assertArrayNotHasKey( 'scanfully_woocheckout_probe_secret_network', $this->db->options[3] );
 	}
 
+	public function test_an_attached_subsites_own_connection_ends_when_the_network_learns_it(): void {
+		$this->connect_own( 3, 'site-3' );
+		$this->db->options[3]['scanfully_connect_scopes']                        = 'wordpress:read';
+		$this->db->options[3]['scanfully_connect_email_deliverability_enabled'] = 'yes';
+		$this->db->options[3]['scanfully_woocheckout_probe_secret']              = 'own-secret';
+		// Blog 2 is connected on its own to another account.
+		$this->connect_own( 2, 'other-account' );
+
+		Children::learn(
+			[
+				[
+					'blog_id' => 2,
+					'site_id' => 'child-2',
+				],
+				[
+					'blog_id' => 3,
+					'site_id' => 'site-3',
+				],
+			]
+		);
+		Children::sync_markers();
+
+		foreach ( [ 'scanfully_connect_is_connected', 'scanfully_connect_site_id', 'scanfully_connect_access_token', 'scanfully_connect_scopes', 'scanfully_connect_email_deliverability_enabled', 'scanfully_woocheckout_probe_secret' ] as $name ) {
+			$this->assertArrayNotHasKey( $name, $this->db->options[3], $name );
+		}
+		$this->assertSame( 'site-3', $this->db->options[3][ Children::ENDED_OPTION ] );
+		$this->assertSame( 'site-3', $this->marker( 3 )['site_id'] );
+		// Another account's connection stays.
+		$this->assertSame( 'yes', $this->db->options[2]['scanfully_connect_is_connected'] );
+		$this->assertArrayNotHasKey( Children::ENDED_OPTION, $this->db->options[2] );
+		// No switch_to_blog() per subsite.
+		$this->assertSame( [], $this->switches );
+	}
+
+	public function test_the_subsite_finishes_the_ended_connection_in_its_own_context(): void {
+		\Brain\Monkey\Functions\when( 'delete_transient' )->justReturn( true );
+		\Brain\Monkey\Actions\expectDone( 'scanfully_options_cleared' )->once();
+		$this->db->options[3][ Children::ENDED_OPTION ] = 'site-3';
+		$this->on_blog( 3 );
+
+		Children::finish_ended_connection();
+
+		$this->assertArrayNotHasKey( Children::ENDED_OPTION, $this->db->options[3] );
+		// Nothing to do on the next request.
+		Children::finish_ended_connection();
+	}
+
+	public function test_a_connection_made_since_to_another_site_is_left_alone(): void {
+		\Brain\Monkey\Actions\expectDone( 'scanfully_options_cleared' )->never();
+		$this->db->options[3][ Children::ENDED_OPTION ] = 'site-3';
+		$this->connect_own( 3, 'another-account' );
+		$this->on_blog( 3 );
+
+		Children::finish_ended_connection();
+
+		$this->assertSame( 'yes', $this->db->options[3]['scanfully_connect_is_connected'] );
+		$this->assertArrayNotHasKey( Children::ENDED_OPTION, $this->db->options[3] );
+	}
+
+	public function test_the_main_site_never_finishes_an_ended_connection(): void {
+		\Brain\Monkey\Actions\expectDone( 'scanfully_options_cleared' )->never();
+		$this->db->options[1][ Children::ENDED_OPTION ] = 'x';
+
+		Children::finish_ended_connection();
+
+		$this->assertArrayHasKey( Children::ENDED_OPTION, $this->db->options[1] );
+	}
+
 	public function test_a_network_disconnect_ends_every_child(): void {
 		$this->monitor( [ 2 => 'child-2' ] );
 		$cleared = 0;

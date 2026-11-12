@@ -57,6 +57,14 @@ final class Children {
 	public const ACTION_SYNC_MARKERS = 'scanfully_sync_child_markers';
 
 	/**
+	 * A subsite's own, autoloaded option: the site id of its own connection,
+	 * which the main site ended because the subsite is now monitored as
+	 * that site through the network (attached in Scanfully). The subsite
+	 * finishes the disconnect itself on its next request.
+	 */
+	public const ENDED_OPTION = 'scanfully_connect_ended_attached';
+
+	/**
 	 * Subsites whose markers are written per query of their option tables.
 	 */
 	private const CHUNK = 100;
@@ -84,6 +92,8 @@ final class Children {
 		add_action( 'scanfully_options_cleared', [ self::class, 'disconnected' ] );
 		add_action( 'wp_delete_site', [ self::class, 'site_deleted' ] );
 		add_action( 'wp_update_site', [ self::class, 'site_updated' ], 10, 2 );
+		// Once Action Scheduler can unschedule the connection's jobs.
+		add_action( 'action_scheduler_init', [ self::class, 'finish_ended_connection' ], 20 );
 	}
 
 	/**
@@ -434,7 +444,7 @@ final class Children {
 		$blogs   = array_values( array_filter( $blogs, static fn( int $blog ): bool => $blog !== $main ) );
 		$ours    = self::in_network( $blogs );
 		$state   = self::child_state_options();
-		$options = Subsites::read( $blogs, array_merge( [ 'home' ], $state ) );
+		$options = Subsites::read( $blogs, array_merge( self::marker_reads(), $state ) );
 		foreach ( $blogs as $blog ) {
 			if ( ! isset( $options[ $blog ] ) ) {
 				// No options table: the subsite is gone.
@@ -449,12 +459,25 @@ final class Children {
 	}
 
 	/**
+	 * The options of a subsite keep_marker() needs, read straight from its
+	 * options table (Subsites::read()).
+	 *
+	 * @return string[]
+	 */
+	public static function marker_reads(): array {
+		return [ 'home', self::MARKER_OPTION, 'scanfully_connect_is_connected', 'scanfully_connect_site_id' ];
+	}
+
+	/**
 	 * Store a monitored subsite's marker when what is stored differs: a new
-	 * child, another child site, or the subsite's address changed.
+	 * child, another child site, or the subsite's address changed. A
+	 * subsite connected on its own as the very site it is now monitored as
+	 * (it was attached to the network in Scanfully, which ended its own
+	 * grant) has that connection ended here too.
 	 *
 	 * @param int                   $blog    The blog id.
 	 * @param string                $site    The child's site id.
-	 * @param array<string, string> $options The subsite's home and marker options, as stored.
+	 * @param array<string, string> $options The subsite's options of marker_reads(), as stored.
 	 *
 	 * @return void
 	 */
@@ -467,6 +490,63 @@ final class Children {
 		if ( self::marker_of( maybe_unserialize( $options[ self::MARKER_OPTION ] ?? '' ) ) !== $marker ) {
 			self::store_marker( $blog, $marker );
 		}
+		if ( 'yes' === ( $options['scanfully_connect_is_connected'] ?? '' ) && $site === ( $options['scanfully_connect_site_id'] ?? '' ) ) {
+			self::end_attached_connection( $blog, $site );
+		}
+	}
+
+	/**
+	 * End a subsite's own connection to the site it is now monitored as
+	 * through the network, as a disconnect would, but from the main site:
+	 * Scanfully already ended its grant at the attach, so nothing is revoked.
+	 * Its tokens and connection state go now, straight from its options
+	 * table (never switch_to_blog()), so it reads as not connected; the
+	 * subsite stops the connection's jobs itself on its next request (see
+	 * finish_ended_connection()). An own connection to another site (another
+	 * account) is left alone.
+	 *
+	 * @param int    $blog The blog id.
+	 * @param string $site The site id of the ended connection.
+	 *
+	 * @return void
+	 */
+	private static function end_attached_connection( int $blog, string $site ): void {
+		global $wpdb;
+
+		$names      = OptionsController::own_connection_options();
+		$table      = $wpdb->get_blog_prefix( $blog ) . 'options';
+		$suppressed = $wpdb->suppress_errors( true );
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- Writes to another site's options without switching to it; the table name comes from WordPress's prefix and an integer, the placeholders from the count of names.
+		$wpdb->query( $wpdb->prepare( "DELETE FROM `{$table}` WHERE option_name IN (" . implode( ', ', array_fill( 0, count( $names ), '%s' ) ) . ')', ...$names ) );
+		$wpdb->query( $wpdb->prepare( "INSERT INTO `{$table}` (option_name, option_value, autoload) VALUES (%s, %s, 'yes') ON DUPLICATE KEY UPDATE option_value = VALUES(option_value), autoload = 'yes'", self::ENDED_OPTION, $site ) );
+		// phpcs:enable
+		$wpdb->suppress_errors( $suppressed );
+		self::forget_cached_options( $blog, array_merge( $names, [ self::ENDED_OPTION ] ) );
+	}
+
+	/**
+	 * On a subsite whose own connection the main site ended (see
+	 * end_attached_connection()): finish the disconnect in its own context,
+	 * as one from its settings page does, so the connection's jobs stop (the
+	 * email checks, the scope checks) and what it kept goes. A connection
+	 * made since, to another site, stays. Costs nothing on other requests:
+	 * the flag is read from the autoloaded options.
+	 *
+	 * @return void
+	 */
+	public static function finish_ended_connection(): void {
+		if ( ! Network::multisite() || is_main_site() || ! function_exists( 'wp_load_alloptions' ) ) {
+			return;
+		}
+		$all = wp_load_alloptions();
+		if ( ! isset( $all[ self::ENDED_OPTION ] ) ) {
+			return;
+		}
+		$options = OptionsController::get_options();
+		if ( ! $options->is_connected || (string) $all[ self::ENDED_OPTION ] === $options->site_id ) {
+			OptionsController::clear();
+		}
+		delete_option( self::ENDED_OPTION );
 	}
 
 	/**
