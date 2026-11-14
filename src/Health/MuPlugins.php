@@ -67,7 +67,7 @@ final class MuPlugins {
 	 * its own file as an unknown must-use plugin.
 	 */
 	public const KNOWN = [
-		\Scanfully\Errors\MuPlugin::FILE => 'Scanfully',
+		\Scanfully\MustUse\MuPlugin::FILE => 'Scanfully',
 	];
 
 	/**

@@ -14,7 +14,7 @@ namespace Scanfully\Tests\Integration;
 use PHPUnit\Framework\TestCase;
 use Scanfully\Errors\Context;
 use Scanfully\Errors\Monitor;
-use Scanfully\Errors\MuPlugin;
+use Scanfully\MustUse\MuPlugin;
 use Scanfully\Errors\Reporter;
 use Scanfully\Errors\Store;
 use Scanfully\Health\MuPlugins;
@@ -295,7 +295,7 @@ final class PhpErrorsTest extends TestCase {
 
 		$entries = array_column( MuPlugins::scan(), null, 'file' );
 		$this->assertSame( 'Scanfully', $entries[ MuPlugin::FILE ]['known'] ?? null );
-		$this->assertSame( 'Scanfully PHP error monitor', $entries[ MuPlugin::FILE ]['name'] );
+		$this->assertSame( 'Scanfully (must-use)', $entries[ MuPlugin::FILE ]['name'] );
 
 		MuPlugin::remove();
 		$this->assertFileDoesNotExist( MuPlugin::path() );

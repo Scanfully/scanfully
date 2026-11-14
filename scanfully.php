@@ -88,7 +88,7 @@ register_activation_hook(
 	function () {
 		// A connection that stayed while the plugin was inactive catches PHP
 		// errors again from before other plugins load.
-		\Scanfully\Errors\MuPlugin::maybe_install();
+		\Scanfully\MustUse\MuPlugin::maybe_install();
 
 		// The connection was last used before the deactivation, so its first
 		// report needs a moment before anything calls it stale.
@@ -111,7 +111,7 @@ register_deactivation_hook(
 		// plugin is deactivated on a single site or for the whole network.
 		// On a network site it does nothing while the plugin is inactive there.
 		if ( ! is_multisite() || $network_wide ) {
-			\Scanfully\Errors\MuPlugin::remove();
+			\Scanfully\MustUse\MuPlugin::remove();
 		}
 	}
 );

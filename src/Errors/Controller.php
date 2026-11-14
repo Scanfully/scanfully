@@ -7,6 +7,7 @@
 
 namespace Scanfully\Errors;
 
+use Scanfully\MustUse\MuPlugin;
 use Scanfully\Options\Controller as OptionsController;
 
 /**
