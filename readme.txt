@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -155,6 +155,13 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.12.0: November 14, 2026 =
+* Added: PHP error monitoring: fatal errors and warnings are caught, grouped and counted, credited to the plugin, theme or WordPress core that raised them, and sent to Scanfully, which lists them per site and can alert you when a new fatal error appears
+* Added: a small must-use plugin, added to wp-content/mu-plugins when that folder is writable, catches errors raised while other plugins load; it is removed when the plugin is deactivated or deleted, or when PHP error monitoring is turned off
+* Added: PHP error monitoring can be turned off and on again under Settings > Scanfully
+* Security: email addresses, passwords, keys, tokens and query strings are removed from PHP error messages before they are sent
+* Changed: the readme lists the PHP error data the plugin sends under External services
 
 = 1.11.0: November 12, 2026 =
 * Added: connecting a site goes through Scanfully's authorization server, where you pick the site and choose what Scanfully may do on it
