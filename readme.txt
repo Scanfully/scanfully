@@ -144,7 +144,7 @@ Once connected, the plugin sends the following data to provide monitoring, diagn
 * **Connection changes:** When the plugin is deactivated, disconnected, or deleted, that it happened and the display name of the person who did it.
 * **Sync diagnostics:** When Scanfully asks the plugin to sync, the plugin's version, when its last request to Scanfully succeeded, and the time, status, and error message of its last failed request.
 
-PHP error monitoring is enabled by default after connection. To catch errors raised while other plugins load, the plugin adds its must-use plugin, the file `scanfully-mu.php`, to `wp-content/mu-plugins` when that folder is writable. It removes the file when the plugin is deactivated or deleted, or when PHP error monitoring is turned off. You can turn PHP error monitoring off under Settings > Scanfully.
+PHP error monitoring is part of Scanfully's monitoring and runs while the site is connected. To catch errors raised while other plugins load, the plugin adds its must-use plugin, the file `scanfully-mu.php`, to `wp-content/mu-plugins` when that folder is writable. It removes the file when the plugin is deactivated, disconnected or deleted.
 
 Email checks are enabled by default after connection. The plugin sends test messages through your site's mail setup to a Scanfully address. Messages include site and version details and verification identifiers. The sender defaults to your WordPress administration email. The plugin also reports the detected mail plugin or WordPress version and local send errors to the API. You can turn these checks off under Settings > Scanfully.
 
@@ -158,8 +158,7 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 
 = 1.12.0: November 14, 2026 =
 * Added: PHP error monitoring: fatal errors and warnings are caught, grouped and counted, credited to the plugin, theme or WordPress core that raised them, and sent to Scanfully, which lists them per site and can alert you when a new fatal error appears
-* Added: a small must-use plugin, added to wp-content/mu-plugins when that folder is writable, catches errors raised while other plugins load; it is removed when the plugin is deactivated or deleted, or when PHP error monitoring is turned off
-* Added: PHP error monitoring can be turned off and on again under Settings > Scanfully
+* Added: a small must-use plugin, added to wp-content/mu-plugins when that folder is writable, catches errors raised while other plugins load; it is removed when the plugin is deactivated, disconnected or deleted
 * Security: email addresses, passwords, keys, tokens and query strings are removed from PHP error messages before they are sent
 * Changed: the readme lists the PHP error data the plugin sends under External services
 

@@ -80,10 +80,6 @@ final class Reporter {
 		if ( ! Options\Controller::get_options()->is_connected ) {
 			return;
 		}
-		if ( ! Monitor::should_run() ) {
-			Store::delete_all();
-			return;
-		}
 
 		$now     = time();
 		$stored  = Store::read();

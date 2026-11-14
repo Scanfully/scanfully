@@ -39,11 +39,6 @@ use Scanfully\API\ErrorsRequest;
 final class Monitor {
 
 	/**
-	 * Option that turns capture off: `no`. On by default.
-	 */
-	public const ENABLED_OPTION = 'scanfully_connect_php_errors_enabled';
-
-	/**
 	 * The most distinct errors kept per request.
 	 */
 	public const MAX_PER_REQUEST = 20;
@@ -110,9 +105,8 @@ final class Monitor {
 	private static int $dropped = 0;
 
 	/**
-	 * Start catching errors, once per request: when the site is connected,
-	 * capture isn't turned off, and (from the must-use plugin) the
-	 * Scanfully plugin is active.
+	 * Start catching errors, once per request: when the site is connected
+	 * and (from the must-use plugin) the Scanfully plugin is active.
 	 *
 	 * @param string $origin   `mu` or `plugin`.
 	 * @param string $basename The Scanfully plugin's basename, for the must-use plugin's check.
@@ -148,9 +142,9 @@ final class Monitor {
 	}
 
 	/**
-	 * Whether capture runs on this site: connected, not turned off, and the
-	 * Scanfully plugin active (and not paused by recovery mode) when a
-	 * basename is given.
+	 * Whether capture runs on this site: connected, and the Scanfully plugin
+	 * active (and not paused by recovery mode) when a basename is given.
+	 * There is no setting to turn it off: it is part of being connected.
 	 *
 	 * @param string $basename The Scanfully plugin's basename, or '' to skip that check.
 	 *
@@ -158,23 +152,6 @@ final class Monitor {
 	 */
 	public static function should_run( string $basename = '' ): bool {
 		if ( ! function_exists( 'get_option' ) || 'yes' !== get_option( 'scanfully_connect_is_connected' ) ) {
-			return false;
-		}
-		// Read from the autoloaded options: a site that never touched the
-		// setting has no row, and get_option() would look for it on every
-		// request.
-		$options = function_exists( 'wp_load_alloptions' ) ? wp_load_alloptions() : [];
-		if ( 'no' === ( $options[ self::ENABLED_OPTION ] ?? '' ) ) {
-			return false;
-		}
-		/**
-		 * Filters whether PHP errors are caught and sent to Scanfully. The
-		 * must-use plugin reads it before regular plugins load, so add the
-		 * filter in a must-use plugin or in wp-config.php.
-		 *
-		 * @param bool $enabled Whether PHP errors are caught.
-		 */
-		if ( ! apply_filters( 'scanfully_php_errors_enabled', true ) ) {
 			return false;
 		}
 		if ( '' === $basename ) {

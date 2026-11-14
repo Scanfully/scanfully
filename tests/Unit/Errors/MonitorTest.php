@@ -41,20 +41,10 @@ final class MonitorTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_it_runs_only_when_connected_and_switched_on(): void {
+	public function test_it_runs_only_when_connected(): void {
 		$this->assertTrue( Monitor::should_run() );
 
-		$this->options['scanfully_connect_php_errors_enabled'] = 'no';
-		$this->assertFalse( Monitor::should_run() );
-
-		$this->options['scanfully_connect_php_errors_enabled'] = 'yes';
-		$this->options['scanfully_connect_is_connected']       = 'no';
-		$this->assertFalse( Monitor::should_run() );
-	}
-
-	public function test_the_filter_turns_it_off(): void {
-		\Brain\Monkey\Filters\expectApplied( 'scanfully_php_errors_enabled' )->andReturn( false );
-
+		$this->options['scanfully_connect_is_connected'] = 'no';
 		$this->assertFalse( Monitor::should_run() );
 	}
 
@@ -93,8 +83,8 @@ final class MonitorTest extends TestCase {
 		$this->assertSame( 'mu', Monitor::origin() );
 	}
 
-	public function test_it_does_not_boot_when_switched_off(): void {
-		$this->options['scanfully_connect_php_errors_enabled'] = 'no';
+	public function test_it_does_not_boot_when_disconnected(): void {
+		$this->options['scanfully_connect_is_connected'] = 'no';
 		Monitor::boot( 'plugin' );
 
 		$this->assertSame( '', Monitor::origin() );

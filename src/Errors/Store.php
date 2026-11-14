@@ -464,7 +464,7 @@ final class Store {
 	}
 
 	/**
-	 * Remove everything (when the site disconnects or capture is turned off).
+	 * Remove everything (when the site disconnects).
 	 *
 	 * @return void
 	 */

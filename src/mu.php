@@ -16,8 +16,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 return static function ( string $basename ): void {
 	// PHP errors: catch them from before any plugin loads. The monitor
-	// checks itself that the site is connected, capture isn't turned off
-	// and the Scanfully plugin is active.
+	// checks itself that the site is connected and the Scanfully plugin is
+	// active.
 	require_once __DIR__ . '/Errors/load.php';
 	\Scanfully\Errors\Monitor::boot( 'mu', $basename );
 };
