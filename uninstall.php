@@ -193,6 +193,26 @@ function scanfully_uninstall_options(): void {
 	}
 }
 
+/**
+ * Remove the PHP error monitor's must-use plugin, which serves the whole
+ * network, when it is Scanfully's (as Errors\MuPlugin::remove()).
+ *
+ * @return void
+ */
+function scanfully_uninstall_mu_plugin(): void {
+	$dir  = defined( 'WPMU_PLUGIN_DIR' ) ? (string) WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins';
+	$path = rtrim( $dir, '/\\' ) . '/scanfully-php-errors.php';
+	if ( ! is_file( $path ) ) {
+		return;
+	}
+	$head = @file_get_contents( $path, false, null, 0, 1024 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- A local file that may be unreadable.
+	if ( is_string( $head ) && false !== strpos( $head, 'Plugin Name: Scanfully PHP error monitor' ) ) {
+		wp_delete_file( $path );
+	}
+}
+
+scanfully_uninstall_mu_plugin();
+
 if ( is_multisite() ) {
 	foreach ( get_sites(
 		[

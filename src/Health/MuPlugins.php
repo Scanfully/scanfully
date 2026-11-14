@@ -62,6 +62,15 @@ final class MuPlugins {
 	private const MAX_TEXT = 500;
 
 	/**
+	 * Must-use plugins the Scanfully plugin installs itself, by file name,
+	 * with who installed them: sent as `known`, so Scanfully doesn't flag
+	 * its own file as an unknown must-use plugin.
+	 */
+	public const KNOWN = [
+		\Scanfully\Errors\MuPlugin::FILE => 'Scanfully',
+	];
+
+	/**
 	 * The MU plugins, MU plugin folders and drop-ins of the site, for the site
 	 * data sync. Also remembers what it saw for the hourly check.
 	 *
@@ -176,9 +185,8 @@ final class MuPlugins {
 			return null;
 		}
 
-		$name = self::text( $header['Name'] ?? '' );
-
-		return [
+		$name  = self::text( $header['Name'] ?? '' );
+		$entry = [
 			'kind'        => $kind,
 			'file'        => $file,
 			'name'        => '' !== $name ? $name : $file,
@@ -189,6 +197,11 @@ final class MuPlugins {
 			'modified'    => (int) $stat['mtime'],
 			'hash'        => self::hash( $path, (int) $stat['size'], (int) $stat['mtime'], $content_dir, $cache, $used ),
 		];
+		if ( 'mu' === $kind && isset( self::KNOWN[ $file ] ) ) {
+			$entry['known'] = self::KNOWN[ $file ];
+		}
+
+		return $entry;
 	}
 
 	/**
