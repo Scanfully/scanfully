@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -139,9 +139,12 @@ Once connected, the plugin sends the following data to provide monitoring, diagn
 * **WordPress activity:** Event details, the acting user's ID and display name, and relevant old and new setting values. Content and file edits can include changed text or code and nearby context. This includes content from draft, private, and password-protected posts.
 * **WordPress user events:** User IDs, display names, and roles. Events for users with elevated permissions also include their email address. Successful logins and first application-password use for those users include IP addresses, forwarded proxy information, and browser details.
 * **Failed-login summaries:** Hourly counts and details of targeted users with elevated permissions. These summaries omit IP addresses and attempted usernames.
+* **PHP errors:** PHP fatal errors and warnings, with how often each happened and when. Each error includes its message, the file, line and function it came from, and a short stack trace, without function arguments. File paths are relative to the WordPress folder. Email addresses, passwords, keys, tokens, and query strings are removed from messages. Each error also includes the plugin or theme that caused it and its version, the request type, the URL path without its query string, the PHP and WordPress versions, and whether an update was running. New errors are sent within a minute, counts hourly, and a new fatal error right away.
 * **WooCommerce configuration:** On connected WooCommerce sites, shop details sync even when checkout tests are off. These include the store address, WooCommerce version, product and cart/checkout URLs, shipping details, and login requirements. When checkout tests are enabled, Scanfully creates test orders. The plugin cancels test orders and deletes cancelled test orders through scheduled cleanup after seven days by default.
 * **Connection changes:** When the plugin is deactivated, disconnected, or deleted, that it happened and the display name of the person who did it.
 * **Sync diagnostics:** When Scanfully asks the plugin to sync, the plugin's version, when its last request to Scanfully succeeded, and the time, status, and error message of its last failed request.
+
+PHP error monitoring is part of Scanfully's monitoring and runs while the site is connected. To catch errors raised while other plugins load, the plugin adds its must-use plugin, the file `scanfully-mu.php`, to `wp-content/mu-plugins` when that folder is writable. It removes the file when the plugin is deactivated, disconnected or deleted.
 
 Email checks are enabled by default after connection. The plugin sends test messages through your site's mail setup to a Scanfully address. Messages include site and version details and verification identifiers. The sender defaults to your WordPress administration email. The plugin also reports the detected mail plugin or WordPress version and local send errors to the API. You can turn these checks off under Settings > Scanfully.
 
@@ -152,6 +155,12 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.12.0: November 14, 2026 =
+* Added: PHP error monitoring: fatal errors and warnings are caught, grouped and counted, credited to the plugin, theme or WordPress core that raised them, and sent to Scanfully, which lists them per site and can alert you when a new fatal error appears
+* Added: a small must-use plugin, added to wp-content/mu-plugins when that folder is writable, catches errors raised while other plugins load; it is removed when the plugin is deactivated, disconnected or deleted
+* Security: email addresses, passwords, keys, tokens and query strings are removed from PHP error messages before they are sent
+* Changed: the readme lists the PHP error data the plugin sends under External services
 
 = 1.11.0: November 12, 2026 =
 * Added: connecting a site goes through Scanfully's authorization server, where you pick the site and choose what Scanfully may do on it
