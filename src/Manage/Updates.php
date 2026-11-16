@@ -27,6 +27,10 @@ use Scanfully\Main;
  *
  * A version already installed is not an error: the job's goal holds, and the
  * result says nothing changed.
+ *
+ * The Scanfully plugin updates itself the same way, with what OwnUpdate
+ * adds: never through a symbolic link, and with every class of the plugin
+ * loaded before the upgrader replaces its files.
  */
 final class Updates extends Action {
 
@@ -59,8 +63,9 @@ final class Updates extends Action {
 		if ( null === $file ) {
 			throw new JobFailed( 'not_available', sprintf( 'The plugin "%s" is not installed on the site.', $slug ) );
 		}
-		if ( Main::is_own_plugin( $file ) ) {
-			throw new JobFailed( 'not_supported', 'Scanfully does not update its own plugin through a job yet: update it in WordPress.' );
+		$own = Main::is_own_plugin( $file );
+		if ( $own ) {
+			OwnUpdate::check( $file );
 		}
 		$previous = self::plugin_version( $file );
 		if ( '' !== $target && $target === $previous ) {
@@ -87,6 +92,14 @@ final class Updates extends Action {
 		// the shutdown handler: after a fatal nothing is known about them.
 		$active  = is_plugin_active( $file );
 		$network = $active && is_multisite() && is_plugin_active_for_network( $file );
+
+		// The Scanfully plugin updating itself: the rest of this job runs on
+		// the classes in memory, never on the new files.
+		if ( $own ) {
+			foreach ( OwnUpdate::preload() as $problem ) {
+				$run->log( $problem );
+			}
+		}
 
 		$skin     = new UpgraderSkin( $run );
 		$result   = self::upgrader( 'plugin', $skin )->upgrade( $file );

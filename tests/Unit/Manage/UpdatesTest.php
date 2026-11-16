@@ -12,12 +12,14 @@ use Brain\Monkey\Functions;
 use Scanfully\Manage\Inventory;
 use Scanfully\Manage\JobFailed;
 use Scanfully\Manage\JobRun;
+use Scanfully\Manage\OwnUpdate;
 use Scanfully\Manage\Updates;
 use Scanfully\Manage\UpgraderSkin;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
 /**
  * @covers \Scanfully\Manage\Updates
+ * @covers \Scanfully\Manage\OwnUpdate
  * @covers \Scanfully\Manage\UpgraderSkin
  * @covers \Scanfully\Manage\Inventory
  * @covers \Scanfully\Manage\Failure
@@ -103,6 +105,13 @@ final class UpdatesTest extends TestCase {
 	 * @var \ArrayObject<int, array{0: string, 1: mixed}>
 	 */
 	private \ArrayObject $upgrades;
+
+	/**
+	 * The autoloader of a test's fixture classes.
+	 *
+	 * @var callable|null
+	 */
+	private $loader = null;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -190,6 +199,10 @@ final class UpdatesTest extends TestCase {
 		Updates::$upgraders    = null;
 		Updates::$version_file = null;
 		Inventory::$source     = null;
+		OwnUpdate::$classes    = null;
+		if ( null !== $this->loader ) {
+			spl_autoload_unregister( $this->loader );
+		}
 		unset( $GLOBALS['wpdb'] );
 		$this->remove( $this->made_content ? ABSPATH . 'wp-content' : WP_PLUGIN_DIR . '/hello-fixture' );
 		$this->remove( $this->tmp );
@@ -385,13 +398,65 @@ final class UpdatesTest extends TestCase {
 		$this->assertSame( [], $this->upgrades->getArrayCopy() );
 	}
 
-	public function test_a_plugin_that_is_not_installed_or_scanfully_itself(): void {
+	public function test_a_plugin_that_is_not_installed(): void {
 		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'akismet' ], static function (): void {}, $this->job_run() ) );
 		$this->assertSame( 'not_available', $e->error_class() );
+	}
 
+	public function test_scanfully_updates_itself_with_every_class_loaded_first(): void {
 		Functions\when( 'plugin_basename' )->justReturn( 'hello-fixture/hello-fixture.php' );
-		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+		$namespace = 'ScanfullyUpdatesFixture\\F' . bin2hex( random_bytes( 6 ) );
+		mkdir( $this->tmp . '/classes' );
+		file_put_contents( $this->tmp . '/classes/Late.php', "<?php\nnamespace $namespace;\nclass Late {}\n" );
+		$root               = $this->tmp . '/classes';
+		$this->loader       = static function ( string $name ) use ( $namespace, $root ): void {
+			if ( $namespace . '\\Late' === $name ) {
+				require $root . '/Late.php';
+			}
+		};
+		OwnUpdate::$classes = [ $root, $namespace . '\\' ];
+		spl_autoload_register( $this->loader );
+
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$loaded_first                                    = null;
+		$this->upgrade                                   = function ( string $kind, UpgraderSkin $skin, $file ) use ( $namespace, &$loaded_first ): bool {
+			$loaded_first          = class_exists( $namespace . '\\Late', false );
+			$this->active[ $file ] = false;
+			$this->write_plugin( 'hello-fixture', '1.1.0' );
+			return true;
+		};
+
+		$result = Updates::plugin(
+			[
+				'slug'           => 'hello-fixture',
+				'target_version' => '1.1.0',
+			],
+			static function (): void {},
+			$this->job_run()
+		);
+
+		$this->assertTrue( $loaded_first, 'every class is loaded before the upgrader replaces the files' );
+		$this->assertSame( '1.0.0', $result['previous_version'] );
+		$this->assertSame( '1.1.0', $result['new_version'] );
+		$this->assertSame( [ 'hello-fixture/hello-fixture.php' ], $this->activated, 'switched on again, as it was active' );
+	}
+
+	public function test_scanfully_in_a_linked_folder_is_not_updated(): void {
+		Functions\when( 'plugin_basename' )->justReturn( 'hello-fixture/hello-fixture.php' );
+		$this->offer_plugin( '1.1.0' );
+		rename( WP_PLUGIN_DIR . '/hello-fixture', $this->tmp . '/checkout' );
+		symlink( $this->tmp . '/checkout', WP_PLUGIN_DIR . '/hello-fixture' );
+		try {
+			$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+		} finally {
+			unlink( WP_PLUGIN_DIR . '/hello-fixture' );
+			rename( $this->tmp . '/checkout', WP_PLUGIN_DIR . '/hello-fixture' );
+		}
+
 		$this->assertSame( 'not_supported', $e->error_class() );
+		$this->assertSame( [], $this->upgrades->getArrayCopy(), 'the upgrader never ran' );
+		$this->assertSame( '1.0.0', $this->plugin_version( 'hello-fixture' ), 'the linked files are untouched' );
 	}
 
 	public function test_malformed_params_are_refused(): void {
