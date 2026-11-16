@@ -250,21 +250,19 @@ final class ReporterTargetsTest extends TestCase {
 		$this->assertArrayNotHasKey( 'scanfully_php_errors_sent_network', $this->db->options[2] );
 	}
 
-	public function test_the_subsites_own_switch_only_stops_what_goes_to_its_own_connection(): void {
+	public function test_a_subsite_with_no_target_left_forgets_what_it_stored(): void {
 		$this->monitor( [ 2 => 'child-2' ] );
-		$this->connect_own( 2, 'own-2' );
-		$this->db->options[2][ Monitor::ENABLED_OPTION ] = 'no';
 		$this->on_blog( 2 );
 		$this->store_error( str_repeat( 'e', 40 ), 2 );
-
 		$this->assertTrue( Monitor::should_run() );
-		Reporter::send();
 
-		$this->assertSame( [ 'child-2' => [ 2 ] ], $this->counts_sent() );
-
-		// Without the network, the switch turns capture off.
+		// The network stopped monitoring it, and it has no connection of its own.
 		unset( $this->db->options[2]['scanfully_network_child'] );
 		$this->assertFalse( Monitor::should_run() );
+		Reporter::send();
+
+		$this->assertSame( [], $this->sent );
+		$this->assertSame( [], array_filter( array_keys( $this->store->rows ), static fn( string $name ): bool => 0 === strpos( $name, Store::PREFIX ) && false === strpos( $name, '_lock_' ) ) );
 	}
 
 	public function test_a_fatal_error_sent_directly_to_one_of_two_targets_is_kept_for_the_other(): void {

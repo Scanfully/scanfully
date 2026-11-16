@@ -82,13 +82,13 @@ final class Reporter {
 	 * @return void
 	 */
 	public static function send(): void {
-		// Capture off, or no target left at all (a subsite no longer
-		// monitored): what is stored goes.
+		// No target left at all (a subsite no longer monitored): what is
+		// stored goes.
 		if ( ! Monitor::should_run() ) {
 			Store::delete_all();
 			return;
 		}
-		$targets = array_values( array_filter( Targets::now(), [ Monitor::class, 'sends_to' ] ) );
+		$targets = Targets::now();
 		if ( [] === $targets ) {
 			return;
 		}

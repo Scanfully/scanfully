@@ -14,7 +14,7 @@ namespace Scanfully\Tests\Integration;
 use PHPUnit\Framework\TestCase;
 use Scanfully\Errors\Context;
 use Scanfully\Errors\Monitor;
-use Scanfully\Errors\MuPlugin;
+use Scanfully\MustUse\MuPlugin;
 use Scanfully\Errors\Reporter;
 use Scanfully\Errors\Store;
 use Scanfully\Health\MuPlugins;
@@ -80,7 +80,6 @@ final class PhpErrorsTest extends TestCase {
 		update_option( 'scanfully_connect_is_connected', 'yes' );
 		update_option( 'scanfully_connect_site_id', 'site-errors-test' );
 		update_option( 'scanfully_connect_access_token', 'token-errors-test', false );
-		delete_option( Monitor::ENABLED_OPTION );
 		Store::delete_all();
 		Monitor::reset();
 		as_unschedule_all_actions( '', [], 'scanfully' );
@@ -108,7 +107,6 @@ final class PhpErrorsTest extends TestCase {
 			update_option( 'active_plugins', $this->active );
 			Store::delete_all();
 			as_unschedule_all_actions( '', [], 'scanfully' );
-			delete_option( Monitor::ENABLED_OPTION );
 			delete_option( 'scanfully_connect_is_connected' );
 			delete_option( 'scanfully_connect_site_id' );
 			delete_option( 'scanfully_connect_access_token' );
@@ -277,15 +275,14 @@ final class PhpErrorsTest extends TestCase {
 		$this->assertTrue( $this->sent[0]['errors'][0]['context']['maintenance'] );
 	}
 
-	public function test_switched_off_nothing_is_kept_or_sent(): void {
-		update_option( Monitor::ENABLED_OPTION, 'no', true );
+	public function test_a_disconnected_site_sends_nothing(): void {
 		Store::add( [], Store::hour(), 0, 3 );
+		update_option( 'scanfully_connect_is_connected', 'no' );
 
 		$this->assertFalse( Monitor::should_run() );
 		Reporter::send();
 
 		$this->assertSame( [], $this->sent );
-		$this->assertSame( [], Store::read()['overflow'], 'Turning it off removes what was waiting.' );
 	}
 
 	public function test_the_must_use_plugin_is_installed_known_and_removed(): void {
@@ -295,7 +292,7 @@ final class PhpErrorsTest extends TestCase {
 
 		$entries = array_column( MuPlugins::scan(), null, 'file' );
 		$this->assertSame( 'Scanfully', $entries[ MuPlugin::FILE ]['known'] ?? null );
-		$this->assertSame( 'Scanfully PHP error monitor', $entries[ MuPlugin::FILE ]['name'] );
+		$this->assertSame( 'Scanfully (must-use)', $entries[ MuPlugin::FILE ]['name'] );
 
 		MuPlugin::remove();
 		$this->assertFileDoesNotExist( MuPlugin::path() );
@@ -309,8 +306,8 @@ final class PhpErrorsTest extends TestCase {
 		$this->assertFileExists( MuPlugin::path() );
 	}
 
-	public function test_the_must_use_plugin_is_not_installed_while_switched_off(): void {
-		update_option( Monitor::ENABLED_OPTION, 'no', true );
+	public function test_the_must_use_plugin_is_not_installed_while_disconnected(): void {
+		update_option( 'scanfully_connect_is_connected', 'no' );
 
 		$this->assertFalse( MuPlugin::install() );
 		$this->assertFileDoesNotExist( MuPlugin::path() );

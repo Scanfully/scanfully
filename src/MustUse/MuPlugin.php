@@ -1,33 +1,38 @@
 <?php
 /**
- * The PHP error monitor must-use plugin class file.
+ * The Scanfully must-use plugin class file.
  *
  * @package Scanfully
  */
 
-namespace Scanfully\Errors;
+namespace Scanfully\MustUse;
+
+use Scanfully\Errors\Monitor;
 
 /**
  * Class MuPlugin
  *
- * Installs and removes the one-file must-use plugin that starts the error
- * monitor before any plugin loads, so a fatal error while a plugin loads
- * (the classic broken update) is caught too. It is only written when the
- * `mu-plugins` folder is writable (or can be made in a writable
- * `wp-content`); without it the Scanfully plugin starts the monitor itself
- * while plugins load, and coverage is partial.
+ * Installs and removes Scanfully's one-file must-use plugin,
+ * `scanfully-mu.php`. It starts what has to run before any other plugin
+ * loads; today that is the PHP error monitor, so a fatal error while a
+ * plugin loads (the classic broken update) is caught too. It is only
+ * written when the `mu-plugins` folder is writable (or can be made in a
+ * writable `wp-content`); without it the Scanfully plugin starts the
+ * monitor itself while plugins load, and coverage is partial.
  *
- * The file only loads the monitor from the Scanfully plugin's folder, and
- * only while the plugin is active, so a copy left behind does nothing.
+ * The file only includes `src/mu.php` from the Scanfully plugin's folder,
+ * which decides what starts early, so something new that has to run early
+ * changes the plugin and never the file on the site. It does nothing while
+ * the plugin is inactive, so a copy left behind does nothing either.
  *
- * @package Scanfully\Errors
+ * @package Scanfully\MustUse
  */
 final class MuPlugin {
 
 	/**
 	 * The file name in `mu-plugins`.
 	 */
-	public const FILE = 'scanfully-php-errors.php';
+	public const FILE = 'scanfully-mu.php';
 
 	/**
 	 * The version of the file's content; a new version is written over an
@@ -39,7 +44,7 @@ final class MuPlugin {
 	 * Text in the file that marks it as Scanfully's, so only Scanfully's own
 	 * file is ever removed.
 	 */
-	public const MARKER = 'Scanfully PHP error monitor';
+	public const MARKER = 'Scanfully (must-use)';
 
 	/**
 	 * The must-use plugins folder.
@@ -79,7 +84,7 @@ final class MuPlugin {
 		return '<?php
 /**
  * Plugin Name: ' . self::MARKER . '
- * Description: Catches PHP fatal errors and warnings from before other plugins load and hands them to the Scanfully plugin. Installed and removed by the Scanfully plugin; it does nothing while that plugin is inactive.
+ * Description: Starts the parts of the Scanfully plugin that have to run before other plugins load, such as PHP error monitoring. Installed and removed by the Scanfully plugin; it does nothing while that plugin is inactive.
  * Version: ' . self::VERSION . '
  * Author: Scanfully
  * Author URI: https://scanfully.com/
@@ -93,15 +98,18 @@ if ( ! defined( \'ABSPATH\' ) ) {
 }
 
 try {
-	$scanfully_errors_loader = WP_PLUGIN_DIR . \'/\' . ' . $export( $folder ) . ' . \'/src/Errors/load.php\';
-	if ( is_readable( $scanfully_errors_loader ) ) {
-		require_once $scanfully_errors_loader;
-		\\Scanfully\\Errors\\Monitor::boot( \'mu\', ' . $export( $basename ) . ' );
+	$scanfully_mu_entry = WP_PLUGIN_DIR . \'/\' . ' . $export( $folder ) . ' . \'/src/mu.php\';
+	if ( is_readable( $scanfully_mu_entry ) ) {
+		$scanfully_mu_boot = require $scanfully_mu_entry;
+		if ( is_callable( $scanfully_mu_boot ) ) {
+			$scanfully_mu_boot( ' . $export( $basename ) . ' );
+		}
+		unset( $scanfully_mu_boot );
 	}
-	unset( $scanfully_errors_loader );
-} catch ( \\Throwable $scanfully_errors_error ) {
-	// Never break the site: the Scanfully plugin catches errors itself.
-	unset( $scanfully_errors_error );
+	unset( $scanfully_mu_entry );
+} catch ( \\Throwable $scanfully_mu_error ) {
+	// Never break the site: the Scanfully plugin starts these itself.
+	unset( $scanfully_mu_error );
 }
 ';
 	}
@@ -115,6 +123,17 @@ try {
 		$file = defined( 'SCANFULLY_PLUGIN_FILE' ) ? (string) SCANFULLY_PLUGIN_FILE : dirname( __DIR__, 2 ) . '/scanfully.php';
 
 		return function_exists( 'plugin_basename' ) ? plugin_basename( $file ) : basename( dirname( $file ) ) . '/' . basename( $file );
+	}
+
+	/**
+	 * Whether anything has to start before other plugins load on this site.
+	 * Today that is the PHP error monitor; add a check here for anything
+	 * else `src/mu.php` starts.
+	 *
+	 * @return bool
+	 */
+	public static function needed(): bool {
+		return Monitor::should_run();
 	}
 
 	/**
@@ -173,15 +192,15 @@ try {
 	}
 
 	/**
-	 * Write the current file, when capture runs and the folder is writable.
-	 * Leaves a file of the same name that isn't Scanfully's alone. Written
-	 * to a temporary file first and moved into place, so a request never
-	 * loads half a file.
+	 * Write the current file, when something needs it and the folder is
+	 * writable. Leaves a file of the same name that isn't Scanfully's alone.
+	 * Written to a temporary file first and moved into place, so a request
+	 * never loads half a file.
 	 *
 	 * @return bool Whether the current file is in place.
 	 */
 	public static function install(): bool {
-		if ( ! Monitor::should_run() ) {
+		if ( ! self::needed() ) {
 			return false;
 		}
 		if ( self::is_current() ) {
@@ -237,7 +256,7 @@ try {
 		try {
 			self::install();
 		} catch ( \Throwable $e ) {
-			// Never break the admin; the Scanfully plugin catches errors itself.
+			// Never break the admin; the Scanfully plugin starts these itself.
 			return;
 		}
 	}

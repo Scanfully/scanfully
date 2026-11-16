@@ -10,7 +10,6 @@ namespace Scanfully\Errors;
 use Scanfully\API\ErrorsRequest;
 use Scanfully\Connect\Children;
 use Scanfully\Connect\Network;
-use Scanfully\Connect\Target;
 use Scanfully\Connect\Targets;
 use Scanfully\Options\Controller as OptionsController;
 
@@ -42,11 +41,6 @@ use Scanfully\Options\Controller as OptionsController;
  * @package Scanfully\Errors
  */
 final class Monitor {
-
-	/**
-	 * Option that turns capture off: `no`. On by default.
-	 */
-	public const ENABLED_OPTION = 'scanfully_connect_php_errors_enabled';
 
 	/**
 	 * The most distinct errors kept per request.
@@ -115,9 +109,8 @@ final class Monitor {
 	private static int $dropped = 0;
 
 	/**
-	 * Start catching errors, once per request: when the site is connected,
-	 * capture isn't turned off, and (from the must-use plugin) the
-	 * Scanfully plugin is active.
+	 * Start catching errors, once per request: when the site is connected
+	 * and (from the must-use plugin) the Scanfully plugin is active.
 	 *
 	 * @param string $origin   `mu` or `plugin`.
 	 * @param string $basename The Scanfully plugin's basename, for the must-use plugin's check.
@@ -156,9 +149,9 @@ final class Monitor {
 	}
 
 	/**
-	 * Whether capture runs on this site: connected, not turned off, and the
-	 * Scanfully plugin active (and not paused by recovery mode) when a
-	 * basename is given.
+	 * Whether capture runs on this site: connected, and the Scanfully plugin
+	 * active (and not paused by recovery mode) when a basename is given.
+	 * There is no setting to turn it off: it is part of being connected.
 	 *
 	 * @param string $basename The Scanfully plugin's basename, or '' to skip that check.
 	 *
@@ -166,16 +159,6 @@ final class Monitor {
 	 */
 	public static function should_run( string $basename = '' ): bool {
 		if ( ! function_exists( 'get_option' ) || ! self::has_target() ) {
-			return false;
-		}
-		/**
-		 * Filters whether PHP errors are caught and sent to Scanfully. The
-		 * must-use plugin reads it before regular plugins load, so add the
-		 * filter in a must-use plugin or in wp-config.php.
-		 *
-		 * @param bool $enabled Whether PHP errors are caught.
-		 */
-		if ( ! apply_filters( 'scanfully_php_errors_enabled', true ) ) {
 			return false;
 		}
 		if ( '' === $basename ) {
@@ -204,46 +187,17 @@ final class Monitor {
 	 * @return bool
 	 */
 	private static function has_target(): bool {
-		$off = self::switched_off();
-		if ( ! $off && 'yes' === get_option( 'scanfully_connect_is_connected' ) ) {
+		if ( 'yes' === get_option( 'scanfully_connect_is_connected' ) ) {
 			return true;
 		}
 		if ( ! function_exists( 'is_multisite' ) || ! is_multisite() ) {
 			return false;
 		}
 		if ( is_main_site() ) {
-			return ! $off && 'yes' === get_site_option( Network::CONNECTED_OPTION );
+			return 'yes' === get_site_option( Network::CONNECTED_OPTION );
 		}
 
-		// The switch on a subsite's own settings page is about its own
-		// connection: the network that monitors it keeps catching its errors.
 		return null !== Children::marker_here();
-	}
-
-	/**
-	 * Whether the site's own switch (Settings > Scanfully) turned PHP error
-	 * monitoring off for its own connection. Read from the autoloaded
-	 * options: a site that never touched the setting has no row, and
-	 * get_option() would look for it on every request.
-	 *
-	 * @return bool
-	 */
-	private static function switched_off(): bool {
-		$options = function_exists( 'wp_load_alloptions' ) ? wp_load_alloptions() : [];
-
-		return 'no' === ( $options[ self::ENABLED_OPTION ] ?? '' );
-	}
-
-	/**
-	 * Whether a target gets this site's PHP errors: a network's child always
-	 * (while capture runs), the own connection unless its switch is off.
-	 *
-	 * @param Target $target The target.
-	 *
-	 * @return bool
-	 */
-	public static function sends_to( Target $target ): bool {
-		return $target->is_child() || ! self::switched_off();
 	}
 
 	/**
@@ -429,7 +383,7 @@ final class Monitor {
 		$now     = time();
 		$hour    = Store::hour( $now );
 		$errors  = $built;
-		$known   = Store::known_by_all( array_filter( Targets::here(), [ self::class, 'sends_to' ] ) );
+		$known   = Store::known_by_all( Targets::here() );
 		$unknown = array_diff_key( $errors, array_filter( $known, static fn( int $sent ): bool => $sent > $now - Store::KNOWN_FOR ) );
 
 		// A new distinct error counts against the hour's cap; one already
@@ -514,7 +468,7 @@ final class Monitor {
 		if ( ! Store::lock( (string) $error['fingerprint'], self::DIRECT_PERIOD, $now ) ) {
 			return false;
 		}
-		$targets = array_values( array_filter( Targets::now(), [ self::class, 'sends_to' ] ) );
+		$targets = Targets::now();
 		if ( [] === $targets ) {
 			return false;
 		}

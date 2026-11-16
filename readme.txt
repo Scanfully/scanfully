@@ -4,7 +4,7 @@ Donate link: https://scanfully.com
 Tags: monitoring, site health, broken links, user activity, activity log
 Requires at least: 6.0
 Tested up to: 7.1.3
-Stable tag: 1.10.0
+Stable tag: 1.12.0
 License: GPLv3 or later
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 Requires PHP: 7.4
@@ -158,7 +158,7 @@ Once connected, the plugin sends the following data to provide monitoring, diagn
 * **Connection changes:** When the plugin is deactivated, disconnected, or deleted, that it happened and the display name of the person who did it.
 * **Sync diagnostics:** When Scanfully asks the plugin to sync, the plugin's version, when its last request to Scanfully succeeded, and the time, status, and error message of its last failed request.
 
-PHP error monitoring is enabled by default after connection. To catch errors raised while other plugins load, the plugin adds the file `scanfully-php-errors.php` to `wp-content/mu-plugins` when that folder is writable. It removes the file when the plugin is deactivated or deleted, or when PHP error monitoring is turned off. On a multisite network the file serves every site, so it is only removed when the plugin is network-deactivated or deleted. You can turn PHP error monitoring off under Settings > Scanfully. On a subsite that the network's owner monitors in Scanfully, that switch only stops what goes to the subsite's own connection: the network connection keeps receiving the subsite's PHP errors.
+PHP error monitoring is part of Scanfully's monitoring and runs while the site is connected. To catch errors raised while other plugins load, the plugin adds its must-use plugin, the file `scanfully-mu.php`, to `wp-content/mu-plugins` when that folder is writable. It removes the file when the plugin is deactivated, disconnected or deleted. On a multisite network the file serves every site, so it is only removed when the plugin is network-deactivated or deleted. While Scanfully Manage updates the Scanfully plugin itself, the plugin also adds `0-scanfully-update-guard.php` to that folder for the length of the update, which puts the plugin back if the update stops halfway, and removes it afterwards.
 
 Email checks are enabled by default after connection. The plugin sends test messages through your site's mail setup to a Scanfully address. Messages include site and version details and verification identifiers. The sender defaults to your WordPress administration email. The plugin also reports the detected mail plugin or WordPress version and local send errors to the API. You can turn these checks off under Settings > Scanfully.
 
@@ -169,6 +169,19 @@ Read Scanfully's [terms and conditions](https://docs.scanfully.com/general/terms
 1. The Scanfully settings screen.
 
 == Changelog ==
+
+= 1.12.0: November 14, 2026 =
+* Added: PHP error monitoring: fatal errors and warnings are caught, grouped and counted, credited to the plugin, theme or WordPress core that raised them, and sent to Scanfully, which lists them per site and can alert you when a new fatal error appears
+* Added: a small must-use plugin, added to wp-content/mu-plugins when that folder is writable, catches errors raised while other plugins load; it is removed when the plugin is deactivated, disconnected or deleted
+* Security: email addresses, passwords, keys, tokens and query strings are removed from PHP error messages before they are sent
+* Changed: the readme lists the PHP error data the plugin sends under External services
+
+= 1.11.0: November 12, 2026 =
+* Added: connecting a site goes through Scanfully's authorization server, where you pick the site and choose what Scanfully may do on it
+* Added: "Change what Scanfully may do" on the settings page changes those permissions later, and cancelling keeps the current connection
+* Changed: an existing connection moves to the new connection by itself, without reconnecting
+* Security: when Scanfully asks the site to sync, it signs the request, and the plugin checks the signature against Scanfully's public keys
+* Changed: the readme describes WooCommerce checkout monitoring as an add-on instead of a beta
 
 = 1.10.0: November 2, 2026 =
 * Added: the plugin tells Scanfully when it is deactivated, disconnected or deleted, and by whom, so Scanfully can say why a site stopped reporting
