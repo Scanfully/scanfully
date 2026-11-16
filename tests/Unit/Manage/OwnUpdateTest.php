@@ -8,7 +8,9 @@
 
 namespace Scanfully\Tests\Unit\Manage;
 
+use Brain\Monkey\Functions;
 use Scanfully\Manage\JobFailed;
+use Scanfully\Manage\JobRun;
 use Scanfully\Manage\OwnUpdate;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
 
@@ -39,7 +41,9 @@ final class OwnUpdateTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		OwnUpdate::$classes = null;
+		OwnUpdate::$classes  = null;
+		OwnUpdate::$scraper  = null;
+		OwnUpdate::$restorer = null;
 		if ( null !== $this->loader ) {
 			spl_autoload_unregister( $this->loader );
 		}
@@ -182,5 +186,215 @@ final class OwnUpdateTest extends TestCase {
 		} finally {
 			rmdir( $folder );
 		}
+	}
+
+	/**
+	 * The site answers the check with a body, given the scrape key the
+	 * request carries.
+	 *
+	 * @param callable $body Takes the key, gives the body; or a WP_Error.
+	 */
+	private function site_answers( $body ): void {
+		Functions\when( 'set_transient' )->justReturn( true );
+		Functions\when( 'delete_transient' )->justReturn( true );
+		Functions\when( 'home_url' )->justReturn( 'https://scanfully.com/' );
+		Functions\when( 'add_query_arg' )->alias( static fn( array $query, string $url ): string => $url . '?' . http_build_query( $query ) );
+		Functions\when( 'is_wp_error' )->alias( static fn( $thing ): bool => $thing instanceof \WP_Error );
+		Functions\when( 'wp_remote_retrieve_body' )->alias( static fn( array $response ): string => $response['body'] );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( static fn( array $response ): int => $response['code'] );
+		Functions\when( 'wp_remote_get' )->alias(
+			static function ( string $url ) use ( $body ) {
+				parse_str( (string) parse_url( $url, PHP_URL_QUERY ), $query );
+				$answer = $body( (string) $query['wp_scrape_key'] );
+				return $answer instanceof \WP_Error ? $answer : [
+					'code' => 200,
+					'body' => $answer,
+				];
+			}
+		);
+	}
+
+	public function test_the_check_reads_wordpress_s_scrape_result(): void {
+		$this->site_answers( static fn( string $key ): string => "<html>\n###### wp_scraping_result_start:$key ######\ntrue\n###### wp_scraping_result_end:$key ######\n" );
+		$this->assertSame( [ 'state' => 'ok' ], OwnUpdate::scrape() );
+
+		$this->site_answers(
+			static fn( string $key ): string => "###### wp_scraping_result_start:$key ######\n" . json_encode(
+				[
+					'type' => E_ERROR,
+					'message' => 'Uncaught Error: boom',
+					'file' => 'wp-content/plugins/scanfully/src/Main.php',
+					'line' => 12,
+				]
+			) . "\n###### wp_scraping_result_end:$key ######"
+		);
+		$this->assertSame(
+			[
+				'state' => 'fatal',
+				'error' => [
+					'message' => 'Uncaught Error: boom',
+					'file'    => 'wp-content/plugins/scanfully/src/Main.php',
+					'line'    => 12,
+				],
+			],
+			OwnUpdate::scrape()
+		);
+
+		$this->site_answers( static fn(): string => '<html>a cached page</html>' );
+		$this->assertSame( 'unknown', OwnUpdate::scrape()['state'], 'a page without the check, as from a page cache' );
+
+		$this->site_answers( static fn() => new \WP_Error( 'http_request_failed', 'cURL error 7' ) );
+		$this->assertSame(
+			[
+				'state'  => 'unknown',
+				'reason' => 'the request to the site failed: cURL error 7',
+			],
+			OwnUpdate::scrape()
+		);
+	}
+
+	/**
+	 * Checks answer in turn.
+	 *
+	 * @param array ...$answers The answers, as scrape() gives them.
+	 */
+	private function checks( array ...$answers ): void {
+		OwnUpdate::$scraper = static function () use ( &$answers ): array {
+			return array_shift( $answers ) ?? [ 'state' => 'ok' ];
+		};
+	}
+
+	private function job_run(): JobRun {
+		return new JobRun( 'a1a1a1a1-1111-4111-8111-111111111111', null, $this->tmp . '/.maintenance' );
+	}
+
+	private const FATAL = [
+		'state' => 'fatal',
+		'error' => [
+			'message' => 'Uncaught Error: Class "Scanfully\\Gone" not found',
+			'file'    => 'wp-content/plugins/scanfully/src/Main.php',
+			'line'    => 40,
+		],
+	];
+
+	public function test_a_new_version_that_loads_stands(): void {
+		$this->checks( [ 'state' => 'ok' ] );
+		OwnUpdate::$restorer = function (): ?string {
+			$this->fail( 'Nothing to put back.' );
+		};
+		$run = $this->job_run();
+
+		$this->assertNull( OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $run ) );
+		$this->assertSame( [ 'The site loads with the new version of Scanfully.' ], $run->log_lines() );
+	}
+
+	public function test_a_site_that_cannot_be_checked_keeps_the_new_version(): void {
+		OwnUpdate::$restorer = function (): ?string {
+			$this->fail( 'Nothing is known: nothing changes.' );
+		};
+
+		$this->checks( [ 'state' => 'fatal' ] );
+		$run = $this->job_run();
+		$this->assertNull( OwnUpdate::check_after( self::FATAL, 'scanfully/scanfully.php', '1.10.0', '1.12.0', $run ), 'broken before the update too' );
+		$this->assertStringContainsString( 'before the update too', $run->log_lines()[0] );
+
+		$run = $this->job_run();
+		$this->assertNull(
+			OwnUpdate::check_after(
+				[
+					'state'  => 'unknown',
+					'reason' => 'the request to the site failed: cURL error 7',
+				],
+				'scanfully/scanfully.php',
+				'1.10.0',
+				'1.12.0',
+				$run
+			)
+		);
+		$this->assertStringContainsString( 'could not check it before the update (the request to the site failed: cURL error 7)', $run->log_lines()[0] );
+
+		$cached = [
+			'state'  => 'unknown',
+			'code'   => 200,
+			'reason' => 'the site answered 200 without WordPress\'s check, for example from a page cache',
+		];
+		$this->checks( $cached, $cached );
+		$run = $this->job_run();
+		$this->assertNull( OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $run ) );
+		$this->assertStringContainsString( 'could not check the site with the new version', $run->log_lines()[0] );
+	}
+
+	public function test_a_check_without_an_answer_is_tried_once_more(): void {
+		$this->checks(
+			[
+				'state'  => 'unknown',
+				'code'   => 500,
+				'reason' => 'the site answered 500 without WordPress\'s check, for example from a page cache',
+			],
+			[ 'state' => 'ok' ]
+		);
+		OwnUpdate::$restorer = function (): ?string {
+			$this->fail( 'The second check passed.' );
+		};
+		$run = $this->job_run();
+
+		$this->assertNull( OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $run ) );
+		$this->assertSame( [ 'The site loads with the new version of Scanfully.' ], $run->log_lines() );
+	}
+
+	public function test_a_server_error_on_every_page_load_is_rolled_back(): void {
+		$error = [
+			'state'  => 'unknown',
+			'code'   => 500,
+			'reason' => 'the site answered 500 without WordPress\'s check, for example from a page cache',
+		];
+		$this->checks( $error, $error, [ 'state' => 'ok' ] );
+		$restored            = 0;
+		OwnUpdate::$restorer = static function () use ( &$restored ): ?string {
+			++$restored;
+			return null;
+		};
+
+		$crash = OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $this->job_run() );
+
+		$this->assertSame( 1, $restored );
+		$this->assertTrue( $crash['settled'] );
+		$this->assertSame( 'With version 1.12.0 of the Scanfully plugin the site answered 500 (a server error) to every page load, where it loaded before the update. Scanfully put version 1.10.0 back. The site loads again.', $crash['message'] );
+	}
+
+	public function test_a_new_version_that_stops_with_a_php_error_is_rolled_back(): void {
+		$this->checks( self::FATAL, [ 'state' => 'ok' ] );
+		$restored            = [];
+		OwnUpdate::$restorer = static function ( string $file ) use ( &$restored ): ?string {
+			$restored[] = $file;
+			return null;
+		};
+
+		$crash = OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $this->job_run() );
+
+		$this->assertSame( [ 'scanfully/scanfully.php' ], $restored );
+		$this->assertSame( 'fatal', $crash['class'] );
+		$this->assertTrue( $crash['settled'] );
+		$this->assertSame( 'Version 1.12.0 of the Scanfully plugin stopped with a PHP error when the site loaded it: Uncaught Error: Class "Scanfully\\Gone" not found (in wp-content/plugins/scanfully/src/Main.php:40). Scanfully put version 1.10.0 back. The site loads again.', $crash['message'] );
+	}
+
+	public function test_a_rollback_that_fails_leaves_it_to_the_guard(): void {
+		$this->checks( self::FATAL );
+		OwnUpdate::$restorer = static fn(): string => 'WordPress\'s backup of it is not there';
+
+		$crash = OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $this->job_run() );
+
+		$this->assertFalse( $crash['settled'] );
+		$this->assertStringContainsString( 'Scanfully could not put version 1.10.0 back (WordPress\'s backup of it is not there); its update guard tries again', $crash['message'] );
+	}
+
+	public function test_a_site_still_broken_after_the_rollback_is_not_settled(): void {
+		$this->checks( self::FATAL, self::FATAL );
+		OwnUpdate::$restorer = static fn(): ?string => null;
+
+		$crash = OwnUpdate::check_after( [ 'state' => 'ok' ], 'scanfully/scanfully.php', '1.10.0', '1.12.0', $this->job_run() );
+
+		$this->assertFalse( $crash['settled'] );
+		$this->assertStringContainsString( 'Scanfully put version 1.10.0 back. The site still stops with a PHP error: Uncaught Error', $crash['message'] );
 	}
 }

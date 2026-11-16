@@ -16,6 +16,7 @@ use Scanfully\Manage\Inventory;
 use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Ledger;
 use Scanfully\Manage\RunLock;
+use Scanfully\Manage\UpdateGuard;
 use Scanfully\Manage\Updates;
 use Scanfully\Manage\UpgraderSkin;
 use WP_REST_Request;
@@ -110,6 +111,13 @@ final class ControllerTest extends TestCase {
 	private bool $keys_down = false;
 
 	/**
+	 * Network options, by name.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private array $site_options = [];
+
+	/**
 	 * What home_url() answers, call after call: a multilingual plugin's
 	 * filter, which the address check must not follow.
 	 *
@@ -174,6 +182,13 @@ final class ControllerTest extends TestCase {
 		Functions\when( 'delete_option' )->alias(
 			function ( string $name ) {
 				unset( $this->options[ str_replace( 'scanfully_connect_', '', $name ) ] );
+				return true;
+			}
+		);
+		Functions\when( 'get_site_option' )->alias( fn( string $name, $default = false ) => $this->site_options[ $name ] ?? $default );
+		Functions\when( 'delete_site_option' )->alias(
+			function ( string $name ): bool {
+				unset( $this->site_options[ $name ] );
 				return true;
 			}
 		);
@@ -764,6 +779,38 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'failed', $sent[0]['state'] );
 		$this->assertSame( 'fatal', $sent[0]['error']['class'] );
 		$this->assertSame( gmdate( 'c', $started ), $sent[0]['started_at'] );
+	}
+
+	public function test_a_stopped_self_update_reports_what_its_update_guard_did(): void {
+		$started = time() - 25 * MINUTE_IN_SECONDS;
+		$this->db->add(
+			Ledger::PREFIX . self::JOB,
+			(string) json_encode(
+				[
+					'state'      => Ledger::RUNNING,
+					'at'         => $started,
+					'started_at' => $started,
+				]
+			)
+		);
+		$this->site_options[ UpdateGuard::NOTE_OPTION ] = [
+			'job'  => self::JOB,
+			'at'   => time(),
+			'text' => 'Scanfully\'s update guard put version 1.10.0 back on the site and switched the plugin on again.',
+		];
+		$this->jobs( [ self::ping() ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"state":"failed"}',
+		];
+
+		Controller::pull();
+		$this->run_pending();
+
+		$sent = $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' );
+		$this->assertCount( 1, $sent );
+		$this->assertStringEndsWith( 'What it changed is unknown. Scanfully\'s update guard put version 1.10.0 back on the site and switched the plugin on again.', $sent[0]['error']['message'] );
+		$this->assertArrayNotHasKey( UpdateGuard::NOTE_OPTION, $this->site_options, 'forgotten once the API took it' );
 	}
 
 	public function test_a_run_that_just_started_is_left_alone(): void {

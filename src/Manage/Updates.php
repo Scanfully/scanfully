@@ -29,8 +29,10 @@ use Scanfully\Main;
  * result says nothing changed.
  *
  * The Scanfully plugin updates itself the same way, with what OwnUpdate
- * adds: never through a symbolic link, and with every class of the plugin
- * loaded before the upgrader replaces its files.
+ * adds: never through a symbolic link, with every class of the plugin
+ * loaded before the upgrader replaces its files, and with the site checked
+ * before and after, so a new version that stops with a PHP error is rolled
+ * back. UpdateGuard covers PHP stopping halfway.
  */
 final class Updates extends Action {
 
@@ -94,12 +96,24 @@ final class Updates extends Action {
 		$network = $active && is_multisite() && is_plugin_active_for_network( $file );
 
 		// The Scanfully plugin updating itself: the rest of this job runs on
-		// the classes in memory, never on the new files.
+		// the classes in memory, never on the new files; the site is checked
+		// before the update to compare with after it; and the update guard
+		// puts the plugin back when PHP stops halfway.
+		$before  = null;
+		$guarded = false;
 		if ( $own ) {
 			foreach ( OwnUpdate::preload() as $problem ) {
 				$run->log( $problem );
 			}
+			$before = OwnUpdate::scrape();
+			$run->beat();
+			$unguarded = UpdateGuard::arm( $run->id(), $file, $previous, $offered, $network );
+			$guarded   = null === $unguarded;
+			if ( ! $guarded ) {
+				$run->log( sprintf( 'Scanfully updates itself without its update guard: %s.', (string) $unguarded ) );
+			}
 		}
+		$guard_note = $guarded ? ' Scanfully\'s update guard checks the plugin on the site within a few minutes.' : '';
 
 		$skin     = new UpgraderSkin( $run );
 		$result   = self::upgrader( 'plugin', $skin )->upgrade( $file );
@@ -114,13 +128,31 @@ final class Updates extends Action {
 			if ( null !== $back ) {
 				$failure['message'] .= ' ' . $back['message'];
 			}
+			if ( $guarded && OwnUpdate::intact( $file, $previous, $network ) ) {
+				UpdateGuard::release( $run->id() );
+			} else {
+				$failure['message'] .= $guard_note;
+			}
 			self::fail( $failure, $previous, $after, $skin, $run, $started );
 		}
 		if ( null !== $back ) {
+			$back['message'] .= $guard_note;
 			self::fail( $back, $previous, $after, $skin, $run, $started );
 		}
 		if ( $after !== $offered ) {
 			self::fail( self::wrong_version( $offered, $after ), $previous, $after, $skin, $run, $started );
+		}
+		if ( $own && null !== $before ) {
+			$crash = OwnUpdate::check_after( $before, $file, $previous, $after, $run );
+			if ( null !== $crash ) {
+				if ( $guarded && $crash['settled'] ) {
+					UpdateGuard::release( $run->id() );
+				}
+				self::fail( $crash, $previous, self::plugin_version( $file ), $skin, $run, $started );
+			}
+		}
+		if ( $guarded ) {
+			UpdateGuard::release( $run->id() );
 		}
 
 		return self::partial( $previous, $after, $skin->messages(), $run, $started );

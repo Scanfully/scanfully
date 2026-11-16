@@ -788,6 +788,14 @@ class Controller {
 		$result            = $row['result'];
 		$result['attempt'] = (int) ( $row['attempt'] ?? 0 );
 		$result['result']  = (object) ( isset( $result['result'] ) && is_array( $result['result'] ) ? $result['result'] : [] );
+		// A job that updated the Scanfully plugin itself and failed: what its
+		// update guard did afterwards, once it did.
+		$note = 'failed' === ( $result['state'] ?? '' ) ? UpdateGuard::note( $id ) : null;
+		if ( null !== $note && isset( $result['error']['message'] ) && is_string( $result['error']['message'] ) ) {
+			$message                    = trim( $result['error']['message'] );
+			$message                   .= '' === $message || 1 === preg_match( '/[.!?]$/', $message ) ? '' : '.';
+			$result['error']['message'] = mb_substr( trim( $message . ' ' . $note ), 0, 1000 );
+		}
 
 		$answer = ( new ManageJobsRequest() )->result( $id, $result );
 		if ( null === $answer ) {
@@ -805,6 +813,9 @@ class Controller {
 		}
 		if ( ! $taken ) {
 			return;
+		}
+		if ( null !== $note ) {
+			UpdateGuard::forget_note( $id );
 		}
 		$reported = Ledger::move(
 			$id,

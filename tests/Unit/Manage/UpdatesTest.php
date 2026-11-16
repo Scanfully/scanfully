@@ -13,6 +13,7 @@ use Scanfully\Manage\Inventory;
 use Scanfully\Manage\JobFailed;
 use Scanfully\Manage\JobRun;
 use Scanfully\Manage\OwnUpdate;
+use Scanfully\Manage\UpdateGuard;
 use Scanfully\Manage\Updates;
 use Scanfully\Manage\UpgraderSkin;
 use Yoast\WPTestUtils\BrainMonkey\TestCase;
@@ -20,6 +21,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
 /**
  * @covers \Scanfully\Manage\Updates
  * @covers \Scanfully\Manage\OwnUpdate
+ * @covers \Scanfully\Manage\UpdateGuard
  * @covers \Scanfully\Manage\UpgraderSkin
  * @covers \Scanfully\Manage\Inventory
  * @covers \Scanfully\Manage\Failure
@@ -105,6 +107,13 @@ final class UpdatesTest extends TestCase {
 	 * @var \ArrayObject<int, array{0: string, 1: mixed}>
 	 */
 	private \ArrayObject $upgrades;
+
+	/**
+	 * Network options, by name.
+	 *
+	 * @var array<string, mixed>
+	 */
+	private array $site_options = [];
 
 	/**
 	 * The autoloader of a test's fixture classes.
@@ -193,6 +202,38 @@ final class UpdatesTest extends TestCase {
 		Functions\when( 'plugin_basename' )->justReturn( 'scanfully/scanfully.php' );
 		Functions\when( 'wp_json_encode' )->alias( 'json_encode' );
 		Functions\when( 'wp_generate_uuid4' )->alias( fn() => 'e1e1e1e1-1111-4111-8111-' . bin2hex( random_bytes( 6 ) ) );
+
+		// The Scanfully plugin updating itself: the site checks pass and the
+		// guard goes to a folder of the test.
+		if ( ! defined( 'WP_CONTENT_DIR' ) ) {
+			define( 'WP_CONTENT_DIR', ABSPATH . 'wp-content' );
+		}
+		mkdir( $this->tmp . '/mu' );
+		UpdateGuard::$dir         = $this->tmp . '/mu';
+		UpdateGuard::$on_shutdown = static function (): void {};
+		OwnUpdate::$scraper       = static fn(): array => [ 'state' => 'ok' ];
+		Functions\when( 'get_site_option' )->alias( fn( string $name, $default = false ) => $this->site_options[ $name ] ?? $default );
+		Functions\when( 'update_site_option' )->alias(
+			function ( string $name, $value ): bool {
+				$this->site_options[ $name ] = $value;
+				return true;
+			}
+		);
+		Functions\when( 'delete_site_option' )->alias(
+			function ( string $name ): bool {
+				unset( $this->site_options[ $name ] );
+				return true;
+			}
+		);
+		Functions\when( 'wp_mkdir_p' )->alias( static fn( string $dir ): bool => is_dir( $dir ) || mkdir( $dir, 0777, true ) );
+		Functions\when( 'wp_is_writable' )->alias( 'is_writable' );
+		Functions\when( 'wp_delete_file' )->alias(
+			static function ( string $file ): void {
+				if ( is_file( $file ) ) {
+					unlink( $file );
+				}
+			}
+		);
 	}
 
 	protected function tearDown(): void {
@@ -200,6 +241,10 @@ final class UpdatesTest extends TestCase {
 		Updates::$version_file = null;
 		Inventory::$source     = null;
 		OwnUpdate::$classes    = null;
+		OwnUpdate::$scraper    = null;
+		OwnUpdate::$restorer   = null;
+		UpdateGuard::$dir      = null;
+		UpdateGuard::$on_shutdown = null;
 		if ( null !== $this->loader ) {
 			spl_autoload_unregister( $this->loader );
 		}
@@ -420,26 +465,104 @@ final class UpdatesTest extends TestCase {
 		$this->offer_plugin( '1.1.0' );
 		$this->active['hello-fixture/hello-fixture.php'] = true;
 		$loaded_first                                    = null;
-		$this->upgrade                                   = function ( string $kind, UpgraderSkin $skin, $file ) use ( $namespace, &$loaded_first ): bool {
+		$guarded_during                                  = null;
+		$this->upgrade                                   = function ( string $kind, UpgraderSkin $skin, $file ) use ( $namespace, &$loaded_first, &$guarded_during ): bool {
 			$loaded_first          = class_exists( $namespace . '\\Late', false );
+			$guarded_during        = is_file( UpdateGuard::path() ) && isset( $this->site_options[ UpdateGuard::OPTION ] );
 			$this->active[ $file ] = false;
 			$this->write_plugin( 'hello-fixture', '1.1.0' );
 			return true;
 		};
 
+		$run    = $this->job_run();
 		$result = Updates::plugin(
 			[
 				'slug'           => 'hello-fixture',
 				'target_version' => '1.1.0',
 			],
 			static function (): void {},
-			$this->job_run()
+			$run
 		);
 
 		$this->assertTrue( $loaded_first, 'every class is loaded before the upgrader replaces the files' );
+		$this->assertTrue( $guarded_during, 'the guard is in place while the files are replaced' );
 		$this->assertSame( '1.0.0', $result['previous_version'] );
 		$this->assertSame( '1.1.0', $result['new_version'] );
 		$this->assertSame( [ 'hello-fixture/hello-fixture.php' ], $this->activated, 'switched on again, as it was active' );
+		$this->assertFileDoesNotExist( UpdateGuard::path(), 'the guard goes after an update that stands' );
+		$this->assertArrayNotHasKey( UpdateGuard::OPTION, $this->site_options );
+		$this->assertContains( 'The site loads with the new version of Scanfully.', $run->log_lines() );
+	}
+
+	public function test_scanfully_puts_the_version_before_back_when_the_new_one_stops_with_a_php_error(): void {
+		Functions\when( 'plugin_basename' )->justReturn( 'hello-fixture/hello-fixture.php' );
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$checks              = [
+			[ 'state' => 'ok' ],
+			[
+				'state' => 'fatal',
+				'error' => [
+					'message' => 'Uncaught Error: boom',
+					'file'    => 'wp-content/plugins/hello-fixture/hello-fixture.php',
+					'line'    => 7,
+				],
+			],
+			[ 'state' => 'ok' ],
+		];
+		OwnUpdate::$scraper  = static function () use ( &$checks ): array {
+			return array_shift( $checks );
+		};
+		OwnUpdate::$restorer = function ( string $file ): ?string {
+			$this->write_plugin( 'hello-fixture', '1.0.0' );
+			return null;
+		};
+		$this->upgrade       = function (): bool {
+			$this->write_plugin( 'hello-fixture', '1.1.0' );
+			return true;
+		};
+
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertSame( 'fatal', $e->error_class() );
+		$this->assertStringContainsString( 'Version 1.1.0 of the Scanfully plugin stopped with a PHP error when the site loaded it: Uncaught Error: boom', $e->getMessage() );
+		$this->assertStringContainsString( 'Scanfully put version 1.0.0 back. The site loads again.', $e->getMessage() );
+		$this->assertSame( '1.0.0', $e->result()['new_version'], 'the result says what runs now' );
+		$this->assertSame( [], $checks, 'checked before, after, and after the rollback' );
+		$this->assertFileDoesNotExist( UpdateGuard::path(), 'settled: the guard goes' );
+	}
+
+	public function test_a_failed_self_update_that_left_the_plugin_off_keeps_the_guard(): void {
+		Functions\when( 'plugin_basename' )->justReturn( 'hello-fixture/hello-fixture.php' );
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$this->upgrade = function ( string $kind, UpgraderSkin $skin, $file ) {
+			// WordPress switched it off, moved it to its backup and failed:
+			// it puts the backup back at the end of the request.
+			$this->active[ $file ] = false;
+			unlink( WP_PLUGIN_DIR . '/hello-fixture/hello-fixture.php' );
+			return new \WP_Error( 'copy_failed_for_update_core_file', 'Could not copy file.' );
+		};
+
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertStringEndsWith( 'Scanfully\'s update guard checks the plugin on the site within a few minutes.', $e->getMessage() );
+		$this->assertFileExists( UpdateGuard::path() );
+		$this->assertSame( 'hello-fixture/hello-fixture.php', $this->site_options[ UpdateGuard::OPTION ]['basename'] );
+		$this->assertSame( '1.0.0', $this->site_options[ UpdateGuard::OPTION ]['previous'] );
+	}
+
+	public function test_a_failed_self_update_that_changed_nothing_removes_the_guard(): void {
+		Functions\when( 'plugin_basename' )->justReturn( 'hello-fixture/hello-fixture.php' );
+		$this->offer_plugin( '1.1.0' );
+		$this->active['hello-fixture/hello-fixture.php'] = true;
+		$this->upgrade = static fn() => new \WP_Error( 'download_failed', 'Download failed.' );
+
+		$e = $this->failure( fn() => Updates::plugin( [ 'slug' => 'hello-fixture' ], static function (): void {}, $this->job_run() ) );
+
+		$this->assertStringNotContainsString( 'update guard', $e->getMessage() );
+		$this->assertFileDoesNotExist( UpdateGuard::path() );
+		$this->assertArrayNotHasKey( UpdateGuard::OPTION, $this->site_options );
 	}
 
 	public function test_scanfully_in_a_linked_folder_is_not_updated(): void {
