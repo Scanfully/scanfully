@@ -281,7 +281,7 @@ class Controller {
 	/**
 	 * The connection's options, without the Scanfully prefix.
 	 */
-	private const CONNECTION_OPTIONS = [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected', 'scopes', 'flow', 'address', 'address_shown' ];
+	private const CONNECTION_OPTIONS = [ 'is_connected', 'site_id', 'access_token', 'refresh_token', 'expires', 'last_used', 'date_connected', 'scopes', 'flow', 'address', 'address_shown', 'software_lock' ];
 
 	/**
 	 * The email deliverability sub-feature's per-connection secret and cached

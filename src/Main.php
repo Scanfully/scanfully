@@ -181,6 +181,8 @@ class Main {
 		Manage\Controller::setup();
 		Connect\Scopes::setup();
 		Connect\Address::setup();
+		// The software lock set in the Scanfully dashboard.
+		Manage\SoftwareLock::setup();
 
 		// One-click WP admin access: the sign-in links from Scanfully.
 		Login\Controller::setup();

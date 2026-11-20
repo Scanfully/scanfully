@@ -232,9 +232,10 @@ class Scopes {
 	}
 
 	/**
-	 * Read what the connection allows from the API and keep it. Runs in
-	 * Action Scheduler. An answer without scopes (an older API, a refused
-	 * token) changes nothing.
+	 * Read what the connection allows from the API and keep it, with the
+	 * software lock (see Manage\SoftwareLock). Runs in Action Scheduler. An
+	 * answer without scopes (an older API) keeps the scopes; a failed read
+	 * (no answer, an error, a refused token) changes nothing.
 	 *
 	 * @return void
 	 */
@@ -258,6 +259,9 @@ class Scopes {
 		if ( null !== $scopes ) {
 			self::learn( $scopes );
 		}
+		// The software lock set in the Scanfully dashboard: an answer without
+		// it lifts the lock, a failed read (above) keeps it.
+		Manage\SoftwareLock::learn( $answer['body']['software_lock'] ?? null );
 		// The network connection also learns which subsites its owner
 		// monitors; a new one reports its subsite data right away.
 		if ( OptionsController::network_scope() && Network::multisite() ) {
