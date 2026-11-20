@@ -50,11 +50,11 @@ class Network {
 	public const ADDRESS_OPTION = 'scanfully_connect_address';
 
 	/**
-	 * The main site's home option, by network, read once per request.
+	 * Options of the main site, by network and name, read once per request.
 	 *
-	 * @var array<int, string>
+	 * @var array<int, array<string, string>>
 	 */
-	private static array $main_homes = [];
+	private static array $main_options = [];
 
 	/**
 	 * The plugin's basename as the must-use plugin of the PHP error monitor
@@ -212,14 +212,14 @@ class Network {
 
 	/**
 	 * A string option of the network connection, from this request's
-	 * network.
+	 * network, from any site of it.
 	 *
 	 * @param string $name  The option's full name.
 	 * @param bool   $fresh Whether to skip the options cache.
 	 *
 	 * @return string
 	 */
-	private static function network_option( string $name, bool $fresh = false ): string {
+	public static function network_option( string $name, bool $fresh = false ): string {
 		if ( ! self::multisite() ) {
 			return '';
 		}
@@ -263,21 +263,34 @@ class Network {
 	 * @return string
 	 */
 	public static function main_home(): string {
+		return self::main_option( 'home' );
+	}
+
+	/**
+	 * An option of the network's main site as stored, read straight from
+	 * its options table on another site (never switch_to_blog()), once per
+	 * request; '' when it has none.
+	 *
+	 * @param string $name The option's name.
+	 *
+	 * @return string
+	 */
+	public static function main_option( string $name ): string {
 		$network = (int) get_current_network_id();
-		if ( isset( self::$main_homes[ $network ] ) ) {
-			return self::$main_homes[ $network ];
+		if ( isset( self::$main_options[ $network ][ $name ] ) ) {
+			return self::$main_options[ $network ][ $name ];
 		}
 		if ( is_main_site() ) {
-			$home = get_option( 'home' );
+			$value = get_option( $name );
 		} else {
 			global $wpdb;
 			$table = $wpdb->get_blog_prefix( (int) get_main_site_id() ) . 'options';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- One option of the main site, without loading its options; the table name comes from WordPress's prefix and an integer.
-			$home = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM `{$table}` WHERE option_name = %s", 'home' ) );
+			$value = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM `{$table}` WHERE option_name = %s", $name ) );
 		}
-		self::$main_homes[ $network ] = is_string( $home ) ? $home : '';
+		self::$main_options[ $network ][ $name ] = is_string( $value ) ? $value : '';
 
-		return self::$main_homes[ $network ];
+		return self::$main_options[ $network ][ $name ];
 	}
 
 	/**
@@ -286,7 +299,7 @@ class Network {
 	 * @return void
 	 */
 	public static function forget(): void {
-		self::$main_homes = [];
+		self::$main_options = [];
 	}
 
 	/**

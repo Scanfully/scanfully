@@ -16,6 +16,7 @@ use Scanfully\Manage\Inventory;
 use Scanfully\Manage\JobRun;
 use Scanfully\Manage\Ledger;
 use Scanfully\Manage\RunLock;
+use Scanfully\Manage\SoftwareLock;
 use Scanfully\Manage\UpdateGuard;
 use Scanfully\Manage\Updates;
 use Scanfully\Manage\UpgraderSkin;
@@ -32,6 +33,7 @@ use Yoast\WPTestUtils\BrainMonkey\TestCase;
  * @covers \Scanfully\Manage\JobToken
  * @covers \Scanfully\Manage\RunLock
  * @covers \Scanfully\Manage\JobRun
+ * @covers \Scanfully\Manage\SoftwareLock
  */
 final class ControllerTest extends TestCase {
 
@@ -1293,18 +1295,21 @@ final class ControllerTest extends TestCase {
 	/**
 	 * The API's answer to the plugin's read of its connection.
 	 *
-	 * @param string[] $scopes The scopes.
+	 * @param string[]                 $scopes The scopes.
+	 * @param array<string, bool>|null $lock   The software lock; none when null.
 	 */
-	private function connection( array $scopes ): void {
+	private function connection( array $scopes, ?array $lock = null ): void {
+		$body = [
+			'site_id' => self::SITE,
+			'scopes'  => $scopes,
+			'scope'   => implode( ' ', $scopes ),
+		];
+		if ( null !== $lock ) {
+			$body['software_lock'] = $lock;
+		}
 		$this->answers['GET /plugin-connection'] = [
 			'code' => 200,
-			'body' => (string) json_encode(
-				[
-					'site_id' => self::SITE,
-					'scopes'  => $scopes,
-					'scope'   => implode( ' ', $scopes ),
-				]
-			),
+			'body' => (string) json_encode( $body ),
 		];
 	}
 
@@ -1402,6 +1407,181 @@ final class ControllerTest extends TestCase {
 		$this->assertSame( 'wordpress:read wordpress:manage', $this->options['scopes'] );
 		$this->assertSame( 0, Scopes::changed_at() );
 		$this->assertArrayNotHasKey( 'last_request_error', $this->options, 'an older API is no broken connection' );
+	}
+
+	public function test_a_read_of_the_connection_keeps_the_software_lock_and_reports_a_change(): void {
+		$lock = [
+			'plugins'      => true,
+			'themes'       => false,
+			'translations' => false,
+			'core'         => true,
+		];
+		$this->connection( [ 'wordpress:read', 'wordpress:manage' ], $lock );
+
+		Scopes::refresh();
+
+		$this->assertSame( 'plugins core', $this->options['software_lock'] );
+		$this->assertTrue( SoftwareLock::locked( 'plugins' ) );
+		$this->assertFalse( SoftwareLock::locked( 'themes' ) );
+		$this->assertTrue( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'the site reports the lock it took' );
+
+		$this->actions = [];
+		Scopes::refresh();
+		$this->assertFalse( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ), 'the same lock again reports nothing' );
+	}
+
+	/**
+	 * @return array<string, array{array<string, mixed>}>
+	 */
+	public static function failed_reads(): array {
+		return [
+			'no answer'     => [ [ 'none' => true ] ],
+			'server error'  => [
+				[
+					'code' => 500,
+					'body' => '',
+				],
+			],
+			'refused token' => [
+				[
+					'code' => 401,
+					'body' => '{"error":"unauthorized"}',
+				],
+			],
+			'not found'     => [
+				[
+					'code' => 404,
+					'body' => '{"error":"not_found"}',
+				],
+			],
+			'not JSON'      => [
+				[
+					'code' => 200,
+					'body' => '<html>firewall</html>',
+				],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider failed_reads
+	 *
+	 * @param array<string, mixed> $answer The API's answer.
+	 */
+	public function test_a_failed_read_keeps_the_software_lock( array $answer ): void {
+		$this->options['software_lock']          = 'plugins';
+		$this->answers['GET /plugin-connection'] = $answer;
+
+		Scopes::refresh();
+
+		$this->assertSame( 'plugins', $this->options['software_lock'] );
+		$this->assertTrue( SoftwareLock::locked( 'plugins' ) );
+		$this->assertFalse( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ) );
+	}
+
+	public function test_an_answer_without_the_software_lock_lifts_it(): void {
+		$this->options['software_lock'] = 'plugins themes';
+		$this->connection( [ 'wordpress:read', 'wordpress:manage' ] );
+
+		Scopes::refresh();
+
+		$this->assertSame( '', $this->options['software_lock'] );
+		$this->assertFalse( SoftwareLock::locked( 'plugins' ) );
+		$this->assertTrue( $this->pending( \Scanfully\Cron\Controller::ACTION_SYNC_SITE_HEALTH ) );
+	}
+
+	public function test_scanfully_manage_switched_off_lifts_the_software_lock_on_the_site(): void {
+		$this->options['software_lock'] = 'core';
+		$this->assertTrue( SoftwareLock::locked( 'core' ) );
+
+		// The API sends no lock without Scanfully Manage; even before that
+		// read, the site no longer enforces the one it keeps.
+		$this->options['scopes'] = 'wordpress:read';
+		$this->assertFalse( SoftwareLock::locked( 'core' ) );
+	}
+
+	public function test_a_disconnect_forgets_the_software_lock(): void {
+		$this->options['software_lock'] = 'plugins';
+
+		\Scanfully\Options\Controller::clear();
+
+		$this->assertArrayNotHasKey( 'software_lock', $this->options );
+	}
+
+	public function test_a_scanfully_job_runs_with_the_software_lock_lifted(): void {
+		$this->options['software_lock'] = 'plugins themes translations core';
+		$this->stub_wordpress_for_updates();
+		$job                = self::ping();
+		$job['action']      = 'update_translations';
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
+		$this->jobs( [ $job ] );
+		$this->answers[ 'POST /manage/jobs/' . self::JOB . '/result' ] = [
+			'code' => 200,
+			'body' => '{"id":"' . self::JOB . '","state":"succeeded"}',
+		];
+		$seen               = [];
+		Updates::$upgraders = function () use ( &$seen ) {
+			return new class( $seen ) {
+				/**
+				 * What the update saw.
+				 *
+				 * @var array<int, bool>
+				 */
+				private $seen;
+
+				/**
+				 * Constructor.
+				 *
+				 * @param array<int, bool> $seen What the update saw, by reference.
+				 */
+				public function __construct( &$seen ) {
+					$this->seen = &$seen;
+				}
+
+				/**
+				 * Update the packs, noting whether the lock held.
+				 *
+				 * @return array<int, bool>
+				 */
+				public function bulk_upgrade(): array {
+					$this->seen = array_merge( $this->seen, [ SoftwareLock::job_runs(), SoftwareLock::locked( 'translations' ) ] );
+					return [ true ];
+				}
+			};
+		};
+		$this->assertTrue( SoftwareLock::locked( 'translations' ) );
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertSame( [ true, false ], $seen, 'the job ran with the lock lifted' );
+		$this->assertSame( 'succeeded', $this->sent( 'POST', '/manage/jobs/' . self::JOB . '/result' )[0]['state'] ?? '' );
+		$this->assertFalse( SoftwareLock::job_runs() );
+		$this->assertTrue( SoftwareLock::locked( 'translations' ), 'and in place again after it' );
+	}
+
+	public function test_a_job_refused_for_its_tokens_never_lifts_the_software_lock(): void {
+		$this->options['software_lock'] = 'translations';
+		$this->stub_wordpress_for_updates();
+		$job                = self::ping();
+		$job['action']      = 'update_translations';
+		$job['job_token']   = self::job_token( [ 'sub' => 'update_translations' ] );
+		$job['queue_token'] = self::queue_token( [ 'action' => 'update_translations' ] );
+		$job['params']      = [ 'changed' => 'after signing' ];
+		$this->jobs( [ $job ] );
+		$ran                = false;
+		Updates::$upgraders = static function () use ( &$ran ) {
+			$ran = true;
+			return null;
+		};
+
+		Controller::pull();
+		$this->run_pending();
+
+		$this->assertFalse( $ran );
+		$this->assertFalse( SoftwareLock::job_runs() );
+		$this->assertTrue( SoftwareLock::locked( 'translations' ) );
 	}
 
 	public function test_the_hourly_check_runs_on_an_oauth_connection_only(): void {

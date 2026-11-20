@@ -40,6 +40,8 @@ final class CapabilitiesTest extends TestCase {
 		Functions\when( 'wp_is_writable' )->alias( 'is_writable' );
 		Functions\when( 'wp_is_using_https' )->justReturn( false );
 		Functions\when( 'get_users' )->justReturn( [] );
+		// A site that is not connected, unless a test connects it.
+		Functions\when( 'get_option' )->justReturn( false );
 		if ( ! defined( 'WP_CONTENT_DIR' ) ) {
 			define( 'WP_CONTENT_DIR', sys_get_temp_dir() . '/scanfully-capabilities-content' );
 		}
@@ -84,6 +86,13 @@ final class CapabilitiesTest extends TestCase {
 				'connection_kind' => 'single',
 				'action_scheduler' => true,
 				'administrators' => [],
+				'software_lock' => [
+					'active'       => false,
+					'plugins'      => false,
+					'themes'       => false,
+					'translations' => false,
+					'core'         => false,
+				],
 			],
 			array_diff_key( Capabilities::get(), [ 'mu_plugin_writable' => true ] )
 		);
@@ -227,15 +236,17 @@ final class CapabilitiesTest extends TestCase {
 	 * Connect the site with these scopes.
 	 *
 	 * @param string $scopes The scopes, space separated.
+	 * @param string $lock   The locked kinds, space separated, as stored.
 	 *
 	 * @return void
 	 */
-	private function connect( string $scopes ): void {
+	private function connect( string $scopes, string $lock = '' ): void {
 		$options = [
-			'scanfully_connect_is_connected' => 'yes',
-			'scanfully_connect_site_id'      => 'site-1',
-			'scanfully_connect_flow'         => 'oauth',
-			'scanfully_connect_scopes'       => $scopes,
+			'scanfully_connect_is_connected'  => 'yes',
+			'scanfully_connect_site_id'       => 'site-1',
+			'scanfully_connect_flow'          => 'oauth',
+			'scanfully_connect_scopes'        => $scopes,
+			'scanfully_connect_software_lock' => $lock,
 		];
 		Functions\when( 'get_option' )->alias(
 			static function ( string $name, $fallback = false ) use ( $options ) {
@@ -309,6 +320,26 @@ final class CapabilitiesTest extends TestCase {
 			}
 		);
 		Functions\when( 'get_option' )->justReturn( false );
+	}
+
+	public function test_the_software_lock_is_reported_with_whether_it_is_enforced(): void {
+		Functions\when( 'wp_parse_url' )->alias( 'parse_url' );
+		$this->connect( 'wordpress:read wordpress:manage', 'plugins core' );
+		$enforced = Capabilities::get()['software_lock'];
+		$this->connect( 'wordpress:read', 'plugins core' );
+		$kept = Capabilities::get()['software_lock'];
+
+		$this->assertSame(
+			[
+				'active'       => true,
+				'plugins'      => true,
+				'themes'       => false,
+				'translations' => false,
+				'core'         => true,
+			],
+			$enforced
+		);
+		$this->assertSame( [ false, true ], [ $kept['active'] ?? null, $kept['plugins'] ?? null ], 'kept, but not enforced without Scanfully Manage' );
 	}
 
 	public function test_administrators_that_cannot_be_read_are_unknown(): void {

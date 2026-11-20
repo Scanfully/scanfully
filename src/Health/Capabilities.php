@@ -14,11 +14,11 @@ namespace Scanfully\Health;
  * connect and every sync after): the plugin version, the job actions the
  * plugin runs, whether WordPress may change files and update itself, how
  * WordPress would write files, whether the site is a network, whether Action
- * Scheduler runs and whether the must-use plugins folder is writable.
- * Scanfully reads it before it queues a job for the site. For one-click WP
- * admin access it also names login among the actions when the site can sign
- * a Scanfully user in, and lists the administrators a sign-in link may sign
- * in as.
+ * Scheduler runs, whether the must-use plugins folder is writable and the
+ * software lock the site holds. Scanfully reads it before it queues a job
+ * for the site. For one-click WP admin access it also names login among the
+ * actions when the site can sign a Scanfully user in, and lists the
+ * administrators a sign-in link may sign in as.
  *
  * Every check is cheap and asks for no credentials. A check that fails is
  * sent as null, which Scanfully reads as unknown, so the sync itself never
@@ -68,7 +68,7 @@ final class Capabilities {
 	/**
 	 * The capabilities object of the site data.
 	 *
-	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, connection_kind: string|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null}|array{} Empty while skip() runs.
+	 * @return array{plugin_version: string, actions: string[], file_mods_allowed: bool|null, auto_updater_enabled: bool|null, fs_method: string|null, multisite: bool|null, connection_kind: string|null, action_scheduler: bool|null, mu_plugin_writable: bool|null, administrators: array<int, array{id: int, login: string, display_name: string}>|null, software_lock: array{active: bool, plugins: bool, themes: bool, translations: bool, core: bool}|null}|array{} Empty while skip() runs.
 	 */
 	public static function get(): array {
 		if ( self::$skipped ) {
@@ -108,6 +108,9 @@ final class Capabilities {
 			// super admins of a network connected as a whole, at most 50 by
 			// id; none on a monitoring-only connection.
 			'administrators' => self::check( [ \Scanfully\Login\Administrators::class, 'list' ] ),
+			// The software lock the connection keeps, and whether it is
+			// enforced now. That the key is there says the plugin supports it.
+			'software_lock' => self::check( [ \Scanfully\Manage\SoftwareLock::class, 'report' ] ),
 		];
 	}
 

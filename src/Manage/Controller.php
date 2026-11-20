@@ -87,9 +87,10 @@ class Controller {
 
 	/**
 	 * Option holding the grant's scopes when the API refused a pull for the
-	 * scope or for beta access: the clock stops until they change.
+	 * scope or for beta access: the clock stops until they change. On the
+	 * network connection it is the main site's.
 	 */
-	private const PAUSED_OPTION = 'scanfully_manage_paused';
+	public const PAUSED_OPTION = 'scanfully_manage_paused';
 
 	/**
 	 * Transient set when the ledger was pruned, once a day.
@@ -671,14 +672,20 @@ class Controller {
 		);
 		$run->arm();
 		try {
-			$result = Runner::run(
-				$job,
-				static function () use ( $id, $attempt ): ?bool {
-					return self::send_heartbeat( $id, $attempt );
-				},
-				null,
-				null,
-				$run
+			// The job's tokens were checked: the software lock is lifted for
+			// this process while it runs.
+			$result = SoftwareLock::while_job_runs(
+				static function () use ( $job, $id, $attempt, $run ): ?array {
+					return Runner::run(
+						$job,
+						static function () use ( $id, $attempt ): ?bool {
+							return self::send_heartbeat( $id, $attempt );
+						},
+						null,
+						null,
+						$run
+					);
+				}
 			);
 			if ( null === $result ) {
 				// Not started: the job is the next pull's again.

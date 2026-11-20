@@ -11,6 +11,7 @@
 /.idea
 /.wp-env.json
 /.wp-env.test.json
+/.wp-env.multisite.json
 
 # Tooling and tests
 /tests
